@@ -1,18 +1,27 @@
-{% macro item_card(it) %}
-<article class="item">
-  <div class="meta">
-    <span class="time">{{ it.hms }}</span>
-    <span class="src">{{ it.source_name }}</span>
-    {% if it.official %}<span class="badge official">官方</span>{% endif %}
-    {% if it.score is not none %}<span class="badge score">{{ it.score }}</span>{% endif %}
-    {% if it.event_label %}<span class="badge event">{{ it.event_label }}</span>{% endif %}
-    {% if it.via == 'reconcile' %}<span class="badge recon">对账补录</span>{% endif %}
+{% macro item_card(it, mode='selected') %}
+<div class="t-item {{ 't-hot' if it.score is not none and it.score >= 70 }}">
+  <span class="t-dot"></span>
+  <div class="t-time">{{ it.hms }}</div>
+  <div class="t-card">
+    <div class="t-meta">
+      <span class="src">{{ it.source_name }}</span>
+      {% if it.official %}<span class="badge official">官方</span>{% endif %}
+      {% if it.event_label %}<span class="badge event">{{ it.event_label }}</span>{% endif %}
+      {% if it.translated %}<span class="badge tr">译</span>{% endif %}
+      {% if it.via == 'reconcile' %}<span class="badge recon">对账补录</span>{% endif %}
+      {% for c in it.companies %}<a class="chip sm" href="/?channel=stock&amp;company={{ c.slug }}&amp;mode=all">{{ c.label }}</a>{% endfor %}
+      <span class="t-spacer"></span>
+      {% if it.score is not none %}
+      <span class="scoreline {{ 's80' if it.score >= 80 else ('s60' if it.score >= 60 else '') }}"><span class="sdot">●</span> AI 评分 {{ it.score }}/100</span>
+      {% endif %}
+    </div>
+    <h2><a href="{{ it.url }}" target="_blank" rel="noopener">{{ it.title }}</a></h2>
+    {% if it.summary %}<p class="sum">{{ it.summary }}</p>{% endif %}
+    {% if it.reason %}<div class="t-reason"><b>推荐理由</b>：{{ it.reason }}</div>{% endif %}
+    <div class="t-sub">
+      {% if it.extra_sources > 0 %}<a class="more" href="/hot#cluster-{{ it.cluster_id }}">另有 {{ it.extra_sources }} 家信源报道</a>{% endif %}
+      {% if it.ai_cat %}<a class="more" href="/?channel=ai&amp;cat={{ it.ai_cat }}&amp;mode={{ mode }}">{{ {'model':'模型','product':'产品','industry':'行业','paper':'论文','opinion':'观点'}.get(it.ai_cat, '') }}相关</a>{% endif %}
+    </div>
   </div>
-  <h2><a href="{{ it.url }}" target="_blank" rel="noopener">{{ it.title }}</a></h2>
-  {% if it.summary %}<p class="summary">{{ it.summary }}</p>{% endif %}
-  <div class="tags">
-    {% for c in it.companies %}<a class="chip" href="/?channel=stock&amp;company={{ c.slug }}">{{ c.label }}</a>{% endfor %}
-    {% if it.extra_sources > 0 %}<a class="more" href="/hot#cluster-{{ it.cluster_id }}">另有 {{ it.extra_sources }} 家信源报道</a>{% endif %}
-  </div>
-</article>
+</div>
 {% endmacro %}

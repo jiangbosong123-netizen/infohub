@@ -51,6 +51,10 @@ def item_heat(row) -> float:
     return round(base * bonus * _decay(row["published_at"], datetime.now(timezone.utc)), 4)
 
 
+AI_CAT_NAMES = {"model": "模型", "product": "产品", "industry": "行业",
+                "paper": "论文", "opinion": "观点"}
+
+
 def rebuild_clusters(window_h: int = 48) -> int:
     """重建最近 window_h 小时的热点簇。返回簇数量。"""
     now = datetime.now(timezone.utc)
@@ -58,9 +62,10 @@ def rebuild_clusters(window_h: int = 48) -> int:
     with get_db() as db:
         rows = db.execute(
             """SELECT i.id, i.title, i.title_zh, i.url, i.channel, i.score, i.official,
-                      i.published_at, i.event_type, i.companies, s.name AS source_name
+                      i.published_at, i.event_type, i.tmt, i.companies, s.name AS source_name
                FROM items i JOIN sources s ON s.id = i.source_id
-               WHERE i.published_at >= ? ORDER BY i.published_at DESC""",
+               WHERE i.published_at >= ? AND COALESCE(i.tmt, 1) != 0
+               ORDER BY i.published_at DESC""",
             (since,)).fetchall()
         # 贪心聚类：新条目与已有簇的代表标题比较
         clusters: list[dict] = []

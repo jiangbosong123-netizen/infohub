@@ -70,21 +70,26 @@ def _decorate(rows) -> list[dict]:
         company_rows = {r["slug"]: dict(r) for r in
                         db.execute("SELECT slug, name, name_zh, ticker FROM companies")}
 
+    keys = rows[0].keys() if rows else []
     out = []
     for r in rows:
         slugs = json.loads(r["companies"] or "[]")
         dt = _fmt_dt(r["published_at"])
         cl = cluster_map.get(r["id"])
+        title_zh = (r["title_zh"] or "") if "title_zh" in keys else ""
         out.append(dict(
             id=r["id"], url=r["url"],
-            title=(r["title_zh"] or r["title"]) if "title_zh" in r.keys() else r["title"],
+            title=title_zh or r["title"],
             title_orig=r["title"],
+            translated=bool(title_zh and title_zh != "-"),
             summary=r["summary"],
             score=(r["score"] if (r["score"] is not None and r["score"] >= 0) else None),
             official=bool(r["official"]),
             via=r["via"], channel=r["channel"],
             source_name=r["source_name"], event_type=r["event_type"] or "",
             event_label=EVENT_NAMES.get(r["event_type"] or "", ""),
+            reason=(r["reason"] or "") if "reason" in keys else "",
+            ai_cat=(r["ai_cat"] or "") if "ai_cat" in keys else "",
             hms=dt.strftime("%H:%M"), date_key=dt.date().isoformat(),
             companies=[dict(slug=s, label=(company_rows.get(s) or {}).get("name_zh")
                             or (company_rows.get(s) or {}).get("name") or s) for s in slugs],
@@ -94,14 +99,21 @@ def _decorate(rows) -> list[dict]:
     return out
 
 
-def _query_items(channel: str = "all", company: str = "", event: str = "",
-                 limit: int = 60, offset: int = 0):
+def _query_items(channel: str = "all", company: str = "", event: str = "", cat: str = "",
+                 mode: str = "selected", limit: int = 60, offset: int = 0):
+    """mode: selected=精选(高分/官方/公司事件) all=全部（tmt=0 的非 TMT 噪声始终隐藏）"""
     sql = """SELECT i.*, s.name AS source_name FROM items i
-             JOIN sources s ON s.id = i.source_id WHERE 1=1"""
+             JOIN sources s ON s.id = i.source_id
+             WHERE COALESCE(i.tmt, 1) != 0"""
     params: list = []
+    if mode == "selected":
+        sql += " AND (COALESCE(i.score, 0) >= 60 OR i.official=1 OR i.companies != '[]')"
     if channel and channel != "all":
         sql += " AND i.channel=?"
         params.append(channel)
+    if cat:
+        sql += " AND i.ai_cat=?"
+        params.append(cat)
     if company:
         sql += (" AND EXISTS (SELECT 1 FROM item_companies ic JOIN companies c "
                 "ON c.id=ic.company_id WHERE ic.item_id=i.id AND c.slug=?)")
@@ -141,9 +153,10 @@ def _top_clusters(limit: int = 10) -> list[dict]:
 
 @app.get("/", response_class=HTMLResponse)
 def index(request: Request, channel: str = "all", company: str = "", event: str = "",
-          page: int = 1):
+          cat: str = "", mode: str = "selected", page: int = 1):
     page = max(1, page)
-    rows = _query_items(channel=channel, company=company, event=event,
+    mode = mode if mode in ("selected", "all") else "selected"
+    rows = _query_items(channel=channel, company=company, event=event, cat=cat, mode=mode,
                         limit=60, offset=(page - 1) * 60)
     items = _decorate(rows)
     days: list[dict] = []
@@ -168,6 +181,7 @@ def index(request: Request, channel: str = "all", company: str = "", event: str 
 
     return templates.TemplateResponse(request, "index.html", dict(
         days=days, tabs=CHANNEL_TABS, channel=channel, company=company, event=event,
+        mode=mode, cat=cat,
         companies=companies, events=events, clusters=_top_clusters(8),
         page=page, has_next=len(items) == 60,
         last_update=_relative(last_fetch),

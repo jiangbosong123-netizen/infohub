@@ -1,39 +1,39 @@
 {% extends "base.html" %}
 {% from "macros.html" import item_card %}
-{% block title %}行业情报站 — AI · 机器人 · 美股港股科技{% endblock %}
-{% block head %}<meta http-equiv="refresh" content="120">{% endblock %}
+{% block title %}{{ '精选' if mode == 'selected' else '全部动态' }} — 行业情报站{% endblock %}
 {% block content %}
 
-{% if clusters %}
-<section class="hotbox">
-  <div class="boxhead"><h1>今日热点榜</h1><a class="boxmore" href="/hot">查看全部 →</a></div>
-  <ol class="hotlist">
-    {% for c in clusters %}
-    <li>
-      <span class="rank r{{ 1 if loop.index == 1 else (2 if loop.index == 2 else (3 if loop.index == 3 else 0)) }}">{{ loop.index }}</span>
-      <div>
-        <a class="hottitle" href="{{ c.url }}" target="_blank" rel="noopener">{{ c.title }}</a>
-        <span class="hotmeta">{{ c.heat }} 热度 · {{ c.source_count }} 家信源
-          · {{ {'ai': 'AI', 'robot': '机器人', 'stock': '股市'}[c.channel] }}</span>
-        {% for co in c.companies %}<a class="chip sm" href="/?channel=stock&amp;company={{ co.slug }}">{{ co.label }}</a>{% endfor %}
-      </div>
-    </li>
-    {% endfor %}
-  </ol>
-</section>
-{% endif %}
+<div class="titlerow">
+  <h1 class="pagetitle">{{ '精选' if mode == 'selected' else '全部动态' }}
+    <small>{{ 'AI 筛选的今日重点' if mode == 'selected' else 'TMT 全量信息流' }}</small>
+  </h1>
+  <form action="/search" class="searchbox">
+    <input type="search" name="q" value="{{ q or '' }}" placeholder="搜索标题、摘要…" required>
+    <button type="submit">搜索</button>
+  </form>
+</div>
 
 <nav class="tabs">
   {% for key, label in tabs %}
   <a class="{{ 'on' if channel == key }}"
-     href="/?channel={{ key }}{% if key == 'stock' and company %}&amp;company={{ company }}{% endif %}">{{ label }}</a>
+     href="/?mode={{ mode }}&amp;channel={{ key }}{% if key == 'stock' and company %}&amp;company={{ company }}{% endif %}{% if key == 'stock' and event %}&amp;event={{ event }}{% endif %}">{{ label }}</a>
   {% endfor %}
   <span class="updatetime" title="页面每 2 分钟自动刷新">数据更新于 {{ last_update }}</span>
 </nav>
 
+{% if channel == 'ai' %}
+<nav class="subtabs">
+  <a class="{{ 'on' if not cat }}" href="/?channel=ai&amp;mode={{ mode }}">全部</a>
+  {% for key, label in [('model','模型'), ('product','产品'), ('industry','行业'), ('paper','论文'), ('opinion','观点')] %}
+  <a class="{{ 'on' if cat == key }}" href="/?channel=ai&amp;cat={{ key }}&amp;mode={{ mode }}">{{ label }}</a>
+  {% endfor %}
+</nav>
+{% endif %}
+
 {% if channel == 'stock' %}
 <form class="filters" method="get" action="/">
   <input type="hidden" name="channel" value="stock">
+  <input type="hidden" name="mode" value="{{ mode }}">
   <select name="company" onchange="this.form.submit()">
     <option value="">全部公司</option>
     {% for c in companies %}
@@ -50,19 +50,38 @@
 </form>
 {% endif %}
 
+{% if clusters %}
+<section class="hotbox">
+  <div class="boxhead"><h2>当前热点</h2><a class="boxmore" href="/hot">完整榜单 →</a></div>
+  <ol class="hotlist">
+    {% for c in clusters %}
+    <li>
+      <span class="rank r{{ 1 if loop.index == 1 else (2 if loop.index == 2 else (3 if loop.index == 3 else 0)) }}">{{ loop.index }}</span>
+      <div class="hotbody"><a class="hottitle" href="{{ c.url }}" target="_blank" rel="noopener">{{ c.title }}</a></div>
+      <span class="hotright"><b>{{ c.heat }}</b> 热度 · {{ c.source_count }} 家信源</span>
+    </li>
+    {% endfor %}
+  </ol>
+</section>
+{% endif %}
+
 {% if not days %}
-<p class="empty">还没有数据。刚启动的话等一轮抓取完成，或执行 <code>python cli.py crawl</code> 手动抓一次。</p>
+<p class="empty">还没有数据。刚启动的话等一轮抓取完成，或执行 <code>python cli.py crawl</code>。</p>
 {% endif %}
 
 {% for d in days %}
-<div class="dayhead">{{ d.label }} · {{ d.rows | length }} 条</div>
-{% for it in d.rows %}{{ item_card(it) }}{% endfor %}
+<details class="day" open>
+  <summary><span class="chev">▶</span> {{ d.label }} <span class="cnt">· {{ d.rows | length }} 条</span></summary>
+  <div class="timeline">
+    {% for it in d.rows %}{{ item_card(it, mode) }}{% endfor %}
+  </div>
+</details>
 {% endfor %}
 
 {% if page > 1 or has_next %}
 <nav class="pager">
-  {% if page > 1 %}<a href="/?channel={{ channel }}&amp;company={{ company }}&amp;event={{ event }}&amp;page={{ page - 1 }}">← 上一页</a>{% endif %}
-  {% if has_next %}<a href="/?channel={{ channel }}&amp;company={{ company }}&amp;event={{ event }}&amp;page={{ page + 1 }}">下一页 →</a>{% endif %}
+  {% if page > 1 %}<a href="/?mode={{ mode }}&amp;channel={{ channel }}&amp;company={{ company }}&amp;event={{ event }}&amp;page={{ page - 1 }}">← 上一页</a>{% endif %}
+  {% if has_next %}<a href="/?mode={{ mode }}&amp;channel={{ channel }}&amp;company={{ company }}&amp;event={{ event }}&amp;page={{ page + 1 }}">下一页 →</a>{% endif %}
 </nav>
 {% endif %}
 

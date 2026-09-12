@@ -5,31 +5,49 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>{% block title %}行业情报站{% endblock %}</title>
 <link rel="stylesheet" href="/static/style.css">
+<script>
+(function(){
+  var t = localStorage.getItem('theme') || 'dark';
+  if (t === 'system') t = matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
+  document.documentElement.dataset.theme = t;
+})();
+</script>
 {% block head %}{% endblock %}
 </head>
 <body>
-<header>
-  <div class="wrap header-in">
-    <a class="logo" href="/">行业情报站</a>
-    <nav>
-      <a href="/" class="{{ 'on' if nav == 'index' }}">首页</a>
-      <a href="/hot" class="{{ 'on' if nav == 'hot' }}">热点榜</a>
-      <a href="/daily" class="{{ 'on' if nav == 'daily' }}">日报</a>
-      <a href="/health" class="{{ 'on' if nav == 'health' }}">源状态</a>
-      <form action="/search" class="searchbox">
-        <input type="search" name="q" value="{{ q or '' }}" placeholder="搜索标题 / 摘要…" required>
-        <button type="submit">搜</button>
-      </form>
-    </nav>
+<aside class="side">
+  <a class="logo" href="/?mode=selected">行业<br>情报站</a>
+  <nav>
+    <div class="navgroup">内容</div>
+    <a href="/?mode=selected" class="{{ 'on' if nav == 'index' and mode == 'selected' }}">✦ 精选</a>
+    <a href="/?mode=all" class="{{ 'on' if nav == 'index' and mode == 'all' }}">☰ 全部动态</a>
+    <a href="/hot" class="{{ 'on' if nav == 'hot' }}">◎ 热点榜</a>
+    <a href="/daily" class="{{ 'on' if nav == 'daily' }}">▤ AI 日报</a>
+    <a href="/health" class="{{ 'on' if nav == 'health' }}">◷ 源状态</a>
+    <div class="navgroup">更多</div>
+    <a href="https://github.com/jiangbosong123-netizen/infohub" target="_blank" rel="noopener">⌥ GitHub</a>
+  </nav>
+  <div class="sidebottom">
+    <div class="themeswitch">
+      <button data-set-theme="dark" title="深色">◐</button>
+      <button data-set-theme="system" title="跟随系统">◑</button>
+      <button data-set-theme="light" title="浅色">☀</button>
+    </div>
+    <div class="sidefoot">信息聚合自公开网络<br>版权归原站点所有</div>
   </div>
-</header>
-<main class="wrap">
+</aside>
+<main class="main">
 {% block content %}{% endblock %}
 </main>
-<footer class="wrap">
-  内容聚合自公开网络，版权归原站点所有，仅供个人学习参考 ·
-  官方文件来自 <a href="https://www.sec.gov" target="_blank" rel="noopener">SEC EDGAR</a> 与
-  <a href="https://www.hkexnews.hk" target="_blank" rel="noopener">港交所披露易</a>
-</footer>
+<script>
+document.querySelectorAll('[data-set-theme]').forEach(function(b){
+  b.addEventListener('click', function(){
+    localStorage.setItem('theme', b.dataset.setTheme);
+    var t = b.dataset.setTheme;
+    if (t === 'system') t = matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
+    document.documentElement.dataset.theme = t;
+  });
+});
+</script>
 </body>
 </html>

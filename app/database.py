@@ -49,7 +49,10 @@ CREATE TABLE IF NOT EXISTS items (
     channel TEXT NOT NULL,           -- ai / robot / stock
     event_type TEXT DEFAULT '',      -- 股市: earnings/insider/buyback/ma/personnel/product/regulation/rating/offering/other
     score INTEGER,                   -- AI 重要性 0-100
+    tmt INTEGER,                     -- AI 判定是否 TMT 相关: 1=是 0=否(过滤隐藏) NULL=未判定
     heat REAL NOT NULL DEFAULT 0,
+    reason TEXT DEFAULT '',          -- AI 推荐理由（为什么值得看）
+    ai_cat TEXT DEFAULT '',          -- AI 频道子分类: model/product/industry/paper/opinion
     companies TEXT NOT NULL DEFAULT '[]',  -- 关联公司 slug 列表(JSON，冗余存一份便于渲染)
     official INTEGER NOT NULL DEFAULT 0,   -- 官方一手来源
     via TEXT NOT NULL DEFAULT 'normal',    -- normal / reconcile(对账补录)
@@ -135,3 +138,7 @@ def init_schema() -> None:
         cols = {r["name"] for r in db.execute("PRAGMA table_info(items)")}
         if "title_zh" not in cols:
             db.execute("ALTER TABLE items ADD COLUMN title_zh TEXT DEFAULT ''")
+        for col, ddl in (("tmt", "INTEGER"), ("reason", "TEXT DEFAULT ''"),
+                         ("ai_cat", "TEXT DEFAULT ''")):
+            if col not in cols:
+                db.execute(f"ALTER TABLE items ADD COLUMN {col} {ddl}")

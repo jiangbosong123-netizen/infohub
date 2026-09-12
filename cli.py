@@ -69,7 +69,7 @@ def cmd_reconcile() -> None:
 
 
 def cmd_ai() -> None:
-    from app.ai.pipeline import backfill_titles, process_pending
+    from app.ai.pipeline import backfill_titles, backfill_tmt, process_pending
     if not config.llm_enabled():
         print("未配置 LLM（.env 里的 LLM_BASE_URL / LLM_API_KEY / LLM_MODEL），跳过。")
         return
@@ -83,6 +83,8 @@ def cmd_ai() -> None:
     print(f"AI 处理完成，本轮更新 {total} 条。")
     translated = backfill_titles()
     print(f"标题补翻 {translated} 条。")
+    judged = backfill_tmt()
+    print(f"TMT 补判定 {judged} 条。")
 
 
 def cmd_report(date: str | None) -> None:
@@ -118,7 +120,12 @@ def cmd_serve() -> None:
     sched.add_job(run_due_sources, "interval", minutes=config.CRAWL_TICK_MINUTES,
                   id="crawl", max_instances=1, coalesce=True,
                   next_run_time=_dt.now(config.APP_TZ))  # 启动即抓一轮
-    sched.add_job(lambda: process_pending(limit=40), "interval", minutes=15,
+    def _ai_tick() -> None:
+        process_pending(limit=60)
+        from app.ai.pipeline import backfill_tmt
+        backfill_tmt(max_batches=2)  # 及时过滤掉非 TMT 噪声
+
+    sched.add_job(_ai_tick, "interval", minutes=15,
                   id="ai", max_instances=1, coalesce=True)
     sched.add_job(run_reconcile, "cron", hour=config.RECONCILE_HOUR, minute=config.RECONCILE_MINUTE,
                   id="reconcile")
