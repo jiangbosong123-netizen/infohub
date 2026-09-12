@@ -54,6 +54,12 @@ def insert_item(source_key: str, raw: dict, via: str = "normal") -> bool:
     title = (raw.get("title") or "").strip()
     if not url or not title:
         return False
+    published_at = raw["published_at"]
+    try:  # 部分源 pubDate 标错成未来时间，会导致它霸榜，钳制到当前时间
+        if datetime.fromisoformat(published_at) > datetime.now(timezone.utc) + timedelta(minutes=10):
+            published_at = _now()
+    except ValueError:
+        published_at = _now()
     with get_db() as db:
         if db.execute("SELECT 1 FROM items WHERE url=?", (url,)).fetchone():
             return False
@@ -69,7 +75,7 @@ def insert_item(source_key: str, raw: dict, via: str = "normal") -> bool:
             (src["id"], url, title, raw.get("title_en") or "", raw.get("summary") or "",
              raw.get("channel") or src["channel"], raw.get("event_type") or "", None, 0,
              json.dumps(slugs, ensure_ascii=False), 1 if raw.get("official") else 0,
-             via, raw["published_at"], _now(), json.dumps(raw.get("extra") or {}, ensure_ascii=False)),
+             via, published_at, _now(), json.dumps(raw.get("extra") or {}, ensure_ascii=False)),
         )
         item_id = cur.lastrowid
         for slug in slugs:
