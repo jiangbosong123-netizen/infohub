@@ -40,7 +40,7 @@ def _extract_json(text: str):
 
 
 def _call_llm(payload: list[dict]) -> list:
-    client = OpenAI(base_url=config.LLM_BASE_URL, api_key=config.LLM_API_KEY, timeout=120)
+    client = OpenAI(base_url=config.LLM_BASE_URL, api_key=config.LLM_API_KEY, timeout=180)
     resp = client.chat.completions.create(
         model=config.LLM_MODEL, temperature=0.2,
         extra_body={"thinking": {"type": "disabled"}},  # 结构化策展任务，关闭深度思考提速省钱
@@ -55,15 +55,14 @@ def _is_content_filter(exc: Exception) -> bool:
 
 
 def process_pending(limit: int = 20) -> int:
-    """处理最近未评分的条目（只看最近 3 天，旧库存不打分），返回成功更新条数。"""
+    """处理未评分条目（不限时间窗口，保证任何条目最终都会被处理），返回成功更新条数。"""
     if not config.llm_enabled():
         return 0
-    cutoff = (datetime.now(timezone.utc) - timedelta(days=3)).isoformat()
     with get_db() as db:
         rows = db.execute(
             """SELECT id, title, summary, channel, event_type FROM items
-               WHERE score IS NULL AND published_at >= ?
-               ORDER BY id DESC LIMIT ?""", (cutoff, limit)).fetchall()
+               WHERE score IS NULL
+               ORDER BY id DESC LIMIT ?""", (limit,)).fetchall()
     if not rows:
         return 0
 
@@ -116,19 +115,23 @@ def process_pending(limit: int = 20) -> int:
     return updated
 
 
-def backfill_tmt(days: int = 5, max_batches: int = 60) -> int:
-    """给最近 days 天已入库但未判定 TMT 的条目补判定（+推荐理由/子分类），返回处理条数。"""
+def backfill_tmt(days: int = 0, max_batches: int = 60) -> int:
+    """给未判定 TMT 的条目补判定（+推荐理由/子分类），默认不限时间，返回处理条数。"""
     if not config.llm_enabled():
         return 0
-    cutoff = (datetime.now(timezone.utc) - timedelta(days=days)).isoformat()
-    client = OpenAI(base_url=config.LLM_BASE_URL, api_key=config.LLM_API_KEY, timeout=120)
+    client = OpenAI(base_url=config.LLM_BASE_URL, api_key=config.LLM_API_KEY, timeout=180)
     total = 0
     for _ in range(max_batches):
         with get_db() as db:
-            rows = db.execute(
-                """SELECT id, title, title_zh, summary, channel, event_type, companies FROM items
-                   WHERE tmt IS NULL AND published_at >= ?
-                   ORDER BY id DESC LIMIT 40""", (cutoff,)).fetchall()
+            sql = """SELECT id, title, title_zh, summary, channel, event_type, companies FROM items
+                     WHERE tmt IS NULL"""
+            params: list = []
+            if days:
+                cutoff = (datetime.now(timezone.utc) - timedelta(days=days)).isoformat()
+                sql += " AND published_at >= ?"
+                params.append(cutoff)
+            sql += " ORDER BY id DESC LIMIT 40"
+            rows = db.execute(sql, params).fetchall()
         if not rows:
             break
         payload = [dict(id=r["id"], channel=r["channel"],
@@ -175,7 +178,7 @@ def backfill_tmt(days: int = 5, max_batches: int = 60) -> int:
 
 
 def _call_llm_tmt(payload: list[dict]) -> list:
-    client = OpenAI(base_url=config.LLM_BASE_URL, api_key=config.LLM_API_KEY, timeout=120)
+    client = OpenAI(base_url=config.LLM_BASE_URL, api_key=config.LLM_API_KEY, timeout=180)
     resp = client.chat.completions.create(
         model=config.LLM_MODEL, temperature=0.2,
         extra_body={"thinking": {"type": "disabled"}},
@@ -195,7 +198,7 @@ def backfill_titles(days: int = 4, max_batches: int = 40) -> int:
     if not config.llm_enabled():
         return 0
     cutoff = (datetime.now(timezone.utc) - timedelta(days=days)).isoformat()
-    client = OpenAI(base_url=config.LLM_BASE_URL, api_key=config.LLM_API_KEY, timeout=120)
+    client = OpenAI(base_url=config.LLM_BASE_URL, api_key=config.LLM_API_KEY, timeout=180)
     total = 0
     for _ in range(max_batches):
         with get_db() as db:
@@ -238,7 +241,7 @@ def backfill_titles(days: int = 4, max_batches: int = 40) -> int:
 
 
 def _call_llm_titles(payload: list[dict]) -> list:
-    client = OpenAI(base_url=config.LLM_BASE_URL, api_key=config.LLM_API_KEY, timeout=120)
+    client = OpenAI(base_url=config.LLM_BASE_URL, api_key=config.LLM_API_KEY, timeout=180)
     resp = client.chat.completions.create(
         model=config.LLM_MODEL, temperature=0.2,
         extra_body={"thinking": {"type": "disabled"}},

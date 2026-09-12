@@ -121,9 +121,14 @@ def cmd_serve() -> None:
                   id="crawl", max_instances=1, coalesce=True,
                   next_run_time=_dt.now(config.APP_TZ))  # 启动即抓一轮
     def _ai_tick() -> None:
-        process_pending(limit=60)
+        # 清空式处理：把积压全部清完再休息，避免抓取高峰时翻译/过滤跟不上
+        for _ in range(12):
+            if process_pending(limit=30) < 30:
+                break
         from app.ai.pipeline import backfill_tmt
-        backfill_tmt(max_batches=2)  # 及时过滤掉非 TMT 噪声
+        backfill_tmt(max_batches=12)   # 及时过滤掉非 TMT 噪声
+        from app.ai.pipeline import backfill_titles
+        backfill_titles(max_batches=12)
 
     sched.add_job(_ai_tick, "interval", minutes=15,
                   id="ai", max_instances=1, coalesce=True)
