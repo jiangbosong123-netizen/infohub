@@ -1,0 +1,25 @@
+{% extends "base.html" %}
+{% block title %}源状态 — 行业情报站{% endblock %}
+{% block content %}
+<h1 class="pagetitle">信息源状态 <small>刷新于 {{ now }} · 库存：AI {{ counts.get('ai', 0) }} 条 / 机器人 {{ counts.get('robot', 0) }} 条 / 股市 {{ counts.get('stock', 0) }} 条</small></h1>
+
+<p class="hint">红色 = 连续失败（自动退避重试中，恢复后自动续抓）；「对账兜底」每日自动核对 Google News，漏掉的会补录并标记。</p>
+
+<table class="health">
+  <thead><tr><th>信息源</th><th>频道</th><th>层级</th><th>类型</th><th>间隔</th><th>最近成功</th><th>连续失败</th><th>最近错误</th></tr></thead>
+  <tbody>
+  {% for s in sources %}
+  <tr class="{{ s.status }}">
+    <td class="srcname">{{ s.name }}{% if s.status == 'bad' %}<span class="dot bad" title="连续失败"></span>{% elif s.status == 'ok' %}<span class="dot ok" title="正常"></span>{% else %}<span class="dot never" title="尚未抓取"></span>{% endif %}</td>
+    <td>{{ {'ai': 'AI', 'robot': '机器人', 'stock': '股市'}.get(s.channel, s.channel) }}</td>
+    <td>{{ {'official': '官方一手', 'media': '财经媒体', 'info': '科技资讯', 'reconcile': '对账兜底'}.get(s.tier, s.tier) }}</td>
+    <td>{{ s.type }}</td>
+    <td>{{ s.interval_minutes }} 分钟</td>
+    <td>{{ s.last_success_rel }}</td>
+    <td>{{ s.fail_count }}</td>
+    <td class="err" title="{{ s.last_error or '' }}">{{ (s.last_error or '')[:80] }}</td>
+  </tr>
+  {% endfor %}
+  </tbody>
+</table>
+{% endblock %}

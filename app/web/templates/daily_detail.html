@@ -1,0 +1,9 @@
+{% extends "base.html" %}
+{% block title %}日报 {{ date }} — 行业情报站{% endblock %}
+{% block content %}
+<div class="report">
+  <h1 class="pagetitle">行业日报 · {{ date }}</h1>
+  <div class="md">{{ html | safe }}</div>
+  <p class="backlink"><a href="/daily">← 全部日报</a></p>
+</div>
+{% endblock %}

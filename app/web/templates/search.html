@@ -1,0 +1,8 @@
+{% extends "base.html" %}
+{% from "macros.html" import item_card %}
+{% block title %}搜索{{ '：' + q if q }} — 行业情报站{% endblock %}
+{% block content %}
+<h1 class="pagetitle">搜索{% if q %} <small>“{{ q }}” 的 {{ items | length }} 条结果</small>{% endif %}</h1>
+{% if q and not items %}<p class="empty">没有匹配的内容。</p>{% endif %}
+{% for it in items %}{{ item_card(it) }}{% endfor %}
+{% endblock %}

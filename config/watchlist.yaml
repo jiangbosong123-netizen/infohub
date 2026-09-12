@@ -1,0 +1,171 @@
+# 关注公司清单 —— 想加/删公司直接改这个文件，然后重启（或执行 python cli.py init-db）
+#
+# market: US=美股  HK=港股  PRIVATE=未上市公司
+# 美股只填 ticker（SEC 的 CIK 会自动从 SEC 官方映射表解析并缓存）
+# 港股只填 code（港交所内部 stockId 会自动解析并缓存）
+# aliases: 把新闻匹配到该公司的关键词（英文不区分大小写、按词匹配；中文按子串匹配）
+#          尽量别用太宽泛的中文词（比如「理想」这种常用词），避免误匹配
+
+companies:
+  # ---------- 美股 ----------
+  - slug: nvidia
+    name: NVIDIA
+    name_zh: 英伟达
+    ticker: NVDA
+    market: US
+    aliases: [NVIDIA, NVDA, 英伟达, 黄仁勋, Jensen Huang]
+
+  - slug: apple
+    name: Apple
+    name_zh: 苹果
+    ticker: AAPL
+    market: US
+    aliases: [Apple, AAPL, 苹果, 库克, Tim Cook]
+
+  - slug: microsoft
+    name: Microsoft
+    name_zh: 微软
+    ticker: MSFT
+    market: US
+    aliases: [Microsoft, MSFT, 微软, 纳德拉, Satya Nadella]
+
+  - slug: google
+    name: Alphabet
+    name_zh: 谷歌
+    ticker: GOOGL
+    market: US
+    aliases: [Google, Alphabet, GOOGL, 谷歌, 皮查伊, Sundar Pichai, DeepMind, Gemini]
+
+  - slug: meta
+    name: Meta
+    name_zh: Meta
+    ticker: META
+    market: US
+    aliases: [Meta, Facebook, Instagram, WhatsApp, META, 扎克伯格, Zuckerberg]
+
+  - slug: amazon
+    name: Amazon
+    name_zh: 亚马逊
+    ticker: AMZN
+    market: US
+    aliases: [Amazon, AMZN, 亚马逊, AWS, 贝索斯, Bezos]
+
+  - slug: tesla
+    name: Tesla
+    name_zh: 特斯拉
+    ticker: TSLA
+    market: US
+    aliases: [Tesla, TSLA, 特斯拉, 马斯克, Elon Musk]
+
+  - slug: broadcom
+    name: Broadcom
+    name_zh: 博通
+    ticker: AVGO
+    market: US
+    aliases: [Broadcom, AVGO, 博通]
+
+  - slug: amd
+    name: AMD
+    name_zh: 超威
+    ticker: AMD
+    market: US
+    aliases: [AMD, 超威, 苏姿丰, Lisa Su]
+
+  - slug: tsmc
+    name: TSMC
+    name_zh: 台积电
+    ticker: TSM
+    market: US
+    aliases: [TSMC, TSM, 台积电, 魏哲家]
+
+  - slug: oracle
+    name: Oracle
+    name_zh: 甲骨文
+    ticker: ORCL
+    market: US
+    aliases: [Oracle, ORCL, 甲骨文, 拉里·埃里森, Larry Ellison]
+
+  - slug: palantir
+    name: Palantir
+    name_zh: Palantir
+    ticker: PLTR
+    market: US
+    aliases: [Palantir, PLTR, Karp]
+
+  - slug: arm
+    name: Arm Holdings
+    name_zh: 安谋
+    ticker: ARM
+    market: US
+    # 注意：别用裸词 Arm/ARM 当别名（英文里 arm 是常用词，会大量误匹配）
+    aliases: [Arm Holdings, 安谋, "$ARM", "ARM stock", "ARM shares", Arm CEO]
+
+  # ---------- 未上市但必须盯 ----------
+  - slug: openai
+    name: OpenAI
+    name_zh: OpenAI
+    market: PRIVATE
+    aliases: [OpenAI, ChatGPT, GPT-5, GPT-4, Sora, Sam Altman, 奥特曼]
+
+  - slug: anthropic
+    name: Anthropic
+    name_zh: Anthropic
+    market: PRIVATE
+    aliases: [Anthropic, Claude, Dario Amodei]
+
+  # ---------- 港股 ----------
+  - slug: tencent
+    name: Tencent
+    name_zh: 腾讯控股
+    code: "0700"
+    market: HK
+    aliases: [腾讯, Tencent, 微信, WeChat, 马化腾, 王者荣耀]
+
+  - slug: alibaba
+    name: Alibaba
+    name_zh: 阿里巴巴
+    code: "9988"
+    market: HK
+    aliases: [阿里巴巴, 阿里, Alibaba, 淘宝, 天猫, 阿里云, 蔡崇信]
+
+  - slug: smic
+    name: SMIC
+    name_zh: 中芯国际
+    code: "0981"
+    market: HK
+    aliases: [中芯国际, SMIC]
+
+  - slug: xiaomi
+    name: Xiaomi
+    name_zh: 小米集团
+    code: "1810"
+    market: HK
+    aliases: [小米, Xiaomi, 雷军, 小米汽车, SU7, YU7]
+
+  - slug: meituan
+    name: Meituan
+    name_zh: 美团
+    code: "3690"
+    market: HK
+    aliases: [美团, Meituan, 王兴]
+
+  - slug: lixiang
+    name: Li Auto
+    name_zh: 理想汽车
+    code: "2015"
+    market: HK
+    aliases: [理想汽车, Li Auto, 李想]
+
+  - slug: xpeng
+    name: XPeng
+    name_zh: 小鹏汽车
+    code: "9868"
+    market: HK
+    aliases: [小鹏, XPeng, 何小鹏]
+
+  - slug: baidu
+    name: Baidu
+    name_zh: 百度
+    code: "9888"
+    market: HK
+    aliases: [百度, Baidu, 萝卜快跑, 文心一言]

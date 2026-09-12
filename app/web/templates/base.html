@@ -1,0 +1,35 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{% block title %}行业情报站{% endblock %}</title>
+<link rel="stylesheet" href="/static/style.css">
+{% block head %}{% endblock %}
+</head>
+<body>
+<header>
+  <div class="wrap header-in">
+    <a class="logo" href="/">行业情报站</a>
+    <nav>
+      <a href="/" class="{{ 'on' if nav == 'index' }}">首页</a>
+      <a href="/hot" class="{{ 'on' if nav == 'hot' }}">热点榜</a>
+      <a href="/daily" class="{{ 'on' if nav == 'daily' }}">日报</a>
+      <a href="/health" class="{{ 'on' if nav == 'health' }}">源状态</a>
+      <form action="/search" class="searchbox">
+        <input type="search" name="q" value="{{ q or '' }}" placeholder="搜索标题 / 摘要…" required>
+        <button type="submit">搜</button>
+      </form>
+    </nav>
+  </div>
+</header>
+<main class="wrap">
+{% block content %}{% endblock %}
+</main>
+<footer class="wrap">
+  内容聚合自公开网络，版权归原站点所有，仅供个人学习参考 ·
+  官方文件来自 <a href="https://www.sec.gov" target="_blank" rel="noopener">SEC EDGAR</a> 与
+  <a href="https://www.hkexnews.hk" target="_blank" rel="noopener">港交所披露易</a>
+</footer>
+</body>
+</html>

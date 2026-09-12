@@ -1,0 +1,18 @@
+{% macro item_card(it) %}
+<article class="item">
+  <div class="meta">
+    <span class="time">{{ it.hms }}</span>
+    <span class="src">{{ it.source_name }}</span>
+    {% if it.official %}<span class="badge official">官方</span>{% endif %}
+    {% if it.score is not none %}<span class="badge score">{{ it.score }}</span>{% endif %}
+    {% if it.event_label %}<span class="badge event">{{ it.event_label }}</span>{% endif %}
+    {% if it.via == 'reconcile' %}<span class="badge recon">对账补录</span>{% endif %}
+  </div>
+  <h2><a href="{{ it.url }}" target="_blank" rel="noopener">{{ it.title }}</a></h2>
+  {% if it.summary %}<p class="summary">{{ it.summary }}</p>{% endif %}
+  <div class="tags">
+    {% for c in it.companies %}<a class="chip" href="/?channel=stock&amp;company={{ c.slug }}">{{ c.label }}</a>{% endfor %}
+    {% if it.extra_sources > 0 %}<a class="more" href="/hot#cluster-{{ it.cluster_id }}">另有 {{ it.extra_sources }} 家信源报道</a>{% endif %}
+  </div>
+</article>
+{% endmacro %}
