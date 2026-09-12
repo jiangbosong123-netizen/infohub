@@ -44,6 +44,7 @@ CREATE TABLE IF NOT EXISTS items (
     url TEXT UNIQUE NOT NULL,
     title TEXT NOT NULL,
     title_en TEXT DEFAULT '',
+    title_zh TEXT DEFAULT '',        -- AI 翻译的中文标题（渲染时优先显示）
     summary TEXT DEFAULT '',
     channel TEXT NOT NULL,           -- ai / robot / stock
     event_type TEXT DEFAULT '',      -- 股市: earnings/insider/buyback/ma/personnel/product/regulation/rating/offering/other
@@ -130,3 +131,7 @@ def get_db() -> sqlite3.Connection:
 def init_schema() -> None:
     with get_db() as db:
         db.executescript(SCHEMA)
+        # 老库迁移：补 title_zh 列（CREATE TABLE IF NOT EXISTS 不会改已有表）
+        cols = {r["name"] for r in db.execute("PRAGMA table_info(items)")}
+        if "title_zh" not in cols:
+            db.execute("ALTER TABLE items ADD COLUMN title_zh TEXT DEFAULT ''")

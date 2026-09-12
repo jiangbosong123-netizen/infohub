@@ -57,8 +57,8 @@ def rebuild_clusters(window_h: int = 48) -> int:
     since = (now - timedelta(hours=window_h)).isoformat()
     with get_db() as db:
         rows = db.execute(
-            """SELECT i.id, i.title, i.url, i.channel, i.score, i.official, i.published_at,
-                      i.event_type, i.companies, s.name AS source_name
+            """SELECT i.id, i.title, i.title_zh, i.url, i.channel, i.score, i.official,
+                      i.published_at, i.event_type, i.companies, s.name AS source_name
                FROM items i JOIN sources s ON s.id = i.source_id
                WHERE i.published_at >= ? ORDER BY i.published_at DESC""",
             (since,)).fetchall()
@@ -95,7 +95,7 @@ def rebuild_clusters(window_h: int = 48) -> int:
                 """INSERT INTO clusters (channel, title, url, heat, source_count,
                                          company_slugs, updated_at)
                    VALUES (?,?,?,?,?,?,?)""",
-                (cl["channel"], top["title"], top["url"], heat, len(sources),
+                (cl["channel"], top["title_zh"] or top["title"], top["url"], heat, len(sources),
                  json.dumps(sorted(cl["slugs"]), ensure_ascii=False),
                  max(m["published_at"] for m in members)))
             cid = cur.lastrowid

@@ -69,7 +69,7 @@ def cmd_reconcile() -> None:
 
 
 def cmd_ai() -> None:
-    from app.ai.pipeline import process_pending
+    from app.ai.pipeline import backfill_titles, process_pending
     if not config.llm_enabled():
         print("未配置 LLM（.env 里的 LLM_BASE_URL / LLM_API_KEY / LLM_MODEL），跳过。")
         return
@@ -81,6 +81,8 @@ def cmd_ai() -> None:
         if n < 20:
             break
     print(f"AI 处理完成，本轮更新 {total} 条。")
+    translated = backfill_titles()
+    print(f"标题补翻 {translated} 条。")
 
 
 def cmd_report(date: str | None) -> None:

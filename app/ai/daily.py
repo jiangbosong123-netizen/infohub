@@ -30,8 +30,8 @@ def _collect(date_str: str) -> dict:
     start, end = _day_bounds(date_str)
     with get_db() as db:
         items = db.execute(
-            """SELECT i.title, i.summary, i.score, i.channel, i.event_type, i.official,
-                      i.published_at, i.url, s.name AS source_name, i.companies
+            """SELECT i.title, i.title_zh, i.summary, i.score, i.channel, i.event_type,
+                      i.official, i.published_at, i.url, s.name AS source_name, i.companies
                FROM items i JOIN sources s ON s.id = i.source_id
                WHERE i.published_at >= ? AND i.published_at < ?
                ORDER BY COALESCE(i.score, 50) DESC, i.heat DESC LIMIT 120""",
@@ -40,7 +40,14 @@ def _collect(date_str: str) -> dict:
             """SELECT title, url, heat, source_count, company_slugs, channel
                FROM clusters WHERE updated_at >= ? AND updated_at < ? AND source_count >= 2
                ORDER BY heat DESC LIMIT 12""", (start, end)).fetchall()
-    return dict(items=[dict(r) for r in items], clusters=[dict(r) for r in clusters])
+    out_items = []
+    for r in items:
+        d = dict(r)
+        d["title"] = r["title_zh"] or r["title"]  # 优先中文标题
+        d.pop("title_zh", None)
+        d["time"] = datetime.fromisoformat(r["published_at"]).astimezone(APP_TZ).strftime("%H:%M")
+        out_items.append(d)
+    return dict(items=out_items, clusters=[dict(r) for r in clusters])
 
 
 def _digest_fallback(date_str: str, data: dict) -> str:
@@ -104,7 +111,8 @@ def _llm_report(date_str: str, data: dict) -> str:
     prompt = (
         f"根据以下 {date_str} 的原始素材写一份中文行业日报（Markdown）。"
         "结构：一句话总览；三个板块（股市·科技企业 / AI / 机器人），每板块挑最重要的若干条，"
-        "写成「标题 — 一句话点评（说明为什么重要）」；最后加「值得关注」一节列 2-3 个后续观察点。"
+        "每条格式为「**HH:MM** 标题 — 一句话点评（说明为什么重要）」，时间用素材里的 time 字段，"
+        "标题直接用素材里的中文标题；最后加「值得关注」一节列 2-3 个后续观察点。"
         "语言精炼，别堆砌，总长 800 字以内。\n\n素材：\n"
         + json.dumps(data, ensure_ascii=False))
     resp = client.chat.completions.create(

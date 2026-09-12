@@ -76,7 +76,10 @@ def _decorate(rows) -> list[dict]:
         dt = _fmt_dt(r["published_at"])
         cl = cluster_map.get(r["id"])
         out.append(dict(
-            id=r["id"], url=r["url"], title=r["title"], summary=r["summary"],
+            id=r["id"], url=r["url"],
+            title=(r["title_zh"] or r["title"]) if "title_zh" in r.keys() else r["title"],
+            title_orig=r["title"],
+            summary=r["summary"],
             score=(r["score"] if (r["score"] is not None and r["score"] >= 0) else None),
             official=bool(r["official"]),
             via=r["via"], channel=r["channel"],
@@ -177,11 +180,13 @@ def hot(request: Request):
     with get_db() as db:
         for cl in clusters:
             members = db.execute(
-                """SELECT i.title, i.url, i.published_at, i.official, i.score, s.name AS source_name
+                """SELECT i.title, i.title_zh, i.url, i.published_at, i.official, i.score,
+                          s.name AS source_name
                    FROM cluster_members cm JOIN items i ON i.id=cm.item_id
                    JOIN sources s ON s.id=i.source_id WHERE cm.cluster_id=?
                    ORDER BY i.published_at DESC""", (cl["id"],)).fetchall()
-            cl["members"] = [dict(m, hms=_fmt_dt(m["published_at"]).strftime("%m-%d %H:%M"))
+            cl["members"] = [dict(m, title=m["title_zh"] or m["title"],
+                                  hms=_fmt_dt(m["published_at"]).strftime("%m-%d %H:%M"))
                              for m in members]
     return templates.TemplateResponse(request, "hot.html", dict(clusters=clusters))
 
