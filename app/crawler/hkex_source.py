@@ -59,7 +59,7 @@ def _fetch_company(companies_row, from_date: str, to_date: str) -> list[dict]:
                 db.execute("UPDATE companies SET hkex_stock_id=? WHERE slug=?",
                            (stock_id, companies_row["slug"]))
         else:
-            return []
+            raise RuntimeError(f"无法解析 {companies_row['slug']} 的港交所 stockId")
         time.sleep(0.5)
     url = (f"{HKEX_BASE}/search/titleSearchServlet.do?sortDir=0&sortByOptions=DateTime"
            f"&category=0&market=SEHK&stockId={stock_id}&documentType=-1"
@@ -69,6 +69,8 @@ def _fetch_company(companies_row, from_date: str, to_date: str) -> list[dict]:
     result = data.get("result") if isinstance(data, dict) else None
     if isinstance(result, str):  # 接口把数组二次编码成 JSON 字符串
         result = json.loads(result)
+    if not isinstance(result,list):
+        raise RuntimeError('港交所返回缺少有效公告列表，不能记为无公告')
     zh = companies_row["name_zh"] or companies_row["name"]
     out = []
     for rec in (result or [])[:60]:

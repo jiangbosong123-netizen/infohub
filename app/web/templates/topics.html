@@ -1,0 +1,22 @@
+{% extends "base.html" %}
+{% block title %}主题 — 行业情报站{% endblock %}
+{% block content %}
+<header class="topic-heading">
+  <p class="eyebrow">TOPICS · 持续追踪</p>
+  <h1 class="pagetitle">按主题看行业</h1>
+  <p class="hint">按公司与模型、技术方向、内容形态浏览 {{ total }} 个主题，找到近期焦点与值得读的进展。</p>
+</header>
+{% for group in groups %}
+<section class="topic-section" aria-labelledby="group-{{ group.key }}">
+  <div class="section-title"><h2 id="group-{{ group.key }}">{{ group.name }}</h2><span>{{ group.description }}</span></div>
+  <div class="topic-grid">
+  {% for t in group.topics %}
+    <a class="topic-tile" href="/topics/{{ t.slug }}" aria-label="查看 {{ t.name }} 主题">
+      <h3>{{ t.name }}</h3><p>{{ t.description }}</p>
+      <div class="tile-foot"><span>{{ t.selected }} 条精选 <span class="muted">· {{ t.total }} 条收录</span></span><span aria-hidden="true">→</span></div>
+    </a>
+  {% endfor %}
+  </div>
+</section>
+{% endfor %}
+{% endblock %}

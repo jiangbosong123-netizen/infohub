@@ -1,0 +1,25 @@
+{% extends "base.html" %}
+{% from "macros.html" import item_card, focus_list %}
+{% block title %}{{ topic.name }} — 主题 — 行业情报站{% endblock %}
+{% block content %}
+<div class="topic-breadcrumb"><span class="eyebrow">TOPIC · 主题</span><a href="/topics">全部主题 →</a></div>
+<header class="topic-heading">
+  <h1 class="pagetitle">{{ topic.name }}</h1><p class="hint">{{ topic.description }}</p>
+  <div class="topic-stats"><span><b>{{ '{:,}'.format(topic.total) }}</b> 条收录</span><span><b>{{ '{:,}'.format(topic.selected) }}</b> 条精选</span><span class="updatetime">数据更新于 {{ last_update }}</span></div>
+</header>
+{% if clusters %}
+<section class="hotbox topic-focus">
+  <div class="boxhead"><h2>近期焦点</h2><span class="hint">近 14 天 · 多源优先</span></div>
+  {{ focus_list(clusters) }}
+</section>
+{% endif %}
+<div class="section-title feed-title"><h2>{{ '最新精选' if mode == 'selected' else '全部报道' }}</h2><nav class="subtabs" aria-label="内容范围">
+<a class="{{ 'on' if mode == 'selected' }}" href="/topics/{{ topic.slug }}?mode=selected">精选</a><a class="{{ 'on' if mode == 'all' }}" href="/topics/{{ topic.slug }}?mode=all">全部</a></nav><span>第 {{ page }} 页</span></div>
+{% if not days %}<p class="empty">当前范围暂无内容。<a href="/topics/{{ topic.slug }}?mode=all">查看全部报道</a></p>{% endif %}
+{% for day in days %}
+<details class="day" open><summary><span class="chev">▶</span>{{ day.label }} <span class="cnt">· {{ day.rows|length }} 条</span></summary>
+<div class="timeline">{% for it in day.rows %}{{ item_card(it,mode) }}{% endfor %}</div></details>
+{% endfor %}
+<nav class="pager" aria-label="分页">{% if page>1 %}<a href="/topics/{{ topic.slug }}?mode={{ mode }}&amp;page={{ page-1 }}">← 上一页</a>{% endif %}
+{% if has_next %}<a href="/topics/{{ topic.slug }}?mode={{ mode }}&amp;page={{ page+1 }}">下一页 →</a>{% endif %}</nav>
+{% endblock %}

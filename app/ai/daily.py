@@ -3,9 +3,10 @@ from __future__ import annotations
 """每日日报：汇总指定日期的高分条目与热点簇，LLM 生成（无 Key 时退化为结构化摘要）。"""
 import json
 import logging
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 
 import markdown as md
+import nh3
 
 from .. import config, ranking
 from ..config import APP_TZ
@@ -23,7 +24,7 @@ EVENT_NAMES = {
 
 def _day_bounds(date_str: str) -> tuple[str, str]:
     d0 = datetime.strptime(date_str, "%Y-%m-%d").replace(tzinfo=APP_TZ)
-    return d0.isoformat(), (d0 + timedelta(days=1)).isoformat()
+    return d0.astimezone(timezone.utc).isoformat(), (d0 + timedelta(days=1)).astimezone(timezone.utc).isoformat()
 
 
 def _collect(date_str: str) -> dict:
@@ -31,23 +32,39 @@ def _collect(date_str: str) -> dict:
     with get_db() as db:
         items = db.execute(
             """SELECT i.title, i.title_zh, i.summary, i.score, i.channel, i.event_type,
-                      i.official, i.published_at, i.url, s.name AS source_name, i.companies
+                      i.official, i.published_at, i.url, s.name AS source_name, i.companies, i.id,
+                      si.story_id, i.extra, i.title_en
                FROM items i JOIN sources s ON s.id = i.source_id
-               WHERE i.published_at >= ? AND i.published_at < ?
+               LEFT JOIN story_items si ON si.item_id=i.id
+               WHERE i.published_at >= ? AND i.published_at < ? AND COALESCE(i.tmt, 1) != 0
                ORDER BY COALESCE(i.score, 50) DESC, i.heat DESC LIMIT 120""",
             (start, end)).fetchall()
-        clusters = db.execute(
-            """SELECT title, url, heat, source_count, company_slugs, channel
-               FROM clusters WHERE updated_at >= ? AND updated_at < ? AND source_count >= 2
-               ORDER BY heat DESC LIMIT 12""", (start, end)).fetchall()
+    # Build highlights from this day's actual articles, not an event's future
+    # headline or the now-obsolete ephemeral clusters table.
+    from collections import defaultdict
+    from ..provenance import publisher, display_title
+    grouped = defaultdict(list)
+    for row in items:
+        if row['story_id']:
+            grouped[row['story_id']].append(dict(row))
+    clusters = []
+    for members in grouped.values():
+        sources = {key for key,_,known in (publisher(row) for row in members) if known}
+        if len(sources)<2:
+            continue
+        representative=max(members,key=lambda r:(r['official'],r['score'] or 0))
+        clusters.append(dict(title=display_title(representative),url=representative['url'],
+                             heat=max(0,representative['score'] or 50)/100,source_count=len(sources),
+                             channel=representative['channel'],company_slugs=representative['companies']))
+    clusters.sort(key=lambda c:c['heat'],reverse=True)
     out_items = []
     for r in items:
         d = dict(r)
-        d["title"] = r["title_zh"] or r["title"]  # 优先中文标题
+        d["title"] = r["title_zh"] if r["title_zh"] and r["title_zh"] != "-" else r["title"]  # 优先中文标题
         d.pop("title_zh", None)
         d["time"] = datetime.fromisoformat(r["published_at"]).astimezone(APP_TZ).strftime("%H:%M")
         out_items.append(d)
-    return dict(items=out_items, clusters=[dict(r) for r in clusters])
+    return dict(items=out_items, clusters=clusters[:12])
 
 
 def _digest_fallback(date_str: str, data: dict) -> str:
@@ -112,7 +129,7 @@ def _llm_report(date_str: str, data: dict) -> str:
         f"根据以下 {date_str} 的原始素材写一份中文行业日报（Markdown）。"
         "结构：一句话总览；三个板块（股市·科技企业 / AI / 机器人），每板块挑最重要的若干条，"
         "每条格式为「**HH:MM** 标题 — 一句话点评（说明为什么重要）」，时间用素材里的 time 字段，"
-        "标题直接用素材里的中文标题；最后加「值得关注」一节列 2-3 个后续观察点。"
+        "标题直接用素材里的中文标题，并使用对应 url 字段作为 Markdown 来源链接。不得捏造素材之外的结论；最后加「值得关注」一节列 2-3 个后续观察点。"
         "语言精炼，别堆砌，总长 800 字以内。\n\n素材：\n"
         + json.dumps(data, ensure_ascii=False))
     resp = client.chat.completions.create(
@@ -123,4 +140,4 @@ def _llm_report(date_str: str, data: dict) -> str:
 
 
 def render_markdown(text: str) -> str:
-    return md.markdown(text, extensions=["tables", "fenced_code"])
+    return nh3.clean(md.markdown(text, extensions=["tables", "fenced_code"]))

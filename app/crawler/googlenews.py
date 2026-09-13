@@ -38,6 +38,8 @@ def fetch_company_news(slug: str, name: str, aliases: list[str], when: str = "2d
     url = f"https://news.google.com/rss/search?q={q}&hl=en-US&gl=US&ceid=US:en"
     resp = http.fetch(url, timeout=30)
     parsed = feedparser.parse(resp.content)
+    if not parsed.entries and (parsed.get('bozo') or not parsed.get('version')):
+        raise RuntimeError('Google News 返回的内容不是有效 RSS，不能记为无新闻')
     out = []
     for entry in parsed.entries[:50]:
         title = _clean_title(getattr(entry, "title", ""))
@@ -100,4 +102,12 @@ def run_reconcile() -> dict:
                 (f'%"{row["slug"]}"%', (datetime.now(timezone.utc) - timedelta(hours=24)).isoformat()),
             ).fetchone()["n"]
         stats[row["slug"]] = dict(fetched=len(fetched), inserted=inserted, media_24h=cnt)
+    if stats:
+        from .runner import _record
+        failures = [slug for slug,value in stats.items() if 'error' in value]
+        _record('google-news',ok=not failures,new=sum(value['inserted'] for value in stats.values()),
+                message='对账失败公司：'+', '.join(failures) if failures else '',
+                partial=bool(failures) and len(failures)<len(stats))
+        from ..stories import refresh_derived
+        refresh_derived()
     return stats

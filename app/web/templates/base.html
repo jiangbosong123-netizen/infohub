@@ -7,7 +7,7 @@
 <link rel="stylesheet" href="/static/style.css">
 <script>
 (function(){
-  var t = localStorage.getItem('theme') || 'dark';
+  var t = localStorage.getItem('theme') || 'system';
   if (t === 'system') t = matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
   document.documentElement.dataset.theme = t;
 })();
@@ -15,6 +15,7 @@
 {% block head %}{% endblock %}
 </head>
 <body>
+{% set nav = 'index' if request.url.path == '/' else ('daily' if request.url.path.startswith('/daily') else ('topics' if request.url.path.startswith('/topics') else request.url.path.strip('/'))) %}
 <aside class="side">
   <a class="logo" href="/?mode=selected">行业<br>情报站</a>
   <nav>
@@ -23,6 +24,7 @@
     <a href="/?mode=all" class="{{ 'on' if nav == 'index' and mode == 'all' }}">☰ 全部动态</a>
     <a href="/hot" class="{{ 'on' if nav == 'hot' }}">◎ 热点榜</a>
     <a href="/daily" class="{{ 'on' if nav == 'daily' }}">▤ AI 日报</a>
+    <a href="/topics" class="{{ 'on' if nav == 'topics' }}">▦ 主题</a>
     <a href="/health" class="{{ 'on' if nav == 'health' }}">◷ 源状态</a>
     <div class="navgroup">更多</div>
     <a href="https://github.com/jiangbosong123-netizen/infohub" target="_blank" rel="noopener">⌥ GitHub</a>
@@ -36,7 +38,7 @@
     <div class="sidefoot">信息聚合自公开网络<br>版权归原站点所有</div>
   </div>
 </aside>
-<main class="main">
+<main class="main {{ 'main-wide' if request.url.path == '/topics' }}">
 {% block content %}{% endblock %}
 </main>
 <script>

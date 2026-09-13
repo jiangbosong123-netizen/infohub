@@ -1,5 +1,9 @@
 # 行业情报站 · 系统设计说明书（SPEC）
 
+> 主题与持久事件已于 2026-09-12 实现：当前数据模型、归并规则、验证和部署说明见 [AIHOT 对标说明](docs/AIHOT_ALIGNMENT.md)。下文旧 clusters 全量重建方案已被替代。
+
+> 2026-09-12 评估后的变更与已知偏差见 [项目评估](docs/PROJECT_REVIEW.md)。以下设计基线中的旧规则以该评估和代码为准。
+>
 > 对标 aihot.news 的 TMT 行业信息聚合站。本文档描述系统当前的真实实现，
 > 以及每个模块后续可做的改进方向（文末路线图）。
 
@@ -34,7 +38,7 @@
 
 | 层级 tier | 源 | 频率 | 作用 |
 |---|---|---|---|
-| official 官方一手 | SEC EDGAR、港交所披露易、OpenAI Newsroom | 10-60min | 重大事件 100% 出现的兜底 |
+| official 官方一手 | SEC EDGAR、港交所披露易、OpenAI Newsroom | 10-60min | 官方披露优先覆盖 |
 | media 财经媒体 | 财联社电报、华尔街见闻快讯、新浪 7x24、CNBC、Techmeme、每公司 Google News 源 | 10-30min | 速度与广度 |
 | info 科技资讯 | 量子位、IT之家、爱范儿、HN、TechCrunch、The Verge、HF Blog、IEEE、Robot Report | 30-60min | AI/机器人纵深 |
 | reconcile 对账 | Google News 按公司检索 | 每日 06:30 | 防漏保险 |
@@ -234,5 +238,5 @@ items_fts       FTS5 trigram 全文索引（触发器同步）
 ## 11. 已知边界
 
 - 付费墙（Bloomberg 等）与 X 零散快讯未覆盖（后者接 API 后可解）
-- Mac 睡眠期间无实时性（醒来自动补抓，不漏但延迟）
+- Mac 睡眠期间无实时性（醒来按源窗口补抓，仍可能遗漏超出窗口的消息）
 - 智谱内容过滤会拒判少量敏感条目（已降级处理，不影响整体）

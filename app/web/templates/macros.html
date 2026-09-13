@@ -9,7 +9,7 @@
       {% if it.event_label %}<span class="badge event">{{ it.event_label }}</span>{% endif %}
       {% if it.translated %}<span class="badge tr">译</span>{% endif %}
       {% if it.via == 'reconcile' %}<span class="badge recon">对账补录</span>{% endif %}
-      {% for c in it.companies %}<a class="chip sm" href="/?channel=stock&amp;company={{ c.slug }}&amp;mode=all">{{ c.label }}</a>{% endfor %}
+      {% for c in it.companies %}<a class="chip sm" href="/topics/{{ c.slug }}">{{ c.label }}</a>{% endfor %}
       <span class="t-spacer"></span>
       {% if it.score is not none %}
       <span class="scoreline {{ 's80' if it.score >= 80 else ('s60' if it.score >= 60 else '') }}"><span class="sdot">●</span> AI 评分 {{ it.score }}/100</span>
@@ -19,9 +19,20 @@
     {% if it.summary %}<p class="sum">{{ it.summary }}</p>{% endif %}
     {% if it.reason %}<div class="t-reason"><b>推荐理由</b>：{{ it.reason }}</div>{% endif %}
     <div class="t-sub">
-      {% if it.extra_sources > 0 %}<a class="more" href="/hot#cluster-{{ it.cluster_id }}">另有 {{ it.extra_sources }} 家信源报道</a>{% endif %}
+      {% if it.story_count > 1 %}<a class="more" href="/story/{{ it.cluster_id }}">查看事件 · {{ it.story_count }} 篇报道{% if it.extra_sources > 0 %} · 另有 {{ it.extra_sources }} 家发布方{% endif %}</a>{% endif %}
+      {% for t in it.topics %}<a class="chip sm" href="/topics/{{ t.slug }}">{{ t.name }}</a>{% endfor %}
       {% if it.ai_cat %}<a class="more" href="/?channel=ai&amp;cat={{ it.ai_cat }}&amp;mode={{ mode }}">{{ {'model':'模型','product':'产品','industry':'行业','paper':'论文','opinion':'观点'}.get(it.ai_cat, '') }}相关</a>{% endif %}
     </div>
   </div>
 </div>
+{% endmacro %}
+
+{% macro focus_list(clusters) %}
+<ol class="hotlist event-list">
+{% for c in clusters %}
+<li id="cluster-{{ c.id }}"><span class="rank r{{ loop.index if loop.index <= 3 else 0 }}">{{ loop.index }}</span>
+<div class="hotbody"><a class="hottitle" href="/story/{{ c.id }}">{{ c.title }}</a><div class="event-meta">{{ c.item_count }} 篇报道{% for co in c.companies[:3] %}<a href="/topics/{{ co.slug }}">{{ co.label }}</a>{% endfor %}</div></div>
+<span class="hotright"><b>{{ c.heat }}</b> 热度 · {% if c.source_count %}{{ c.source_count }} 家发布方{% else %}来源待核实{% endif %}</span></li>
+{% endfor %}
+</ol>
 {% endmacro %}

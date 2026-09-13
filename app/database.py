@@ -121,9 +121,19 @@ END;
 """
 
 
+class ManagedConnection(sqlite3.Connection):
+    """Commit/rollback and close: sqlite3's default context manager never closes."""
+
+    def __exit__(self, *args):
+        try:
+            return super().__exit__(*args)
+        finally:
+            self.close()
+
+
 def get_db() -> sqlite3.Connection:
     DB_PATH.parent.mkdir(parents=True, exist_ok=True)
-    conn = sqlite3.connect(DB_PATH, timeout=30)
+    conn = sqlite3.connect(DB_PATH, timeout=30, factory=ManagedConnection)
     conn.row_factory = sqlite3.Row
     conn.execute("PRAGMA journal_mode=WAL")
     conn.execute("PRAGMA busy_timeout=30000")
@@ -142,3 +152,86 @@ def init_schema() -> None:
                          ("ai_cat", "TEXT DEFAULT ''")):
             if col not in cols:
                 db.execute(f"ALTER TABLE items ADD COLUMN {col} {ddl}")
+
+        # v2 search index: migrate once, including historical translated titles.
+        fts_cols = {r["name"] for r in db.execute("PRAGMA table_info(items_fts)")}
+        if "title_zh" not in fts_cols:
+            db.executescript("""
+                BEGIN IMMEDIATE;
+                DROP TRIGGER IF EXISTS items_ai;
+                DROP TRIGGER IF EXISTS items_ad;
+                DROP TRIGGER IF EXISTS items_au;
+                DROP TABLE items_fts;
+                CREATE VIRTUAL TABLE items_fts USING fts5(
+                    title, title_zh, summary, content='items', content_rowid='id', tokenize='trigram');
+                CREATE TRIGGER items_ai AFTER INSERT ON items BEGIN
+                    INSERT INTO items_fts(rowid,title,title_zh,summary)
+                    VALUES(new.id,new.title,new.title_zh,new.summary);
+                END;
+                CREATE TRIGGER items_ad AFTER DELETE ON items BEGIN
+                    INSERT INTO items_fts(items_fts,rowid,title,title_zh,summary)
+                    VALUES('delete',old.id,old.title,old.title_zh,old.summary);
+                END;
+                CREATE TRIGGER items_au AFTER UPDATE OF title,title_zh,summary ON items BEGIN
+                    INSERT INTO items_fts(items_fts,rowid,title,title_zh,summary)
+                    VALUES('delete',old.id,old.title,old.title_zh,old.summary);
+                    INSERT INTO items_fts(rowid,title,title_zh,summary)
+                    VALUES(new.id,new.title,new.title_zh,new.summary);
+                END;
+                INSERT INTO items_fts(items_fts) VALUES('rebuild');
+                COMMIT;
+            """)
+
+        if 'raw_summary' not in cols:
+            # Historical summaries may already be AI-generated; leave them NULL.
+            db.execute('ALTER TABLE items ADD COLUMN raw_summary TEXT')
+        db.executescript(DERIVED_SCHEMA)
+        db.execute("INSERT OR IGNORE INTO derived_dirty(item_id) SELECT id FROM items WHERE id NOT IN (SELECT item_id FROM indexed_items)")
+
+
+DERIVED_SCHEMA = """
+CREATE TABLE IF NOT EXISTS item_discoveries (
+    item_id INTEGER NOT NULL REFERENCES items(id) ON DELETE CASCADE,
+    source_id INTEGER NOT NULL REFERENCES sources(id),
+    first_seen_at TEXT NOT NULL, last_seen_at TEXT NOT NULL,
+    PRIMARY KEY(item_id,source_id)
+);
+CREATE TABLE IF NOT EXISTS topics (
+    slug TEXT PRIMARY KEY, name TEXT NOT NULL, group_key TEXT NOT NULL,
+    description TEXT NOT NULL, rules TEXT NOT NULL, position INTEGER NOT NULL,
+    enabled INTEGER NOT NULL DEFAULT 1
+);
+CREATE TABLE IF NOT EXISTS item_topics (
+    item_id INTEGER NOT NULL REFERENCES items(id) ON DELETE CASCADE,
+    topic_slug TEXT NOT NULL REFERENCES topics(slug), evidence TEXT NOT NULL,
+    PRIMARY KEY(item_id,topic_slug)
+);
+CREATE INDEX IF NOT EXISTS idx_item_topics_slug ON item_topics(topic_slug,item_id);
+CREATE TABLE IF NOT EXISTS stories (
+    id TEXT PRIMARY KEY, anchor_item_id INTEGER REFERENCES items(id) ON DELETE SET NULL,
+    title TEXT NOT NULL, channel TEXT NOT NULL, url TEXT NOT NULL,
+    heat REAL NOT NULL DEFAULT 0, source_count INTEGER NOT NULL DEFAULT 0,
+    item_count INTEGER NOT NULL DEFAULT 0, first_at TEXT NOT NULL, last_at TEXT NOT NULL,
+    company_slugs TEXT NOT NULL DEFAULT '[]', redirect_to TEXT REFERENCES stories(id)
+);
+CREATE INDEX IF NOT EXISTS idx_stories_recent ON stories(last_at DESC,heat DESC);
+CREATE TABLE IF NOT EXISTS story_items (
+    item_id INTEGER PRIMARY KEY REFERENCES items(id) ON DELETE CASCADE,
+    story_id TEXT NOT NULL REFERENCES stories(id),
+    match_reason TEXT NOT NULL DEFAULT '', match_score REAL NOT NULL DEFAULT 1
+);
+CREATE INDEX IF NOT EXISTS idx_story_items_story ON story_items(story_id,item_id);
+CREATE TABLE IF NOT EXISTS derived_dirty (
+    item_id INTEGER PRIMARY KEY REFERENCES items(id) ON DELETE CASCADE
+);
+CREATE TABLE IF NOT EXISTS indexed_items (
+    item_id INTEGER PRIMARY KEY REFERENCES items(id) ON DELETE CASCADE
+);
+CREATE TRIGGER IF NOT EXISTS items_derived_insert AFTER INSERT ON items BEGIN
+    INSERT OR IGNORE INTO derived_dirty(item_id) VALUES(new.id);
+END;
+CREATE TRIGGER IF NOT EXISTS items_derived_update
+AFTER UPDATE OF title,title_zh,summary,raw_summary,companies,score,tmt,event_type,ai_cat,official,extra,published_at ON items BEGIN
+    INSERT OR IGNORE INTO derived_dirty(item_id) VALUES(new.id);
+END;
+"""

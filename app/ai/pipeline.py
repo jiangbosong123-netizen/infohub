@@ -36,7 +36,38 @@ def _extract_json(text: str):
     start, end = text.find("["), text.rfind("]")
     if start == -1 or end <= start:
         raise ValueError("响应里没有 JSON 数组")
-    return json.loads(text[start:end + 1])
+    result = json.loads(text[start:end + 1])
+    if not isinstance(result, list):
+        raise ValueError("响应必须是 JSON 数组")
+    return result
+
+
+def _text(value, limit: int) -> str:
+    return value.strip()[:limit] if isinstance(value, str) else ""
+
+
+def _valid_results(results, rows):
+    """Only accept unique IDs from this batch; never trust model-provided IDs."""
+    allowed = {row["id"] for row in rows}
+    seen = set()
+    for result in results if isinstance(results, list) else []:
+        if not isinstance(result, dict):
+            continue
+        item_id = result.get("id")
+        if type(item_id) is not int or item_id not in allowed or item_id in seen:
+            continue
+        seen.add(item_id)
+        yield result
+
+
+def _category(result, row):
+    value = result.get("ai_cat")
+    return value if row["channel"] == "ai" and isinstance(value, str) and value in {
+        "model", "product", "industry", "paper", "opinion"} else ""
+
+
+def _keep_tmt(result, row):
+    return int(bool(row["official"] or row["companies"] != "[]" or result["tmt"]))
 
 
 def _call_llm(payload: list[dict]) -> list:
@@ -55,19 +86,23 @@ def _is_content_filter(exc: Exception) -> bool:
 
 
 def process_pending(limit: int = 20) -> int:
-    """处理未评分条目（不限时间窗口，保证任何条目最终都会被处理），返回成功更新条数。"""
+    """处理未评分条目（新旧条目按配额处理，避免旧条目被持续的新消息挤出），返回成功更新条数。"""
     if not config.llm_enabled():
         return 0
+    limit = max(1,min(limit,100))
     with get_db() as db:
-        rows = db.execute(
-            """SELECT id, title, summary, channel, event_type FROM items
-               WHERE score IS NULL
-               ORDER BY id DESC LIMIT ?""", (limit,)).fetchall()
+        query = """SELECT id,title,summary,raw_summary,channel,event_type,official,companies
+                   FROM items WHERE score IS NULL ORDER BY id {} LIMIT ?"""
+        # Reserve a quarter of each batch for the oldest backlog, while keeping
+        # most capacity for fresh news. A busy feed cannot starve old items.
+        oldest = db.execute(query.format('ASC'),(max(1,limit//4),)).fetchall()
+        latest = db.execute(query.format('DESC'),(limit,)).fetchall()
+        rows = list({r['id']:r for r in oldest+latest}.values())[:limit]
     if not rows:
         return 0
 
     payload = [dict(id=r["id"], channel=r["channel"], title=r["title"],
-                    excerpt=(r["summary"] or "")[:200]) for r in rows]
+                    excerpt=(r["raw_summary"] if r["raw_summary"] is not None else r["summary"] or "")[:200]) for r in rows]
     try:
         results = _call_llm(payload)
     except Exception as exc:  # noqa: BLE001
@@ -81,8 +116,11 @@ def process_pending(limit: int = 20) -> int:
         for single in payload:
             try:
                 results.extend(_call_llm([single]))
-            except Exception:  # noqa: BLE001 - 单条被过滤就跳过这条
-                skipped.append(single["id"])
+            except Exception as single_exc:
+                if _is_content_filter(single_exc):
+                    skipped.append(single["id"])
+                else:
+                    log.warning("AI 单条暂时失败，保留待重试: %s", type(single_exc).__name__)
         if skipped:
             with get_db() as db:
                 for item_id in skipped:
@@ -90,26 +128,28 @@ def process_pending(limit: int = 20) -> int:
 
     updated = 0
     with get_db() as db:
-        for r in results:
+        for r in _valid_results(results, rows):
+            if type(r.get("tmt")) is not bool or type(r.get("score")) is not int:
+                continue
             try:
                 item_id = int(r["id"])
                 score = max(0, min(100, int(r["score"])))
             except (KeyError, TypeError, ValueError):
                 continue
-            summary = (r.get("summary_zh") or "").strip()[:500]
-            title_zh = (r.get("title_zh") or "").strip()[:120]
+            summary = _text(r.get("summary_zh"), 500)
+            title_zh = _text(r.get("title_zh"), 120)
             event = r.get("event_type")
             row = next(x for x in rows if x["id"] == item_id)
-            etype = (event if event in VALID_EVENTS else "") if row["channel"] == "stock" else ""
+            etype = (event if isinstance(event, str) and event in VALID_EVENTS else "") if row["channel"] == "stock" else ""
             if row["event_type"]:  # 官方文件已有精确类型，不覆盖
                 etype = row["event_type"]
             db.execute(
                 """UPDATE items SET score=?, summary=?, title_zh=?, event_type=?,
                                       tmt=?, reason=?, ai_cat=? WHERE id=?""",
                 (score, summary or row["summary"], title_zh, etype,
-                 1 if r.get("tmt") else 0,
-                 (r.get("reason") or "").strip()[:200],
-                 (r.get("ai_cat") or "").strip()[:20] if row["channel"] == "ai" else "",
+                 _keep_tmt(r, row),
+                 _text(r.get("reason"), 200),
+                 _category(r, row),
                  item_id))
             updated += 1
     return updated
@@ -123,7 +163,7 @@ def backfill_tmt(days: int = 0, max_batches: int = 60) -> int:
     total = 0
     for _ in range(max_batches):
         with get_db() as db:
-            sql = """SELECT id, title, title_zh, summary, channel, event_type, companies FROM items
+            sql = """SELECT id, title, title_zh, summary, channel, event_type, official, companies FROM items
                      WHERE tmt IS NULL"""
             params: list = []
             if days:
@@ -145,19 +185,20 @@ def backfill_tmt(days: int = 0, max_batches: int = 60) -> int:
                 for single in payload:
                     try:
                         results.extend(_call_llm_tmt([single]))
-                    except Exception:  # noqa: BLE001
-                        filtered.append(single["id"])
+                    except Exception as single_exc:
+                        if _is_content_filter(single_exc):
+                            filtered.append(single["id"])
                 with get_db() as db:  # 无法判定的按官方/公司关联兜底，否则按非 TMT 隐藏
                     for item_id in filtered:
                         row = next(x for x in rows if x["id"] == item_id)
-                        keep = 1 if (row["event_type"] or row["companies"] != "[]") else 0
+                        keep = 1 if (row["official"] or row["companies"] != "[]") else 0
                         db.execute("UPDATE items SET tmt=? WHERE id=?", (keep, item_id))
                         total += 1
             else:
                 log.warning("TMT 补判定失败: %s", exc)
                 break
         with get_db() as db:
-            for r in results:
+            for r in _valid_results(results, rows):
                 try:
                     item_id = int(r["id"])
                 except (KeyError, TypeError, ValueError):
@@ -165,13 +206,15 @@ def backfill_tmt(days: int = 0, max_batches: int = 60) -> int:
                 row = next((x for x in rows if x["id"] == item_id), None)
                 if not row:
                     continue
-                tmt = 1 if r.get("tmt") else 0
+                if type(r.get("tmt")) is not bool:
+                    continue
+                tmt = _keep_tmt(r, row)
                 # 官方文件与公司关联条目是盯盘刚需，即使 LLM 判否也保留
-                if row["event_type"] or row["companies"] != "[]":
+                if row["official"] or row["companies"] != "[]":
                     tmt = 1
                 db.execute("UPDATE items SET tmt=?, reason=?, ai_cat=? WHERE id=?",
-                           (tmt, (r.get("reason") or "").strip()[:200],
-                            (r.get("ai_cat") or "").strip()[:20] if row["channel"] == "ai" else "",
+                           (tmt, _text(r.get("reason"), 200),
+                            _category(r, row),
                             item_id))
                 total += 1
     return total
@@ -219,8 +262,9 @@ def backfill_titles(days: int = 4, max_batches: int = 40) -> int:
                 for single in payload:
                     try:
                         results.extend(_call_llm_titles([single]))
-                    except Exception:  # noqa: BLE001
-                        filtered.append(single["id"])
+                    except Exception as single_exc:
+                        if _is_content_filter(single_exc):
+                            filtered.append(single["id"])
                 with get_db() as db:
                     for item_id in filtered:
                         db.execute("UPDATE items SET title_zh='-' WHERE id=?", (item_id,))
@@ -228,10 +272,10 @@ def backfill_titles(days: int = 4, max_batches: int = 40) -> int:
                 log.warning("标题补翻失败: %s", exc)
                 break
         with get_db() as db:
-            for r in results:
+            for r in _valid_results(results, rows):
                 try:
                     item_id = int(r["id"])
-                    title_zh = (r.get("title_zh") or "").strip()[:120]
+                    title_zh = _text(r.get("title_zh"), 120)
                 except (KeyError, TypeError, ValueError):
                     continue
                 if title_zh:

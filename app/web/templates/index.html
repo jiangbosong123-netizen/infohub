@@ -1,5 +1,5 @@
 {% extends "base.html" %}
-{% from "macros.html" import item_card %}
+{% from "macros.html" import item_card, focus_list %}
 {% block title %}{{ '精选' if mode == 'selected' else '全部动态' }} — 行业情报站{% endblock %}
 {% block content %}
 
@@ -18,7 +18,7 @@
   <a class="{{ 'on' if channel == key }}"
      href="/?mode={{ mode }}&amp;channel={{ key }}{% if key == 'stock' and company %}&amp;company={{ company }}{% endif %}{% if key == 'stock' and event %}&amp;event={{ event }}{% endif %}">{{ label }}</a>
   {% endfor %}
-  <span class="updatetime" title="页面每 2 分钟自动刷新">数据更新于 {{ last_update }}</span>
+  <span class="updatetime" title="最近一条新内容的入库时间">数据更新于 {{ last_update }}</span>
 </nav>
 
 {% if channel == 'ai' %}
@@ -53,20 +53,12 @@
 {% if clusters %}
 <section class="hotbox">
   <div class="boxhead"><h2>当前热点</h2><a class="boxmore" href="/hot">完整榜单 →</a></div>
-  <ol class="hotlist">
-    {% for c in clusters %}
-    <li>
-      <span class="rank r{{ 1 if loop.index == 1 else (2 if loop.index == 2 else (3 if loop.index == 3 else 0)) }}">{{ loop.index }}</span>
-      <div class="hotbody"><a class="hottitle" href="{{ c.url }}" target="_blank" rel="noopener">{{ c.title }}</a></div>
-      <span class="hotright"><b>{{ c.heat }}</b> 热度 · {{ c.source_count }} 家信源</span>
-    </li>
-    {% endfor %}
-  </ol>
+  {{ focus_list(clusters) }}
 </section>
 {% endif %}
 
 {% if not days %}
-<p class="empty">还没有数据。刚启动的话等一轮抓取完成，或执行 <code>python cli.py crawl</code>。</p>
+<p class="empty">当前筛选下暂无内容。可以切换频道，或<a href="/?mode=all">查看全部动态</a>。</p>
 {% endif %}
 
 {% for d in days %}
@@ -80,8 +72,8 @@
 
 {% if page > 1 or has_next %}
 <nav class="pager">
-  {% if page > 1 %}<a href="/?mode={{ mode }}&amp;channel={{ channel }}&amp;company={{ company }}&amp;event={{ event }}&amp;page={{ page - 1 }}">← 上一页</a>{% endif %}
-  {% if has_next %}<a href="/?mode={{ mode }}&amp;channel={{ channel }}&amp;company={{ company }}&amp;event={{ event }}&amp;page={{ page + 1 }}">下一页 →</a>{% endif %}
+  {% if page > 1 %}<a href="/?mode={{ mode }}&amp;channel={{ channel }}&amp;company={{ company }}&amp;event={{ event }}&amp;cat={{ cat }}&amp;page={{ page - 1 }}">← 上一页</a>{% endif %}
+  {% if has_next %}<a href="/?mode={{ mode }}&amp;channel={{ channel }}&amp;company={{ company }}&amp;event={{ event }}&amp;cat={{ cat }}&amp;page={{ page + 1 }}">下一页 →</a>{% endif %}
 </nav>
 {% endif %}
 

@@ -1,43 +1,7 @@
 {% extends "base.html" %}
+{% from "macros.html" import focus_list %}
 {% block title %}热点榜 — 行业情报站{% endblock %}
 {% block content %}
-<div class="titlerow">
-  <h1 class="pagetitle">热点榜 <small>同一事件多家信源报道即聚合成热点 · 48 小时窗口</small></h1>
-</div>
-
-{% if not clusters %}
-<p class="empty">还没有热点数据。</p>
-{% endif %}
-
-<div class="timeline">
-{% for c in clusters %}
-  <div class="t-item t-hot" id="cluster-{{ c.id }}">
-    <span class="t-dot"></span>
-    <div class="t-card">
-      <div class="t-meta">
-        <span class="rank r{{ 1 if loop.index == 1 else (2 if loop.index == 2 else (3 if loop.index == 3 else 0)) }}">{{ loop.index }}</span>
-        <span class="scoreline s60"><b>{{ c.heat }}</b> 热度</span>
-        <span>{{ c.source_count }} 家信源 · {{ {'ai': 'AI', 'robot': '机器人', 'stock': '股市'}[c.channel] }}</span>
-        {% for co in c.companies %}<a class="chip sm" href="/?channel=stock&amp;company={{ co.slug }}&amp;mode=all">{{ co.label }}</a>{% endfor %}
-      </div>
-      <h2><a href="{{ c.url }}" target="_blank" rel="noopener">{{ c.title }}</a></h2>
-      <ul class="members">
-        {% for m in c.members %}
-        <li><span class="time">{{ m.hms }}</span><span class="src">{{ m.source_name }}</span>
-          <a href="{{ m.url }}" target="_blank" rel="noopener">{{ m.title }}</a>
-          {% if m.official %}<span class="badge official">官方</span>{% endif %}</li>
-        {% endfor %}
-      </ul>
-    </div>
-  </div>
-{% endfor %}
-</div>
-<style>
-.members { list-style: none; margin: 8px 0 0; padding: 0; }
-.members li { font-size: 13px; color: var(--muted); padding: 3px 0; }
-.members a { color: var(--ink2); }
-.members .time { margin-right: 8px; font-size: 12px; }
-.members .src { margin-right: 8px; font-size: 12px; font-weight: 600; }
-.t-card .rank { margin-top: 1px; }
-</style>
+<header class="topic-heading"><p class="eyebrow">TRENDING · 正在发生</p><h1 class="pagetitle">热点榜</h1><p class="hint">近 48 小时的事件 · 多源优先 · 点击查看完整报道时间线</p></header>
+{% if clusters %}<section class="hotbox">{{ focus_list(clusters) }}</section>{% else %}<p class="empty">暂无近期事件。</p>{% endif %}
 {% endblock %}

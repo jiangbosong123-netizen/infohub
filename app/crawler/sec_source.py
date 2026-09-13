@@ -101,6 +101,7 @@ def fetch_sec(source: dict) -> list[dict]:
     out: list[dict] = []
     for c in companies:
         if not c.get("cik"):
+            out.append(dict(_error=f"{c['slug']}: 无法解析 SEC CIK"))
             continue
         try:
             resp = http.fetch(

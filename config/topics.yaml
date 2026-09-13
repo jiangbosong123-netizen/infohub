@@ -1,0 +1,40 @@
+# Independent topic taxonomy. One item may belong to several topics.
+# Company topics from watchlist are added automatically; entries below can
+# override their display label and add product aliases.
+topics:
+  - {slug: openai, name: 'OpenAI / ChatGPT', group: company, description: '跟进 GPT、ChatGPT、Sora 的发布与 OpenAI 公司进展。', keywords: [OpenAI, ChatGPT, Sora]}
+  - {slug: anthropic, name: 'Anthropic / Claude', group: company, description: '关注 Claude 模型、编程工具及 Anthropic 的发展。', keywords: [Anthropic, Claude]}
+  - {slug: google, name: 'Google / Gemini', group: company, description: '汇集 Gemini、DeepMind 与 Google 的技术和业务更新。', keywords: [Google, Gemini, DeepMind, 谷歌]}
+  - {slug: deepseek, name: DeepSeek, group: company, description: '追踪深度求索的模型、研究与应用生态。', keywords: [DeepSeek, 深度求索]}
+  - {slug: qwen, name: '通义千问 Qwen', group: company, description: '跟进千问模型、开源工具和实际应用。', keywords: [Qwen, 通义千问, 千问]}
+  - {slug: kimi, name: 'Kimi / 月之暗面', group: company, description: '追踪 Kimi 的模型能力和产品变化。', keywords: [Kimi, 月之暗面, Moonshot AI]}
+  - {slug: minimax, name: MiniMax, group: company, description: '关注 MiniMax 模型、海螺视频与多模态产品。', keywords: [MiniMax, 海螺AI, 海螺视频]}
+  - {slug: zhipu, name: '智谱 GLM', group: company, description: '汇集智谱模型、开发工具和公司新闻。', keywords: [智谱, GLM, Zhipu]}
+  - {slug: xai, name: 'xAI / Grok', group: company, description: '持续跟进 xAI 模型与 Grok 产品。', keywords: [xAI, Grok]}
+  - {slug: hugging-face, name: Hugging Face, group: company, description: '查看模型社区、开源库和生态动态。', keywords: [Hugging Face, HuggingFace]}
+  - {slug: cursor, name: Cursor, group: company, description: '关注 Cursor 编程产品和开发者工作流。', keywords: [Cursor, Anysphere]}
+  - {slug: openrouter, name: OpenRouter, group: company, description: '跟进模型接入、路由与开发平台动态。', keywords: [OpenRouter]}
+  - {slug: agent, name: Agent 智能体, group: technology, description: '任务执行、规划协作和智能体应用。', keywords: [agent, agents, agentic, 智能体]}
+  - {slug: coding, name: AI 编程, group: technology, description: '从代码生成到软件开发流程的变化。', keywords: [AI编程, AI 编程, Claude Code, Codex, Cursor, coding, 代码生成]}
+  - {slug: reasoning, name: 推理能力, group: technology, description: '推理模型、思维链与复杂问题求解。', keywords: [reasoning, chain of thought, 思维链, 推理模型, 推理能力]}
+  - {slug: multimodal, name: 多模态, group: technology, description: '视觉、语言和音频的联合理解。', keywords: [multimodal, 多模态]}
+  - {slug: image-gen, name: 图像生成, group: technology, description: '图像模型、编辑能力与创作工具。', keywords: [文生图, 生图, 图像生成, image generation, Midjourney, Stable Diffusion]}
+  - {slug: video, name: AI 视频, group: technology, description: '视频模型、生成工具及应用进展。', keywords: [视频生成, AI视频, AI 视频, 文生视频, Sora, video generation, Kling, 可灵]}
+  - {slug: voice, name: 语音与音频, group: technology, description: '语音交互、识别、合成和音频模型。', keywords: [语音, 音频, speech, audio, TTS, ASR]}
+  - {slug: embodied, name: 具身智能, group: technology, description: '机器人本体、控制和真实环境学习。', keywords: [具身, 机器人, humanoid, robotics, robotaxi, 人形机器人]}
+  - {slug: on-device, name: 端侧 AI, group: technology, description: '本地设备上的模型、芯片与部署。', keywords: [端侧, on-device, edge AI, 本地模型]}
+  - {slug: open-source, name: 开源生态, group: technology, description: '开放模型、工具库与开发社区。', keywords: [开源, open source, open-source, open weights]}
+  - {slug: engineering, name: 部署工程, group: technology, description: '模型服务、推理优化与运行成本。', keywords: [vLLM, TensorRT, 量化, 推理部署, 推理加速, inference serving, Ollama]}
+  - {slug: data-training, name: 数据与训练, group: technology, description: '数据集、训练方法和模型优化。', keywords: [训练数据, 数据集, 微调, 预训练, dataset, fine-tuning, pretraining]}
+  - {slug: safety, name: 安全与对齐, group: technology, description: '模型安全、评估、对齐和风险治理。', keywords: [安全对齐, AI安全, AI 安全, alignment, AI safety, prompt injection, 提示注入]}
+  - {slug: mcp, name: MCP 与工具调用, group: technology, description: '模型连接工具、数据与外部服务。', keywords: [MCP, Model Context Protocol, 工具调用, function calling, tool use]}
+  - {slug: chips, name: 芯片与算力, group: technology, description: '半导体、计算基础设施和数据中心。', keywords: [芯片, 算力, 数据中心, GPU, semiconductor, data center]}
+  - {slug: model-releases, name: 模型发布, group: format, description: '新模型、版本升级与能力变化。', keywords: [模型发布, 发布模型, launches model], categories: [model]}
+  - {slug: product-updates, name: 产品更新, group: format, description: '产品功能、平台上线和版本变化。', keywords: [产品更新, 正式上线, product update], categories: [product], events: [product]}
+  - {slug: papers, name: 论文研究, group: format, description: '研究方法、实验结果与技术论文。', keywords: [论文, arXiv, research paper], categories: [paper]}
+  - {slug: benchmarks, name: 评测基准, group: format, description: '模型评测、排行榜与能力对比。', keywords: [benchmark, 评测, 基准测试, 跑分]}
+  - {slug: tutorials, name: 教程实践, group: format, description: '上手教程、使用经验和复现方法。', keywords: [教程, 实战, tutorial, how to, hands-on]}
+  - {slug: opinions, name: 观点评论, group: format, description: '从业者观点与行业讨论。', keywords: [观点, 评论, opinion], categories: [opinion]}
+  - {slug: industry, name: 行业动态, group: format, description: '商业布局、融资、人才和市场进展。', keywords: [融资, funding, 收购, acquisition], categories: [industry], events: [ma, personnel, offering]}
+  - {slug: policy, name: 政策监管, group: format, description: '科技政策、监管举措和合规变化。', keywords: [监管, 政策, regulation, antitrust], events: [regulation]}
+  - {slug: earnings, name: 财报与经营, group: format, description: '财务披露、经营数据和业绩指引。', keywords: [财报, 季报, earnings, guidance], events: [earnings]}

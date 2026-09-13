@@ -37,8 +37,8 @@ def _now() -> str:
 
 def _normalize_url(url: str) -> str:
     parts = urlsplit((url or "").strip())
-    if not parts.scheme or not parts.netloc:
-        return url
+    if parts.scheme.lower() not in ("http", "https") or not parts.netloc:
+        return ""
     query = [(k, v) for k, v in parse_qsl(parts.query, keep_blank_values=True)
              if not k.lower().startswith("utm_")]
     return urlunsplit((parts.scheme.lower(), parts.netloc.lower(), parts.path or "/",
@@ -50,47 +50,64 @@ def insert_item(source_key: str, raw: dict, via: str = "normal") -> bool:
     if "_error" in raw:
         log.warning("源 %s 部分子任务失败: %s", source_key, raw["_error"])
         return False
-    url = _normalize_url(raw["url"])
+    url = _normalize_url(raw.get("url") or "")
     title = (raw.get("title") or "").strip()
     if not url or not title:
         return False
-    published_at = raw["published_at"]
-    try:  # 部分源 pubDate 标错成未来时间，会导致它霸榜，钳制到当前时间
-        if datetime.fromisoformat(published_at) > datetime.now(timezone.utc) + timedelta(minutes=10):
-            published_at = _now()
-    except ValueError:
-        published_at = _now()
+    try:
+        published = datetime.fromisoformat(raw.get("published_at") or "")
+        if published.tzinfo is None:
+            published = published.replace(tzinfo=timezone.utc)
+        published = published.astimezone(timezone.utc)
+        if published > datetime.now(timezone.utc) + timedelta(minutes=10):
+            published = datetime.now(timezone.utc)
+    except (ValueError, TypeError):
+        published = datetime.now(timezone.utc)
+    published_at = published.isoformat()
     with get_db() as db:
-        if db.execute("SELECT 1 FROM items WHERE url=?", (url,)).fetchone():
-            return False
-        src = db.execute("SELECT id, channel FROM sources WHERE key=?", (source_key,)).fetchone()
+        src = db.execute("SELECT id, channel, tier FROM sources WHERE key=?", (source_key,)).fetchone()
         if not src:
             return False
         text = f"{title} {raw.get('summary') or ''}"
-        slugs = raw.get("companies") or company_match.match_companies(text)
+        slugs = list(dict.fromkeys((raw.get("companies") or []) + company_match.match_companies(text)))
         cur = db.execute(
-            """INSERT INTO items (source_id, url, title, title_en, summary, channel, event_type,
+            """INSERT OR IGNORE INTO items (source_id, url, title, title_en, summary, raw_summary, channel, event_type,
                                   score, heat, companies, official, via, published_at, fetched_at, extra)
-               VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
-            (src["id"], url, title, raw.get("title_en") or "", raw.get("summary") or "",
+               VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+            (src["id"], url, title, raw.get("title_en") or "", raw.get("summary") or "", raw.get("summary") or "",
              raw.get("channel") or src["channel"], raw.get("event_type") or "", None, 0,
-             json.dumps(slugs, ensure_ascii=False), 1 if raw.get("official") else 0,
+             json.dumps(slugs, ensure_ascii=False), 1 if raw.get("official") or src["tier"] == "official" else 0,
              via, published_at, _now(), json.dumps(raw.get("extra") or {}, ensure_ascii=False)),
         )
-        item_id = cur.lastrowid
+        inserted = bool(cur.rowcount)
+        if inserted:
+            item_id = cur.lastrowid
+        else:
+            existing = db.execute('SELECT id,companies FROM items WHERE url=?',(url,)).fetchone()
+            item_id = existing['id']
+            merged = list(dict.fromkeys(json.loads(existing['companies']) + slugs))
+            if merged != json.loads(existing['companies']):
+                db.execute('UPDATE items SET companies=? WHERE id=?',
+                           (json.dumps(merged,ensure_ascii=False),item_id))
+            slugs = merged
+        db.execute("""INSERT INTO item_discoveries(item_id,source_id,first_seen_at,last_seen_at)
+                      VALUES(?,?,?,?) ON CONFLICT(item_id,source_id) DO UPDATE SET last_seen_at=excluded.last_seen_at""",
+                   (item_id,src['id'],_now(),_now()))
         for slug in slugs:
             row = db.execute("SELECT id FROM companies WHERE slug=?", (slug,)).fetchone()
             if row:
                 db.execute("INSERT OR IGNORE INTO item_companies (item_id, company_id) VALUES (?,?)",
                            (item_id, row["id"]))
-    return True
+    return inserted
 
 
 def run_source(source: dict) -> tuple[int, bool, str]:
     """抓取一个源。返回 (新条数, 是否成功, 备注)。"""
     fetcher = FETCHERS.get(source["type"])
     if fetcher is None:
-        return 0, False, f"未知源类型 {source['type']}"
+        message = f"未知源类型 {source['type']}"
+        _record(source["key"], ok=False, new=0, message=message)
+        return 0, False, message
     try:
         raws = fetcher(source)
     except Exception as exc:  # noqa: BLE001 - 源级失败，记健康状态
@@ -101,17 +118,29 @@ def run_source(source: dict) -> tuple[int, bool, str]:
     errors = [r["_error"] for r in raws if "_error" in r]
     inserted = 0
     for raw in raws:
-        if insert_item(source["key"], raw):
-            inserted += 1
-    ok = not raws or len(errors) < len(raws)  # 全部子任务失败才算源失败
+        if "_error" in raw:
+            continue
+        try:
+            if insert_item(source["key"], raw):
+                inserted += 1
+        except Exception as exc:
+            errors.append(f"入库失败: {type(exc).__name__}")
+            log.exception("源 %s 条目入库失败", source["key"])
+    ok = not errors  # 部分失败也展示，已成功抓取的条目照常保留
     message = "; ".join(errors[-3:]) if errors else ""
-    _record(source["key"], ok=ok, new=inserted, message=message)
+    _record(source["key"], ok=ok, new=inserted, message=message,
+            partial=bool(errors) and len(errors)<len(raws))
     return inserted, ok, message
 
 
-def _record(key: str, ok: bool, new: int, message: str) -> None:
+def _record(key: str, ok: bool, new: int, message: str, partial: bool = False) -> None:
     with get_db() as db:
-        if ok:
+        if partial:
+            # Some companies remain available: retain the base polling interval
+            # so a broken company does not delay all the others for six hours.
+            db.execute("""UPDATE sources SET last_run_at=?,fail_count=0,last_error=? WHERE key=?""",
+                       (_now(),"部分失败："+message,key))
+        elif ok:
             db.execute(
                 """UPDATE sources SET last_run_at=?, last_success_at=?, fail_count=0,
                                       last_error=NULL WHERE key=?""",
@@ -126,6 +155,11 @@ def _record(key: str, ok: bool, new: int, message: str) -> None:
                    (_now(), 1 if ok else 0, new, message, key))
 
 
+def retry_interval(interval_minutes: int, fail_count: int) -> int:
+    """Exponential backoff capped at six hours, never below the base interval."""
+    return max(interval_minutes, min(interval_minutes * 2 ** min(fail_count, 8), 360))
+
+
 def run_due_sources() -> dict:
     """跑所有到期的常规源（reconcile 层单独调度），完成后重建热点聚类。"""
     now = datetime.now(timezone.utc)
@@ -134,13 +168,13 @@ def run_due_sources() -> dict:
         if s.get("tier") == "reconcile":
             continue
         with get_db() as db:
-            row = db.execute("SELECT enabled, last_run_at FROM sources WHERE key=?",
+            row = db.execute("SELECT enabled, last_run_at, fail_count, interval_minutes FROM sources WHERE key=?",
                              (s["key"],)).fetchone()
         if not row or not row["enabled"]:
             continue
         if row["last_run_at"]:
             last = datetime.fromisoformat(row["last_run_at"])
-            if now < last + timedelta(minutes=s["interval_minutes"]):
+            if now < last + timedelta(minutes=retry_interval(row["interval_minutes"], row["fail_count"])):
                 continue
         due.append(s)
 
@@ -163,7 +197,8 @@ def run_due_sources() -> dict:
             for fut in as_completed(futures):
                 key = futures[fut]
                 try:
-                    results.append(dict(key=key, inserted=fut.result()[0]))
+                    inserted, ok, message = fut.result()
+                    results.append(dict(key=key, inserted=inserted, **({"error": message} if not ok else {})))
                 except Exception as exc:  # noqa: BLE001
                     log.exception("源 %s 执行异常", key)
                     results.append(dict(key=key, error=str(exc)))

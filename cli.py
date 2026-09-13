@@ -8,8 +8,10 @@ from __future__ import annotations
   python cli.py reconcile   # 立即跑一次 Google News 对账补漏
   python cli.py ai          # 对未处理条目跑一轮 AI（摘要/评分）
   python cli.py report [YYYY-MM-DD]  # 生成某日日报（默认昨天）
+  python cli.py reindex     # 更新主题索引与持久事件（不调用模型）
   python cli.py serve       # 启动网站 + 定时任务
 """
+import json
 import logging
 import sys
 
@@ -32,7 +34,7 @@ def _load_companies() -> int:
                        name_zh=excluded.name_zh, ticker=excluded.ticker, code=excluded.code,
                        market=excluded.market, aliases=excluded.aliases""",
                 (c["slug"], c["name"], c.get("name_zh", ""), c.get("ticker", ""),
-                 c.get("code", ""), c["market"], str(c.get("aliases", [])).replace("'", '"')))
+                 c.get("code", ""), c["market"], json.dumps(c.get("aliases", []), ensure_ascii=False)))
             n += 1
     company_match.invalidate_cache()
     return n
@@ -43,6 +45,8 @@ def cmd_init_db() -> None:
     from app.crawler.runner import upsert_sources
     n = _load_companies()
     upsert_sources()
+    from app.stories import refresh_derived
+    refresh_derived()
     print(f"数据库初始化完成：{n} 家公司，源注册表已同步。")
 
 
@@ -85,6 +89,8 @@ def cmd_ai() -> None:
     print(f"标题补翻 {translated} 条。")
     judged = backfill_tmt()
     print(f"TMT 补判定 {judged} 条。")
+    from app.stories import refresh_derived
+    refresh_derived()
 
 
 def cmd_report(date: str | None) -> None:
@@ -105,6 +111,7 @@ def _prune_logs() -> None:
 
 
 def cmd_serve() -> None:
+    cmd_init_db()
     import uvicorn
     from apscheduler.schedulers.background import BackgroundScheduler
 
@@ -129,6 +136,8 @@ def cmd_serve() -> None:
         backfill_tmt(max_batches=12)   # 及时过滤掉非 TMT 噪声
         from app.ai.pipeline import backfill_titles
         backfill_titles(max_batches=12)
+        from app.stories import refresh_derived
+        refresh_derived()
 
     sched.add_job(_ai_tick, "interval", minutes=15,
                   id="ai", max_instances=1, coalesce=True)
@@ -140,7 +149,10 @@ def cmd_serve() -> None:
     sched.start()
     print(f"定时任务已启动：抓取每 {config.CRAWL_TICK_MINUTES} 分钟 · AI 每 15 分钟 · "
           f"对账 {config.RECONCILE_HOUR:02d}:{config.RECONCILE_MINUTE:02d} · 日报 {config.REPORT_HOUR:02d}:{config.REPORT_MINUTE:02d}")
-    uvicorn.run(app, host="127.0.0.1", port=config.WEB_PORT, log_level="info")
+    try:
+        uvicorn.run(app, host="127.0.0.1", port=config.WEB_PORT, log_level="info")
+    finally:
+        sched.shutdown(wait=False)
 
 
 def main() -> None:
@@ -156,6 +168,10 @@ def main() -> None:
         cmd_ai()
     elif cmd == "report":
         cmd_report(sys.argv[2] if len(sys.argv) > 2 else None)
+    elif cmd == "reindex":
+        from app.stories import refresh_derived
+        init_schema()
+        print(refresh_derived())
     elif cmd == "serve":
         cmd_serve()
     else:

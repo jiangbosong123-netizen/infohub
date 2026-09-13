@@ -6,14 +6,16 @@ import sqlite3
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
-from fastapi import FastAPI, Request
+from fastapi import FastAPI, Request, HTTPException, Query
 from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
 from ..ai.daily import EVENT_NAMES, render_markdown
-from ..config import APP_TZ, BASE_DIR
+from ..config import APP_TZ, BASE_DIR, llm_enabled
 from ..database import get_db
+from ..provenance import publisher, display_title
+from ..topics import GROUPS
 
 app = FastAPI(title="行业情报站")
 app.mount("/static", StaticFiles(directory=BASE_DIR / "app" / "web" / "static"), name="static")
@@ -32,7 +34,7 @@ def _fmt_dt(iso: str) -> datetime:
 def _relative(iso: str | None) -> str:
     if not iso:
         return "从未抓取"
-    delta = datetime.now(timezone.utc) - datetime.fromisoformat(iso)
+    delta = datetime.now(timezone.utc) - _fmt_dt(iso)
     mins = int(delta.total_seconds() // 60)
     if mins < 1:
         return "刚刚"
@@ -58,14 +60,19 @@ def _decorate(rows) -> list[dict]:
     """把 DB 行加工成视图对象：时间、公司标签、所属热点簇等。"""
     ids = [r["id"] for r in rows]
     cluster_map: dict[int, dict] = {}
+    topic_map = {}
     if ids:
         marks = ",".join("?" * len(ids))
         with get_db() as db:
             for m in db.execute(
-                f"""SELECT cm.item_id, cl.id AS cluster_id, cl.source_count
-                    FROM cluster_members cm JOIN clusters cl ON cl.id = cm.cluster_id
+                f"""SELECT cm.item_id, cl.id AS cluster_id, cl.source_count, cl.item_count
+                    FROM story_items cm JOIN stories cl ON cl.id = cm.story_id
                     WHERE cm.item_id IN ({marks})""", ids):
                 cluster_map[m["item_id"]] = dict(m)
+            for t in db.execute(f"""SELECT it.item_id,t.slug,t.name FROM item_topics it
+                                JOIN topics t ON t.slug=it.topic_slug WHERE t.enabled=1
+                                AND it.item_id IN ({marks}) ORDER BY t.position""",ids):
+                topic_map.setdefault(t['item_id'],[]).append(dict(t))
     with get_db() as db:
         company_rows = {r["slug"]: dict(r) for r in
                         db.execute("SELECT slug, name, name_zh, ticker FROM companies")}
@@ -77,6 +84,7 @@ def _decorate(rows) -> list[dict]:
         dt = _fmt_dt(r["published_at"])
         cl = cluster_map.get(r["id"])
         title_zh = (r["title_zh"] or "") if "title_zh" in keys else ""
+        title_zh = "" if title_zh == "-" else title_zh
         out.append(dict(
             id=r["id"], url=r["url"],
             title=title_zh or r["title"],
@@ -86,7 +94,8 @@ def _decorate(rows) -> list[dict]:
             score=(r["score"] if (r["score"] is not None and r["score"] >= 0) else None),
             official=bool(r["official"]),
             via=r["via"], channel=r["channel"],
-            source_name=r["source_name"], event_type=r["event_type"] or "",
+            source_name=publisher(dict(r))[1], crawl_source=r["source_name"],
+            topics=topic_map.get(r["id"],[]), event_type=r["event_type"] or "",
             event_label=EVENT_NAMES.get(r["event_type"] or "", ""),
             reason=(r["reason"] or "") if "reason" in keys else "",
             ai_cat=(r["ai_cat"] or "") if "ai_cat" in keys else "",
@@ -94,20 +103,21 @@ def _decorate(rows) -> list[dict]:
             companies=[dict(slug=s, label=(company_rows.get(s) or {}).get("name_zh")
                             or (company_rows.get(s) or {}).get("name") or s) for s in slugs],
             cluster_id=cl["cluster_id"] if cl else None,
-            extra_sources=(cl["source_count"] - 1) if cl else 0,
+            extra_sources=max(0,cl["source_count"] - 1) if cl else 0,
+            story_count=cl["item_count"] if cl else 0,
         ))
     return out
 
 
 def _query_items(channel: str = "all", company: str = "", event: str = "", cat: str = "",
                  mode: str = "selected", limit: int = 60, offset: int = 0):
-    """mode: selected=精选(高分/官方/公司事件) all=全部（tmt=0 的非 TMT 噪声始终隐藏）"""
+    """mode: selected=精选(高分/官方；无 AI 配置时展示全量) all=全部（tmt=0 的非 TMT 噪声始终隐藏）"""
     sql = """SELECT i.*, s.name AS source_name FROM items i
              JOIN sources s ON s.id = i.source_id
              WHERE COALESCE(i.tmt, 1) != 0"""
     params: list = []
-    if mode == "selected":
-        sql += " AND (COALESCE(i.score, 0) >= 60 OR i.official=1 OR i.companies != '[]')"
+    if mode == "selected" and llm_enabled():
+        sql += " AND (COALESCE(i.score, 0) >= 60 OR i.official=1)"
     if channel and channel != "all":
         sql += " AND i.channel=?"
         params.append(channel)
@@ -128,26 +138,25 @@ def _query_items(channel: str = "all", company: str = "", event: str = "", cat: 
     return rows
 
 
-def _top_clusters(limit: int = 10) -> list[dict]:
-    """热点榜：优先多信源事件；不够时用单源高热度补位。"""
+def _top_clusters(limit: int = 10, channel: str = "all", topic: str = "", days: int = 2) -> list[dict]:
+    cutoff = (datetime.now(timezone.utc) - timedelta(days=days)).isoformat()
     with get_db() as db:
         rows = db.execute(
-            "SELECT * FROM clusters WHERE source_count >= 2 ORDER BY heat DESC LIMIT ?",
-            (limit,)).fetchall()
-        if len(rows) < limit:
-            rows += db.execute(
-                "SELECT * FROM clusters WHERE source_count < 2 ORDER BY heat DESC LIMIT ?",
-                (limit - len(rows),)).fetchall()
-        names = {r["slug"]: dict(r) for r in db.execute("SELECT slug, name, name_zh FROM companies")}
+            """SELECT st.*,st.last_at AS updated_at FROM stories st
+               WHERE st.redirect_to IS NULL AND st.item_count>0 AND st.last_at>=?
+               AND (?='all' OR EXISTS(SELECT 1 FROM story_items si JOIN items i ON i.id=si.item_id
+                   WHERE si.story_id=st.id AND i.channel=? AND COALESCE(i.tmt,1)!=0))
+               AND (?='' OR EXISTS(SELECT 1 FROM story_items si JOIN item_topics it ON it.item_id=si.item_id
+                   JOIN items i ON i.id=si.item_id WHERE si.story_id=st.id AND it.topic_slug=? AND COALESCE(i.tmt,1)!=0))
+               ORDER BY (st.source_count>=2) DESC,st.heat DESC,st.id LIMIT ?""",
+            (cutoff,channel,channel,topic,topic,limit)).fetchall()
+        names = {r["slug"]: dict(r) for r in db.execute("SELECT slug,name,name_zh FROM companies")}
     out = []
-    for i, r in enumerate(rows, 1):
-        slugs = json.loads(r["company_slugs"] or "[]")
-        out.append(dict(
-            rank=i, id=r["id"], title=r["title"], url=r["url"], channel=r["channel"],
-            heat=int(r["heat"] * 100), source_count=r["source_count"],
-            companies=[dict(slug=s, label=(names.get(s) or {}).get("name_zh")
-                            or (names.get(s) or {}).get("name") or s) for s in slugs],
-        ))
+    for rank,r in enumerate(rows,1):
+        value = dict(r)
+        value.update(rank=rank,heat=int(r['heat']*100), companies=[dict(slug=s,label=(names.get(s) or {}).get('name_zh')
+                     or (names.get(s) or {}).get('name') or s) for s in json.loads(r['company_slugs'])])
+        out.append(value)
     return out
 
 
@@ -157,14 +166,16 @@ def index(request: Request, channel: str = "all", company: str = "", event: str 
     page = max(1, page)
     mode = mode if mode in ("selected", "all") else "selected"
     rows = _query_items(channel=channel, company=company, event=event, cat=cat, mode=mode,
-                        limit=60, offset=(page - 1) * 60)
+                        limit=61, offset=(page - 1) * 60)
+    has_next = len(rows) > 60
+    rows = rows[:60]
     items = _decorate(rows)
     days: list[dict] = []
     for it in items:
         if days and days[-1]["key"] == it["date_key"]:
             days[-1]["rows"].append(it)
         else:
-            dt = datetime.fromisoformat(
+            dt = _fmt_dt(
                 next(r["published_at"] for r in rows if r["id"] == it["id"]))
             days.append(dict(key=it["date_key"], label=_date_label(dt), rows=[it]))
 
@@ -182,27 +193,15 @@ def index(request: Request, channel: str = "all", company: str = "", event: str 
     return templates.TemplateResponse(request, "index.html", dict(
         days=days, tabs=CHANNEL_TABS, channel=channel, company=company, event=event,
         mode=mode, cat=cat,
-        companies=companies, events=events, clusters=_top_clusters(8),
-        page=page, has_next=len(items) == 60,
+        companies=companies, events=events, clusters=_top_clusters(8, channel),
+        page=page, has_next=has_next,
         last_update=_relative(last_fetch),
     ))
 
 
 @app.get("/hot", response_class=HTMLResponse)
 def hot(request: Request):
-    clusters = _top_clusters(50)
-    with get_db() as db:
-        for cl in clusters:
-            members = db.execute(
-                """SELECT i.title, i.title_zh, i.url, i.published_at, i.official, i.score,
-                          s.name AS source_name
-                   FROM cluster_members cm JOIN items i ON i.id=cm.item_id
-                   JOIN sources s ON s.id=i.source_id WHERE cm.cluster_id=?
-                   ORDER BY i.published_at DESC""", (cl["id"],)).fetchall()
-            cl["members"] = [dict(m, title=m["title_zh"] or m["title"],
-                                  hms=_fmt_dt(m["published_at"]).strftime("%m-%d %H:%M"))
-                             for m in members]
-    return templates.TemplateResponse(request, "hot.html", dict(clusters=clusters))
+    return templates.TemplateResponse(request, "hot.html", dict(clusters=_top_clusters(50)))
 
 
 @app.get("/daily", response_class=HTMLResponse)
@@ -236,17 +235,18 @@ def search(request: Request, q: str = ""):
                         """SELECT i.*, s.name AS source_name FROM items_fts
                            JOIN items i ON i.id = items_fts.rowid
                            JOIN sources s ON s.id = i.source_id
-                           WHERE items_fts MATCH ? ORDER BY i.published_at DESC LIMIT 100""",
+                           WHERE items_fts MATCH ? AND COALESCE(i.tmt, 1) != 0 ORDER BY i.published_at DESC LIMIT 100""",
                         (f'"{q.replace(chr(34), chr(34) * 2)}"',)).fetchall()
                 except sqlite3.OperationalError:
                     rows = []
             if not rows:
-                like = f"%{q}%"
+                like = "%" + q.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_") + "%"
                 rows = db.execute(
                     """SELECT i.*, s.name AS source_name FROM items i
                        JOIN sources s ON s.id=i.source_id
-                       WHERE i.title LIKE ? OR i.summary LIKE ?
-                       ORDER BY i.published_at DESC LIMIT 100""", (like, like)).fetchall()
+                       WHERE COALESCE(i.tmt, 1) != 0 AND (i.title LIKE ? ESCAPE '\\'
+                       OR i.title_zh LIKE ? ESCAPE '\\' OR i.summary LIKE ? ESCAPE '\\')
+                       ORDER BY i.published_at DESC LIMIT 100""", (like, like, like)).fetchall()
         items = _decorate(rows)
     return templates.TemplateResponse(request, "search.html", dict(q=q, items=items))
 
@@ -264,7 +264,11 @@ def health(request: Request):
             "SELECT channel, COUNT(*) AS n FROM items GROUP BY channel")}
     sources = []
     for r in rows:
-        status = "never" if not r["last_success_at"] else ("ok" if r["fail_count"] == 0 else "bad")
+        status = "bad" if r["fail_count"] else ("ok" if r["last_success_at"] else "never")
+        if r['last_error'] and not r['fail_count']:
+            status = 'partial'
+        if status == "ok" and datetime.now(timezone.utc) - _fmt_dt(r["last_success_at"]) > timedelta(minutes=max(15, r["interval_minutes"] * 3)):
+            status = "stale"
         sources.append(dict(r, last_success_rel=_relative(r["last_success_at"]), status=status))
     return templates.TemplateResponse(request, "health.html", dict(
         sources=sources, counts=counts, now=datetime.now(APP_TZ).strftime("%Y-%m-%d %H:%M")))
@@ -273,3 +277,85 @@ def health(request: Request):
 @app.get("/about-heat", response_class=HTMLResponse)
 def about_heat():
     return RedirectResponse("/hot", status_code=302)
+
+
+def _topic_stats(db):
+    selected = "(i.score>=60 OR i.official=1)" if llm_enabled() else "1=1"
+    return [dict(r) for r in db.execute(f"""SELECT t.*,COUNT(i.id) AS total,
+        COALESCE(SUM(CASE WHEN i.id IS NOT NULL AND {selected} THEN 1 ELSE 0 END),0) AS selected,
+        MAX(i.published_at) AS last_at FROM topics t
+        LEFT JOIN item_topics it ON it.topic_slug=t.slug
+        LEFT JOIN items i ON i.id=it.item_id AND COALESCE(i.tmt,1)!=0
+        WHERE t.enabled=1 GROUP BY t.slug ORDER BY t.position""")]
+
+
+@app.get('/topics',response_class=HTMLResponse)
+def topics_index(request: Request):
+    with get_db() as db:
+        entries = _topic_stats(db)
+    groups = [dict(key=key,name=name,description=desc,topics=[t for t in entries if t['group_key']==key])
+              for key,name,desc in GROUPS]
+    return templates.TemplateResponse(request,'topics.html',dict(groups=groups,total=len(entries)))
+
+
+@app.get('/topics/{slug}',response_class=HTMLResponse)
+def topic_detail(request: Request,slug: str,mode: str='selected',page: int=Query(1,ge=1)):
+    mode = mode if mode in ('all','selected') else 'selected'
+    selected = " AND (i.score>=60 OR i.official=1)" if mode=='selected' and llm_enabled() else ''
+    with get_db() as db:
+        topic = next((t for t in _topic_stats(db) if t['slug']==slug),None)
+        if topic is None:
+            raise HTTPException(404,'主题不存在')
+        rows = db.execute(f"""SELECT i.*,s.name AS source_name FROM item_topics it
+            JOIN items i ON i.id=it.item_id JOIN sources s ON s.id=i.source_id
+            WHERE it.topic_slug=? AND COALESCE(i.tmt,1)!=0 {selected}
+            ORDER BY i.published_at DESC,i.id DESC LIMIT 21 OFFSET ?""",(slug,(page-1)*20)).fetchall()
+    days = []
+    for item in _decorate(rows[:20]):
+        if not days or days[-1]['key']!=item['date_key']:
+            days.append(dict(key=item['date_key'],label=_date_label(datetime.fromisoformat(item['date_key'])),rows=[]))
+        days[-1]['rows'].append(item)
+    return templates.TemplateResponse(request,'topic_detail.html',dict(
+        topic=topic,days=days,clusters=_top_clusters(5,topic=slug,days=14),page=page,mode=mode,
+        has_next=len(rows)>20,last_update=_relative(topic['last_at']) if topic['last_at'] else '暂无收录'))
+
+
+@app.get('/story/{story_id}',response_class=HTMLResponse)
+def story_detail(request: Request,story_id: str,page: int=Query(1,ge=1)):
+    with get_db() as db:
+        story = db.execute('SELECT * FROM stories WHERE id=?',(story_id,)).fetchone()
+        seen = set()
+        while story and story['redirect_to']:
+            if story['id'] in seen:
+                raise HTTPException(500,'事件重定向异常')
+            seen.add(story['id'])
+            story = db.execute('SELECT * FROM stories WHERE id=?',(story['redirect_to'],)).fetchone()
+        if not story or not story['item_count']:
+            raise HTTPException(404,'事件不存在或暂无公开报道')
+        if story['id'] != story_id:
+            return RedirectResponse('/story/'+story['id'],status_code=302)
+        rows = db.execute("""SELECT i.*,s.name AS source_name,si.match_reason,si.match_score
+            FROM story_items si JOIN items i ON i.id=si.item_id JOIN sources s ON s.id=i.source_id
+            WHERE si.story_id=? AND COALESCE(i.tmt,1)!=0
+            ORDER BY i.published_at DESC,i.id DESC LIMIT 51 OFFSET ?""",(story_id,(page-1)*50)).fetchall()
+        source_rows = [dict(r) for r in db.execute("""SELECT i.*,s.name AS source_name FROM story_items si
+            JOIN items i ON i.id=si.item_id JOIN sources s ON s.id=i.source_id
+            WHERE si.story_id=? AND COALESCE(i.tmt,1)!=0""",(story_id,))]
+        tags = db.execute("""SELECT DISTINCT t.slug,t.name FROM story_items si
+            JOIN item_topics it ON it.item_id=si.item_id JOIN topics t ON t.slug=it.topic_slug
+            JOIN items i ON i.id=si.item_id WHERE si.story_id=? AND t.enabled=1 AND COALESCE(i.tmt,1)!=0
+            ORDER BY t.position""",(story_id,)).fetchall()
+    if not source_rows:
+        raise HTTPException(404,'暂无公开报道')
+    sources = {identity:label for identity,label,known in (publisher(r) for r in source_rows) if known}
+    unknown = sum(not publisher(r)[2] for r in source_rows)
+    reports = []
+    for row in rows[:50]:
+        data = dict(row)
+        data.update(title_display=display_title(data),publisher=publisher(data)[1],
+                    published_label=_fmt_dt(row['published_at']).strftime('%m月%d日 %H:%M'))
+        reports.append(data)
+    return templates.TemplateResponse(request,'story.html',dict(story=dict(story),reports=reports,
+        sources=list(sources.values()),unknown=unknown,tags=tags,official_count=sum(r['official'] for r in source_rows),
+        first_label=_fmt_dt(story['first_at']).strftime('%m月%d日 %H:%M'),
+        last_label=_fmt_dt(story['last_at']).strftime('%m月%d日 %H:%M'),page=page,has_next=len(rows)>50))
