@@ -1,0 +1,11 @@
+{
+  "openapi": "3.1.0 valid",
+  "paths": 18,
+  "schemas": 83,
+  "complete_openapi_examples": 8,
+  "prose_examples": "4 valid",
+  "negative_horizon_example": "correctly rejected",
+  "local_links_checked": 48,
+  "json_and_python_evidence": "parseable",
+  "runtime_implementation_tested": false
+}

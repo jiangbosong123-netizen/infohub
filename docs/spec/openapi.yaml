@@ -1,0 +1,3580 @@
+# Target contract only. See API_CONTRACT.md; not an implemented service.
+openapi: 3.1.0
+info: {title: InfoHub Intelligence API — Proposed Contract, version: 1.0.0-draft, description: 'Design baseline
+    dated 2026-09-14 UTC. Not deployed and not approval of PR #1. API_CONTRACT.md defines synchronization, time
+    and authorization semantics. IDs are opaque. No raw database or provider credentials are exposed.'}
+jsonSchemaDialect: https://json-schema.org/draft/2020-12/schema
+x-implementation-status: proposed
+servers:
+- {url: 'https://infohub.example.invalid', description: Placeholder only; actual private HTTPS hostname must be
+    configured.}
+security:
+- ConsumerToken: []
+paths:
+  /api/v1/items:
+    get:
+      operationId: listItems
+      summary: Browse documents; not a reliable synchronization feed
+      tags:
+      - items
+      x-required-scopes:
+      - read:items
+      security:
+      - ConsumerToken: []
+      description: Target contract, not yet implemented. Unknown query parameters are rejected with 422. See API_CONTRACT.md
+        for transaction and authorization invariants.
+      responses:
+        '200':
+          description: Successful read
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/ItemListResponse'}
+        '400': {$ref: '#/components/responses/Error400'}
+        '401': {$ref: '#/components/responses/Error401'}
+        '403': {$ref: '#/components/responses/Error403'}
+        '404': {$ref: '#/components/responses/Error404'}
+        '409': {$ref: '#/components/responses/Error409'}
+        '410': {$ref: '#/components/responses/Error410'}
+        '422': {$ref: '#/components/responses/Error422'}
+        '429': {$ref: '#/components/responses/Error429'}
+        '503': {$ref: '#/components/responses/Error503'}
+      parameters:
+      - name: limit
+        in: query
+        required: false
+        schema: {type: integer, minimum: 1, maximum: 100, default: 50}
+      - name: cursor
+        in: query
+        required: false
+        schema: {type: string, minLength: 1}
+      - name: scope
+        in: query
+        required: false
+        schema:
+          type: string
+          enum:
+          - research
+          - selected
+          default: research
+      - name: kind
+        in: query
+        required: false
+        schema:
+          type: string
+          enum:
+          - article
+          - flash
+          - filing
+          - policy_release
+          - research
+          - commentary
+          - transcript
+          - other
+      - name: entity_id
+        in: query
+        required: false
+        schema: {type: string, minLength: 1, maxLength: 128}
+      - name: topic_id
+        in: query
+        required: false
+        schema: {type: string, minLength: 1, maxLength: 128}
+      - name: publisher_id
+        in: query
+        required: false
+        schema: {type: string, minLength: 1, maxLength: 128}
+      - name: published_from
+        in: query
+        required: false
+        schema: {type: string, format: date-time, pattern: '(Z|[+-]\d{2}:\d{2})$'}
+      - name: published_to
+        in: query
+        required: false
+        schema: {type: string, format: date-time, pattern: '(Z|[+-]\d{2}:\d{2})$'}
+      - name: observed_from
+        in: query
+        required: false
+        schema: {type: string, format: date-time, pattern: '(Z|[+-]\d{2}:\d{2})$'}
+      - name: observed_to
+        in: query
+        required: false
+        schema: {type: string, format: date-time, pattern: '(Z|[+-]\d{2}:\d{2})$'}
+  /api/v1/items/{id}:
+    get:
+      operationId: getItem
+      summary: Read a current or historical document
+      tags:
+      - items
+      x-required-scopes:
+      - read:items
+      security:
+      - ConsumerToken: []
+      description: Target contract, not yet implemented. Unknown query parameters are rejected with 422. See API_CONTRACT.md
+        for transaction and authorization invariants.
+      responses:
+        '200':
+          description: Successful read
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/ItemResponse'}
+          headers:
+            ETag:
+              schema: {type: string}
+              description: Permission-aware immutable revision validator.
+        '400': {$ref: '#/components/responses/Error400'}
+        '401': {$ref: '#/components/responses/Error401'}
+        '403': {$ref: '#/components/responses/Error403'}
+        '404': {$ref: '#/components/responses/Error404'}
+        '409': {$ref: '#/components/responses/Error409'}
+        '410': {$ref: '#/components/responses/Error410'}
+        '422': {$ref: '#/components/responses/Error422'}
+        '429': {$ref: '#/components/responses/Error429'}
+        '503': {$ref: '#/components/responses/Error503'}
+        '304': {description: Not modified; no body.}
+      parameters:
+      - name: id
+        in: path
+        required: true
+        schema: {type: string, minLength: 1, maxLength: 128}
+      - name: version_id
+        in: query
+        required: false
+        schema: {type: string, minLength: 1, maxLength: 128}
+        description: Mutually exclusive with as_of.
+      - name: as_of
+        in: query
+        required: false
+        schema: {type: string, format: date-time, pattern: '(Z|[+-]\d{2}:\d{2})$'}
+        description: 'Knowledge cutoff: only versions available by this instant; mutually exclusive with version_id.'
+      - name: If-None-Match
+        in: header
+        required: false
+        schema: {type: string}
+  /api/v1/items/{id}/versions:
+    get:
+      operationId: listItemVersions
+      summary: List immutable document revisions
+      tags:
+      - items
+      x-required-scopes:
+      - read:items
+      security:
+      - ConsumerToken: []
+      description: Target contract, not yet implemented. Unknown query parameters are rejected with 422. See API_CONTRACT.md
+        for transaction and authorization invariants.
+      responses:
+        '200':
+          description: Successful read
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/DocumentVersionListResponse'}
+        '400': {$ref: '#/components/responses/Error400'}
+        '401': {$ref: '#/components/responses/Error401'}
+        '403': {$ref: '#/components/responses/Error403'}
+        '404': {$ref: '#/components/responses/Error404'}
+        '409': {$ref: '#/components/responses/Error409'}
+        '410': {$ref: '#/components/responses/Error410'}
+        '422': {$ref: '#/components/responses/Error422'}
+        '429': {$ref: '#/components/responses/Error429'}
+        '503': {$ref: '#/components/responses/Error503'}
+      parameters:
+      - name: id
+        in: path
+        required: true
+        schema: {type: string, minLength: 1, maxLength: 128}
+      - name: limit
+        in: query
+        required: false
+        schema: {type: integer, minimum: 1, maximum: 100, default: 50}
+      - name: cursor
+        in: query
+        required: false
+        schema: {type: string, minLength: 1}
+  /api/v1/items/{id}/evidence:
+    get:
+      operationId: listItemEvidence
+      summary: Read evidence from an explicit document version
+      tags:
+      - items
+      x-required-scopes:
+      - read:items
+      - read:evidence
+      security:
+      - ConsumerToken: []
+      description: Target contract, not yet implemented. Unknown query parameters are rejected with 422. See API_CONTRACT.md
+        for transaction and authorization invariants.
+      responses:
+        '200':
+          description: Successful read
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/EvidenceListResponse'}
+        '400': {$ref: '#/components/responses/Error400'}
+        '401': {$ref: '#/components/responses/Error401'}
+        '403': {$ref: '#/components/responses/Error403'}
+        '404': {$ref: '#/components/responses/Error404'}
+        '409': {$ref: '#/components/responses/Error409'}
+        '410': {$ref: '#/components/responses/Error410'}
+        '422': {$ref: '#/components/responses/Error422'}
+        '429': {$ref: '#/components/responses/Error429'}
+        '503': {$ref: '#/components/responses/Error503'}
+      parameters:
+      - name: id
+        in: path
+        required: true
+        schema: {type: string, minLength: 1, maxLength: 128}
+      - name: version_id
+        in: query
+        required: true
+        schema: {type: string, minLength: 1, maxLength: 128}
+      - name: limit
+        in: query
+        required: false
+        schema: {type: integer, minimum: 1, maximum: 100, default: 50}
+      - name: cursor
+        in: query
+        required: false
+        schema: {type: string, minLength: 1}
+  /api/v1/events:
+    get:
+      operationId: listEvents
+      summary: Browse stable events
+      tags:
+      - events
+      x-required-scopes:
+      - read:events
+      security:
+      - ConsumerToken: []
+      description: Target contract, not yet implemented. Unknown query parameters are rejected with 422. See API_CONTRACT.md
+        for transaction and authorization invariants.
+      responses:
+        '200':
+          description: Successful read
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/EventViewListResponse'}
+        '400': {$ref: '#/components/responses/Error400'}
+        '401': {$ref: '#/components/responses/Error401'}
+        '403': {$ref: '#/components/responses/Error403'}
+        '404': {$ref: '#/components/responses/Error404'}
+        '409': {$ref: '#/components/responses/Error409'}
+        '410': {$ref: '#/components/responses/Error410'}
+        '422': {$ref: '#/components/responses/Error422'}
+        '429': {$ref: '#/components/responses/Error429'}
+        '503': {$ref: '#/components/responses/Error503'}
+      parameters:
+      - name: limit
+        in: query
+        required: false
+        schema: {type: integer, minimum: 1, maximum: 100, default: 50}
+      - name: cursor
+        in: query
+        required: false
+        schema: {type: string, minLength: 1}
+      - name: topic_id
+        in: query
+        required: false
+        schema: {type: string, minLength: 1, maxLength: 128}
+      - name: entity_id
+        in: query
+        required: false
+        schema: {type: string, minLength: 1, maxLength: 128}
+      - name: type
+        in: query
+        required: false
+        schema: {type: string, minLength: 1, maxLength: 128}
+      - name: status
+        in: query
+        required: false
+        schema: {type: string, minLength: 1, maxLength: 128}
+      - name: available_from
+        in: query
+        required: false
+        schema: {type: string, format: date-time, pattern: '(Z|[+-]\d{2}:\d{2})$'}
+      - name: available_to
+        in: query
+        required: false
+        schema: {type: string, format: date-time, pattern: '(Z|[+-]\d{2}:\d{2})$'}
+  /api/v1/events/{id}:
+    get:
+      operationId: getEvent
+      summary: Read event facts or an alias/split status
+      tags:
+      - events
+      x-required-scopes:
+      - read:events
+      security:
+      - ConsumerToken: []
+      description: Target contract, not yet implemented. Unknown query parameters are rejected with 422. See API_CONTRACT.md
+        for transaction and authorization invariants.
+      responses:
+        '200':
+          description: Successful read
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/EventViewResponse'}
+          headers:
+            ETag:
+              schema: {type: string}
+              description: Permission-aware immutable revision validator.
+        '400': {$ref: '#/components/responses/Error400'}
+        '401': {$ref: '#/components/responses/Error401'}
+        '403': {$ref: '#/components/responses/Error403'}
+        '404': {$ref: '#/components/responses/Error404'}
+        '409': {$ref: '#/components/responses/Error409'}
+        '410': {$ref: '#/components/responses/Error410'}
+        '422': {$ref: '#/components/responses/Error422'}
+        '429': {$ref: '#/components/responses/Error429'}
+        '503': {$ref: '#/components/responses/Error503'}
+        '304': {description: Not modified; no body.}
+      parameters:
+      - name: id
+        in: path
+        required: true
+        schema: {type: string, minLength: 1, maxLength: 128}
+      - name: version_id
+        in: query
+        required: false
+        schema: {type: string, minLength: 1, maxLength: 128}
+        description: Mutually exclusive with as_of.
+      - name: as_of
+        in: query
+        required: false
+        schema: {type: string, format: date-time, pattern: '(Z|[+-]\d{2}:\d{2})$'}
+        description: 'Knowledge cutoff: only versions available by this instant; mutually exclusive with version_id.'
+      - name: If-None-Match
+        in: header
+        required: false
+        schema: {type: string}
+  /api/v1/events/{id}/evidence:
+    get:
+      operationId: listEventEvidence
+      summary: Read supporting, conflicting and contextual evidence
+      tags:
+      - events
+      x-required-scopes:
+      - read:events
+      - read:evidence
+      security:
+      - ConsumerToken: []
+      description: Target contract, not yet implemented. Unknown query parameters are rejected with 422. See API_CONTRACT.md
+        for transaction and authorization invariants.
+      responses:
+        '200':
+          description: Successful read
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/EventEvidenceListResponse'}
+        '400': {$ref: '#/components/responses/Error400'}
+        '401': {$ref: '#/components/responses/Error401'}
+        '403': {$ref: '#/components/responses/Error403'}
+        '404': {$ref: '#/components/responses/Error404'}
+        '409': {$ref: '#/components/responses/Error409'}
+        '410': {$ref: '#/components/responses/Error410'}
+        '422': {$ref: '#/components/responses/Error422'}
+        '429': {$ref: '#/components/responses/Error429'}
+        '503': {$ref: '#/components/responses/Error503'}
+      parameters:
+      - name: id
+        in: path
+        required: true
+        schema: {type: string, minLength: 1, maxLength: 128}
+      - name: version_id
+        in: query
+        required: true
+        schema: {type: string, minLength: 1, maxLength: 128}
+      - name: role
+        in: query
+        required: false
+        schema:
+          type: string
+          enum:
+          - supports
+          - contradicts
+          - context
+      - name: limit
+        in: query
+        required: false
+        schema: {type: integer, minimum: 1, maximum: 100, default: 50}
+      - name: cursor
+        in: query
+        required: false
+        schema: {type: string, minLength: 1}
+  /api/v1/analyses/{id}:
+    get:
+      operationId: getAnalysis
+      summary: Read immutable analysis with as-of publication state
+      tags:
+      - analyses
+      x-required-scopes:
+      - read:analyses
+      security:
+      - ConsumerToken: []
+      description: Target contract, not yet implemented. Unknown query parameters are rejected with 422. See API_CONTRACT.md
+        for transaction and authorization invariants.
+      responses:
+        '200':
+          description: Successful read
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/AnalysisResponse'}
+          headers:
+            ETag:
+              schema: {type: string}
+              description: Permission-aware immutable revision validator.
+        '400': {$ref: '#/components/responses/Error400'}
+        '401': {$ref: '#/components/responses/Error401'}
+        '403': {$ref: '#/components/responses/Error403'}
+        '404': {$ref: '#/components/responses/Error404'}
+        '409': {$ref: '#/components/responses/Error409'}
+        '410': {$ref: '#/components/responses/Error410'}
+        '422': {$ref: '#/components/responses/Error422'}
+        '429': {$ref: '#/components/responses/Error429'}
+        '503': {$ref: '#/components/responses/Error503'}
+        '304': {description: Not modified; no body.}
+      parameters:
+      - name: id
+        in: path
+        required: true
+        schema: {type: string, minLength: 1, maxLength: 128}
+      - name: as_of
+        in: query
+        required: false
+        schema: {type: string, format: date-time, pattern: '(Z|[+-]\d{2}:\d{2})$'}
+      - name: If-None-Match
+        in: header
+        required: false
+        schema: {type: string}
+  /api/v1/entities:
+    get:
+      operationId: listEntities
+      summary: Read entities catalog
+      tags:
+      - entities
+      x-required-scopes:
+      - read:catalog
+      security:
+      - ConsumerToken: []
+      description: Target contract, not yet implemented. Unknown query parameters are rejected with 422. See API_CONTRACT.md
+        for transaction and authorization invariants.
+      responses:
+        '200':
+          description: Successful read
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/EntityListResponse'}
+        '400': {$ref: '#/components/responses/Error400'}
+        '401': {$ref: '#/components/responses/Error401'}
+        '403': {$ref: '#/components/responses/Error403'}
+        '404': {$ref: '#/components/responses/Error404'}
+        '409': {$ref: '#/components/responses/Error409'}
+        '410': {$ref: '#/components/responses/Error410'}
+        '422': {$ref: '#/components/responses/Error422'}
+        '429': {$ref: '#/components/responses/Error429'}
+        '503': {$ref: '#/components/responses/Error503'}
+      parameters:
+      - name: limit
+        in: query
+        required: false
+        schema: {type: integer, minimum: 1, maximum: 100, default: 50}
+      - name: cursor
+        in: query
+        required: false
+        schema: {type: string, minLength: 1}
+      - name: q
+        in: query
+        required: false
+        schema: {type: string, maxLength: 200}
+      - name: type
+        in: query
+        required: false
+        schema:
+          type: string
+          enum:
+          - organization
+          - person
+          - product
+          - model
+          - industry
+          - region
+          - macro_concept
+  /api/v1/topics:
+    get:
+      operationId: listTopics
+      summary: Read topics catalog
+      tags:
+      - topics
+      x-required-scopes:
+      - read:catalog
+      security:
+      - ConsumerToken: []
+      description: Target contract, not yet implemented. Unknown query parameters are rejected with 422. See API_CONTRACT.md
+        for transaction and authorization invariants.
+      responses:
+        '200':
+          description: Successful read
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/TopicListResponse'}
+        '400': {$ref: '#/components/responses/Error400'}
+        '401': {$ref: '#/components/responses/Error401'}
+        '403': {$ref: '#/components/responses/Error403'}
+        '404': {$ref: '#/components/responses/Error404'}
+        '409': {$ref: '#/components/responses/Error409'}
+        '410': {$ref: '#/components/responses/Error410'}
+        '422': {$ref: '#/components/responses/Error422'}
+        '429': {$ref: '#/components/responses/Error429'}
+        '503': {$ref: '#/components/responses/Error503'}
+      parameters:
+      - name: limit
+        in: query
+        required: false
+        schema: {type: integer, minimum: 1, maximum: 100, default: 50}
+      - name: cursor
+        in: query
+        required: false
+        schema: {type: string, minLength: 1}
+      - name: group
+        in: query
+        required: false
+        schema:
+          type: string
+          enum:
+          - company_model
+          - technology
+          - format
+          - macro
+          - research
+  /api/v1/sources:
+    get:
+      operationId: listSources
+      summary: Read sources catalog
+      tags:
+      - sources
+      x-required-scopes:
+      - read:catalog
+      security:
+      - ConsumerToken: []
+      description: Target contract, not yet implemented. Unknown query parameters are rejected with 422. See API_CONTRACT.md
+        for transaction and authorization invariants.
+      responses:
+        '200':
+          description: Successful read
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/SourceListResponse'}
+        '400': {$ref: '#/components/responses/Error400'}
+        '401': {$ref: '#/components/responses/Error401'}
+        '403': {$ref: '#/components/responses/Error403'}
+        '404': {$ref: '#/components/responses/Error404'}
+        '409': {$ref: '#/components/responses/Error409'}
+        '410': {$ref: '#/components/responses/Error410'}
+        '422': {$ref: '#/components/responses/Error422'}
+        '429': {$ref: '#/components/responses/Error429'}
+        '503': {$ref: '#/components/responses/Error503'}
+      parameters:
+      - name: limit
+        in: query
+        required: false
+        schema: {type: integer, minimum: 1, maximum: 100, default: 50}
+      - name: cursor
+        in: query
+        required: false
+        schema: {type: string, minLength: 1}
+  /api/v1/signals:
+    get:
+      operationId: listSignals
+      summary: Read versioned narrative signals and coverage
+      tags:
+      - signals
+      x-required-scopes:
+      - read:signals
+      security:
+      - ConsumerToken: []
+      description: Target contract, not yet implemented. Unknown query parameters are rejected with 422. See API_CONTRACT.md
+        for transaction and authorization invariants.
+      responses:
+        '200':
+          description: Successful read
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/SignalListResponse'}
+        '400': {$ref: '#/components/responses/Error400'}
+        '401': {$ref: '#/components/responses/Error401'}
+        '403': {$ref: '#/components/responses/Error403'}
+        '404': {$ref: '#/components/responses/Error404'}
+        '409': {$ref: '#/components/responses/Error409'}
+        '410': {$ref: '#/components/responses/Error410'}
+        '422': {$ref: '#/components/responses/Error422'}
+        '429': {$ref: '#/components/responses/Error429'}
+        '503': {$ref: '#/components/responses/Error503'}
+      parameters:
+      - name: limit
+        in: query
+        required: false
+        schema: {type: integer, minimum: 1, maximum: 100, default: 50}
+      - name: cursor
+        in: query
+        required: false
+        schema: {type: string, minLength: 1}
+      - name: target_id
+        in: query
+        required: false
+        schema: {type: string, minLength: 1, maxLength: 128}
+      - name: aspect
+        in: query
+        required: false
+        schema: {type: string, minLength: 1, maxLength: 128}
+      - name: horizon
+        in: query
+        required: false
+        schema: {type: string, minLength: 1, maxLength: 128}
+      - name: window_from
+        in: query
+        required: false
+        schema: {type: string, format: date-time, pattern: '(Z|[+-]\d{2}:\d{2})$'}
+      - name: window_to
+        in: query
+        required: false
+        schema: {type: string, format: date-time, pattern: '(Z|[+-]\d{2}:\d{2})$'}
+      - name: as_of
+        in: query
+        required: false
+        schema: {type: string, format: date-time, pattern: '(Z|[+-]\d{2}:\d{2})$'}
+      - name: formula_version
+        in: query
+        required: false
+        schema: {type: string, minLength: 1, maxLength: 128}
+  /api/v1/reports:
+    get:
+      operationId: listReports
+      summary: Browse immutable report versions
+      tags:
+      - reports
+      x-required-scopes:
+      - read:reports
+      security:
+      - ConsumerToken: []
+      description: Target contract, not yet implemented. Unknown query parameters are rejected with 422. See API_CONTRACT.md
+        for transaction and authorization invariants.
+      responses:
+        '200':
+          description: Successful read
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/ReportListResponse'}
+        '400': {$ref: '#/components/responses/Error400'}
+        '401': {$ref: '#/components/responses/Error401'}
+        '403': {$ref: '#/components/responses/Error403'}
+        '404': {$ref: '#/components/responses/Error404'}
+        '409': {$ref: '#/components/responses/Error409'}
+        '410': {$ref: '#/components/responses/Error410'}
+        '422': {$ref: '#/components/responses/Error422'}
+        '429': {$ref: '#/components/responses/Error429'}
+        '503': {$ref: '#/components/responses/Error503'}
+      parameters:
+      - name: limit
+        in: query
+        required: false
+        schema: {type: integer, minimum: 1, maximum: 100, default: 50}
+      - name: cursor
+        in: query
+        required: false
+        schema: {type: string, minLength: 1}
+      - name: date_from
+        in: query
+        required: false
+        schema: {type: string, format: date}
+      - name: date_to
+        in: query
+        required: false
+        schema: {type: string, format: date}
+  /api/v1/reports/{id}:
+    get:
+      operationId: getReport
+      summary: Read report with input manifest and citations
+      tags:
+      - reports
+      x-required-scopes:
+      - read:reports
+      security:
+      - ConsumerToken: []
+      description: Target contract, not yet implemented. Unknown query parameters are rejected with 422. See API_CONTRACT.md
+        for transaction and authorization invariants.
+      responses:
+        '200':
+          description: Successful read
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/ReportResponse'}
+          headers:
+            ETag:
+              schema: {type: string}
+              description: Permission-aware immutable revision validator.
+        '400': {$ref: '#/components/responses/Error400'}
+        '401': {$ref: '#/components/responses/Error401'}
+        '403': {$ref: '#/components/responses/Error403'}
+        '404': {$ref: '#/components/responses/Error404'}
+        '409': {$ref: '#/components/responses/Error409'}
+        '410': {$ref: '#/components/responses/Error410'}
+        '422': {$ref: '#/components/responses/Error422'}
+        '429': {$ref: '#/components/responses/Error429'}
+        '503': {$ref: '#/components/responses/Error503'}
+        '304': {description: Not modified; no body.}
+      parameters:
+      - name: id
+        in: path
+        required: true
+        schema: {type: string, minLength: 1, maxLength: 128}
+      - name: version_id
+        in: query
+        required: false
+        schema: {type: string, minLength: 1, maxLength: 128}
+        description: Mutually exclusive with as_of.
+      - name: as_of
+        in: query
+        required: false
+        schema: {type: string, format: date-time, pattern: '(Z|[+-]\d{2}:\d{2})$'}
+        description: 'Knowledge cutoff: only versions available by this instant; mutually exclusive with version_id.'
+      - name: If-None-Match
+        in: header
+        required: false
+        schema: {type: string}
+  /api/v1/sync/snapshots:
+    post:
+      operationId: createSnapshot
+      summary: Create a bounded authorized export
+      tags:
+      - sync
+      x-required-scopes:
+      - read:sync
+      security:
+      - ConsumerToken: []
+      description: Target contract, not yet implemented. Unknown query parameters are rejected with 422. See API_CONTRACT.md
+        for transaction and authorization invariants. Additionally requires each requested resource read scope;
+        snapshot is bound to principal and authorization version.
+      responses:
+        '202':
+          description: Accepted snapshot job
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/SnapshotResponse'}
+        '400': {$ref: '#/components/responses/Error400'}
+        '401': {$ref: '#/components/responses/Error401'}
+        '403': {$ref: '#/components/responses/Error403'}
+        '404': {$ref: '#/components/responses/Error404'}
+        '409': {$ref: '#/components/responses/Error409'}
+        '410': {$ref: '#/components/responses/Error410'}
+        '422': {$ref: '#/components/responses/Error422'}
+        '429': {$ref: '#/components/responses/Error429'}
+        '503': {$ref: '#/components/responses/Error503'}
+      parameters:
+      - name: Idempotency-Key
+        in: header
+        required: true
+        schema: {type: string, minLength: 8, maxLength: 128}
+        description: Required; bound to identity and request hash for 24 hours; reuse with changed body returns
+          409.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/SnapshotRequest'}
+  /api/v1/sync/snapshots/{id}:
+    get:
+      operationId: getSnapshot
+      summary: Read snapshot state and manifest
+      tags:
+      - sync
+      x-required-scopes:
+      - read:sync
+      security:
+      - ConsumerToken: []
+      description: Target contract, not yet implemented. Unknown query parameters are rejected with 422. See API_CONTRACT.md
+        for transaction and authorization invariants.
+      responses:
+        '200':
+          description: Successful read
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/SnapshotResponse'}
+        '400': {$ref: '#/components/responses/Error400'}
+        '401': {$ref: '#/components/responses/Error401'}
+        '403': {$ref: '#/components/responses/Error403'}
+        '404': {$ref: '#/components/responses/Error404'}
+        '409': {$ref: '#/components/responses/Error409'}
+        '410': {$ref: '#/components/responses/Error410'}
+        '422': {$ref: '#/components/responses/Error422'}
+        '429': {$ref: '#/components/responses/Error429'}
+        '503': {$ref: '#/components/responses/Error503'}
+      parameters:
+      - name: id
+        in: path
+        required: true
+        schema: {type: string, minLength: 1, maxLength: 128}
+  /api/v1/sync/snapshots/{id}/pages:
+    get:
+      operationId: readSnapshotPage
+      summary: Read fixed snapshot pages
+      tags:
+      - sync
+      x-required-scopes:
+      - read:sync
+      security:
+      - ConsumerToken: []
+      description: Target contract, not yet implemented. Unknown query parameters are rejected with 422. See API_CONTRACT.md
+        for transaction and authorization invariants.
+      responses:
+        '200':
+          description: Successful read
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/SnapshotPageResponse'}
+        '400': {$ref: '#/components/responses/Error400'}
+        '401': {$ref: '#/components/responses/Error401'}
+        '403': {$ref: '#/components/responses/Error403'}
+        '404': {$ref: '#/components/responses/Error404'}
+        '409': {$ref: '#/components/responses/Error409'}
+        '410': {$ref: '#/components/responses/Error410'}
+        '422': {$ref: '#/components/responses/Error422'}
+        '429': {$ref: '#/components/responses/Error429'}
+        '503': {$ref: '#/components/responses/Error503'}
+      parameters:
+      - name: id
+        in: path
+        required: true
+        schema: {type: string, minLength: 1, maxLength: 128}
+      - name: resource
+        in: query
+        required: true
+        schema:
+          type: string
+          enum:
+          - items
+          - events
+          - entities
+          - topics
+          - sources
+          - analyses
+          - signals
+          - reports
+          - evidence
+      - name: limit
+        in: query
+        required: false
+        schema: {type: integer, minimum: 1, maximum: 100, default: 50}
+      - name: cursor
+        in: query
+        required: false
+        schema: {type: string, minLength: 1}
+  /api/v1/changes:
+    get:
+      operationId: listChanges
+      summary: Read changes after snapshot or acknowledged cursor
+      tags:
+      - changes
+      x-required-scopes:
+      - read:sync
+      security:
+      - ConsumerToken: []
+      description: Target contract, not yet implemented. Unknown query parameters are rejected with 422. See API_CONTRACT.md
+        for transaction and authorization invariants.
+      responses:
+        '200':
+          description: Successful read
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/ChangesResponse'}
+        '400': {$ref: '#/components/responses/Error400'}
+        '401': {$ref: '#/components/responses/Error401'}
+        '403': {$ref: '#/components/responses/Error403'}
+        '404': {$ref: '#/components/responses/Error404'}
+        '409': {$ref: '#/components/responses/Error409'}
+        '410': {$ref: '#/components/responses/Error410'}
+        '422': {$ref: '#/components/responses/Error422'}
+        '429': {$ref: '#/components/responses/Error429'}
+        '503': {$ref: '#/components/responses/Error503'}
+      parameters:
+      - name: cursor
+        in: query
+        required: true
+        schema: {type: string, minLength: 1}
+        description: Start from snapshot resume_cursor; bound to resource set, principal, authorization version
+          and epoch.
+      - name: limit
+        in: query
+        required: false
+        schema: {type: integer, minimum: 1, maximum: 100, default: 50}
+components:
+  securitySchemes:
+    ConsumerToken: {type: http, scheme: bearer, description: 'Opaque consumer token; server stores only its hash.
+        Scopes are defined by x-required-scopes, not OAuth2. No default administrator scope.'}
+  schemas:
+    ObjectRef:
+      type: object
+      properties:
+        id: {type: string, minLength: 1, maxLength: 128}
+        version_id: {type: string, minLength: 1, maxLength: 128}
+      required:
+      - id
+      - version_id
+      additionalProperties: false
+    SubjectRef:
+      type: object
+      properties:
+        type:
+          type: string
+          enum:
+          - document
+          - event
+          - report
+        id: {type: string, minLength: 1, maxLength: 128}
+        version_id: {type: string, minLength: 1, maxLength: 128}
+      required:
+      - type
+      - id
+      - version_id
+      additionalProperties: false
+    InputRef:
+      type: object
+      properties:
+        resource_type:
+          type: string
+          enum:
+          - document
+          - event
+          - evidence
+          - entity
+          - topic
+          - report
+        id: {type: string, minLength: 1, maxLength: 128}
+        version_id:
+          anyOf:
+          - {type: string, minLength: 1, maxLength: 128}
+          - {type: 'null'}
+        role: {type: string}
+        content_sha256: {type: string, pattern: '^[a-f0-9]{64}$'}
+      required:
+      - resource_type
+      - id
+      - version_id
+      - role
+      - content_sha256
+      additionalProperties: false
+    PublisherRef:
+      type: object
+      properties:
+        id:
+          anyOf:
+          - {type: string, minLength: 1, maxLength: 128}
+          - {type: 'null'}
+        name:
+          anyOf:
+          - {type: string}
+          - {type: 'null'}
+        attribution_status:
+          type: string
+          enum:
+          - identified
+          - uncertain
+          - unknown
+      required:
+      - id
+      - name
+      - attribution_status
+      additionalProperties: false
+    SourceRef:
+      type: object
+      properties:
+        id: {type: string, minLength: 1, maxLength: 128}
+        raw_record_id:
+          anyOf:
+          - {type: string, minLength: 1, maxLength: 128}
+          - {type: 'null'}
+        observed_at: {type: string, format: date-time, pattern: '(Z|[+-]\d{2}:\d{2})$'}
+      required:
+      - id
+      - raw_record_id
+      - observed_at
+      additionalProperties: false
+    ContentQuality:
+      type: object
+      properties:
+        origin:
+          type: string
+          enum:
+          - publisher_text
+          - feed_excerpt
+          - generated_metadata
+          - legacy_unknown
+        extent:
+          type: string
+          enum:
+          - full
+          - excerpt
+          - title_only
+          - none
+        truncated: {type: boolean}
+        extraction_status:
+          type: string
+          enum:
+          - parsed
+          - partial
+          - failed
+          - not_attempted
+          - legacy_unverified
+      required:
+      - origin
+      - extent
+      - truncated
+      - extraction_status
+      additionalProperties: false
+    Coverage:
+      type: object
+      properties:
+        status:
+          type: string
+          enum:
+          - complete_for_declared_scope
+          - partial
+          - unknown
+        declared_scope: {type: string}
+        eligible_count:
+          anyOf:
+          - {type: integer, minimum: 0}
+          - {type: 'null'}
+        included_count: {type: integer, minimum: 0}
+        missing_source_ids:
+          type: array
+          items: {type: string, minLength: 1, maxLength: 128}
+        limitations:
+          type: array
+          items: {type: string}
+      required:
+      - status
+      - declared_scope
+      - eligible_count
+      - included_count
+      - missing_source_ids
+      - limitations
+      additionalProperties: false
+    EntityMention:
+      type: object
+      properties:
+        entity_id:
+          anyOf:
+          - {type: string, minLength: 1, maxLength: 128}
+          - {type: 'null'}
+        entity_version_id:
+          anyOf:
+          - {type: string, minLength: 1, maxLength: 128}
+          - {type: 'null'}
+        evidence_ids:
+          type: array
+          items: {type: string, minLength: 1, maxLength: 128}
+        status:
+          type: string
+          enum:
+          - resolved
+          - unresolved
+          - ambiguous
+        method: {type: string}
+        method_version: {type: string}
+      required:
+      - entity_id
+      - entity_version_id
+      - evidence_ids
+      - status
+      - method
+      - method_version
+      additionalProperties: false
+    TopicRef:
+      type: object
+      properties:
+        id: {type: string, minLength: 1, maxLength: 128}
+        version_id: {type: string, minLength: 1, maxLength: 128}
+        method: {type: string}
+        evidence_ids:
+          type: array
+          items: {type: string, minLength: 1, maxLength: 128}
+      required:
+      - id
+      - version_id
+      - method
+      - evidence_ids
+      additionalProperties: false
+    AnalysisRef:
+      type: object
+      properties:
+        id: {type: string, minLength: 1, maxLength: 128}
+        task_type: {type: string}
+        review_status:
+          type: string
+          enum:
+          - unreviewed
+          - accepted
+          - rejected
+          - corrected
+        stale: {type: boolean}
+      required:
+      - id
+      - task_type
+      - review_status
+      - stale
+      additionalProperties: false
+    Selection:
+      type: object
+      properties:
+        selected: {type: boolean}
+        policy_version: {type: string}
+        reasons:
+          type: array
+          items: {type: string}
+      required:
+      - selected
+      - policy_version
+      - reasons
+      additionalProperties: false
+    DisplayProvenance:
+      type: object
+      properties:
+        title_method:
+          type: string
+          enum:
+          - source_language
+          - translation
+          - edited
+        title_analysis_id:
+          anyOf:
+          - {type: string, minLength: 1, maxLength: 128}
+          - {type: 'null'}
+        summary_analysis_id:
+          anyOf:
+          - {type: string, minLength: 1, maxLength: 128}
+          - {type: 'null'}
+      required:
+      - title_method
+      - title_analysis_id
+      - summary_analysis_id
+      additionalProperties: false
+    Item:
+      type: object
+      properties:
+        id: {type: string, minLength: 1, maxLength: 128}
+        version_id: {type: string, minLength: 1, maxLength: 128}
+        legacy_item_id:
+          anyOf:
+          - {type: integer, minimum: 1}
+          - {type: 'null'}
+        kind:
+          type: string
+          enum:
+          - article
+          - flash
+          - filing
+          - policy_release
+          - research
+          - commentary
+          - transcript
+          - other
+        status:
+          type: string
+          enum:
+          - active
+          - withdrawn
+          - restricted
+          - duplicate_alias
+        canonical_id:
+          anyOf:
+          - {type: string, minLength: 1, maxLength: 128}
+          - {type: 'null'}
+        title_original: {type: string}
+        title_display: {type: string}
+        summary_original:
+          anyOf:
+          - {type: string}
+          - {type: 'null'}
+        summary_display:
+          anyOf:
+          - {type: string}
+          - {type: 'null'}
+        canonical_url:
+          anyOf:
+          - {type: string, format: uri}
+          - {type: 'null'}
+        language: {type: string}
+        display_provenance: {$ref: '#/components/schemas/DisplayProvenance'}
+        content_quality: {$ref: '#/components/schemas/ContentQuality'}
+        published_at:
+          anyOf:
+          - {type: string, format: date-time, pattern: '(Z|[+-]\d{2}:\d{2})$'}
+          - {type: 'null'}
+        published_precision:
+          type: string
+          enum:
+          - instant
+          - minute
+          - day
+          - month
+          - unknown
+        time_status:
+          type: string
+          enum:
+          - parsed
+          - missing
+          - invalid
+          - future_suspect
+          - legacy_unverified
+        first_seen_at: {type: string, format: date-time, pattern: '(Z|[+-]\d{2}:\d{2})$'}
+        available_at: {type: string, format: date-time, pattern: '(Z|[+-]\d{2}:\d{2})$'}
+        publisher: {$ref: '#/components/schemas/PublisherRef'}
+        source_refs:
+          type: array
+          items: {$ref: '#/components/schemas/SourceRef'}
+        entity_mentions:
+          type: array
+          items: {$ref: '#/components/schemas/EntityMention'}
+        topic_refs:
+          type: array
+          items: {$ref: '#/components/schemas/TopicRef'}
+        event_refs:
+          type: array
+          items: {$ref: '#/components/schemas/ObjectRef'}
+        analysis_refs:
+          type: array
+          items: {$ref: '#/components/schemas/AnalysisRef'}
+        processing_state:
+          type: string
+          enum:
+          - pending
+          - processing
+          - ready
+          - partial
+          - insufficient_evidence
+          - failed
+          - blocked
+        point_in_time_eligible: {type: boolean}
+        importance_score:
+          anyOf:
+          - {type: number, minimum: 0, maximum: 100}
+          - {type: 'null'}
+        selection:
+          anyOf:
+          - {$ref: '#/components/schemas/Selection'}
+          - {type: 'null'}
+      required:
+      - id
+      - version_id
+      - legacy_item_id
+      - kind
+      - status
+      - canonical_id
+      - title_original
+      - title_display
+      - summary_original
+      - summary_display
+      - canonical_url
+      - language
+      - display_provenance
+      - content_quality
+      - published_at
+      - published_precision
+      - time_status
+      - first_seen_at
+      - available_at
+      - publisher
+      - source_refs
+      - entity_mentions
+      - topic_refs
+      - event_refs
+      - analysis_refs
+      - processing_state
+      - point_in_time_eligible
+      - importance_score
+      - selection
+      additionalProperties: true
+      description: Stable document current/as-of projection; null original summary means not retained. Generated
+        fields retain their analysis references.
+      examples:
+      - id: doc-demo-001
+        version_id: drev-demo-002
+        legacy_item_id: 102
+        kind: article
+        status: active
+        canonical_id: null
+        title_original: Example company corrects its investment plan
+        title_display: Example company corrects its investment plan
+        summary_original: null
+        summary_display: null
+        canonical_url: https://example.com/report
+        language: en
+        display_provenance: {title_method: source_language, title_analysis_id: null, summary_analysis_id: null}
+        content_quality: {origin: legacy_unknown, extent: title_only, truncated: false, extraction_status: legacy_unverified}
+        published_at: '2026-09-10T09:00:00.000000Z'
+        published_precision: minute
+        time_status: legacy_unverified
+        first_seen_at: '2026-09-14T12:00:00.000000Z'
+        available_at: '2026-09-14T12:00:00.000000Z'
+        publisher: {id: null, name: null, attribution_status: unknown}
+        source_refs: []
+        entity_mentions: []
+        topic_refs: []
+        event_refs: []
+        analysis_refs: []
+        processing_state: insufficient_evidence
+        point_in_time_eligible: false
+        importance_score: null
+        selection: null
+    DocumentVersion:
+      type: object
+      properties:
+        id: {type: string, minLength: 1, maxLength: 128}
+        document_id: {type: string, minLength: 1, maxLength: 128}
+        version: {type: integer, minimum: 1}
+        previous_version_id:
+          anyOf:
+          - {type: string, minLength: 1, maxLength: 128}
+          - {type: 'null'}
+        content_sha256:
+          anyOf:
+          - {type: string, pattern: '^[a-f0-9]{64}$'}
+          - {type: 'null'}
+        normalizer_version: {type: string}
+        available_at: {type: string, format: date-time, pattern: '(Z|[+-]\d{2}:\d{2})$'}
+        content_quality: {$ref: '#/components/schemas/ContentQuality'}
+        item: {$ref: '#/components/schemas/Item'}
+      required:
+      - id
+      - document_id
+      - version
+      - previous_version_id
+      - content_sha256
+      - normalizer_version
+      - available_at
+      - content_quality
+      - item
+      additionalProperties: true
+    TextLocator:
+      type: object
+      properties:
+        type: {const: text}
+        field:
+          type: string
+          enum:
+          - title_original
+          - text
+        start_offset: {type: integer, minimum: 0}
+        end_offset: {type: integer, minimum: 0}
+        offset_unit: {const: unicode_code_point}
+        page:
+          anyOf:
+          - {type: integer, minimum: 1}
+          - {type: 'null'}
+        selector:
+          anyOf:
+          - {type: string}
+          - {type: 'null'}
+      required:
+      - type
+      - field
+      - start_offset
+      - end_offset
+      - offset_unit
+      - page
+      - selector
+      additionalProperties: false
+    MetadataLocator:
+      type: object
+      properties:
+        type: {const: metadata}
+        json_pointer: {type: string}
+        value:
+          type:
+          - string
+          - number
+          - boolean
+          - 'null'
+      required:
+      - type
+      - json_pointer
+      - value
+      additionalProperties: false
+    EvidenceLocator:
+      oneOf:
+      - {$ref: '#/components/schemas/TextLocator'}
+      - {$ref: '#/components/schemas/MetadataLocator'}
+    Evidence:
+      type: object
+      properties:
+        id: {type: string, minLength: 1, maxLength: 128}
+        document_version_id: {type: string, minLength: 1, maxLength: 128}
+        kind:
+          type: string
+          enum:
+          - source_text
+          - source_title
+          - source_metadata
+        content_origin:
+          type: string
+          enum:
+          - publisher_text
+          - feed_excerpt
+          - generated_metadata
+          - legacy_unknown
+        quote:
+          anyOf:
+          - {type: string}
+          - {type: 'null'}
+        quote_sha256:
+          anyOf:
+          - {type: string, pattern: '^[a-f0-9]{64}$'}
+          - {type: 'null'}
+        locator:
+          anyOf:
+          - {$ref: '#/components/schemas/EvidenceLocator'}
+          - {type: 'null'}
+        access_status:
+          type: string
+          enum:
+          - available
+          - missing
+          - restricted
+          - expired
+        restriction_reason:
+          anyOf:
+          - {type: string}
+          - {type: 'null'}
+        available_at: {type: string, format: date-time, pattern: '(Z|[+-]\d{2}:\d{2})$'}
+      required:
+      - id
+      - document_version_id
+      - kind
+      - content_origin
+      - quote
+      - quote_sha256
+      - locator
+      - access_status
+      - restriction_reason
+      - available_at
+      additionalProperties: true
+      description: If restricted, quote/locator may be null; generated metadata is never a verbatim issuer statement.
+        Offsets are [start,end).
+    TimeRange:
+      type: object
+      properties:
+        start:
+          anyOf:
+          - {type: string, format: date-time, pattern: '(Z|[+-]\d{2}:\d{2})$'}
+          - {type: 'null'}
+        end:
+          anyOf:
+          - {type: string, format: date-time, pattern: '(Z|[+-]\d{2}:\d{2})$'}
+          - {type: 'null'}
+        precision:
+          type: string
+          enum:
+          - instant
+          - minute
+          - day
+          - month
+          - unknown
+      required:
+      - start
+      - end
+      - precision
+      additionalProperties: false
+    Fact:
+      type: object
+      properties:
+        fact_id: {type: string, minLength: 1, maxLength: 128}
+        subject_ids:
+          type: array
+          items: {type: string, minLength: 1, maxLength: 128}
+        predicate: {type: string}
+        object_entity_ids:
+          type: array
+          items: {type: string, minLength: 1, maxLength: 128}
+        value:
+          type:
+          - string
+          - number
+          - boolean
+          - 'null'
+        unit:
+          anyOf:
+          - {type: string}
+          - {type: 'null'}
+        currency:
+          anyOf:
+          - {type: string}
+          - {type: 'null'}
+        original_value:
+          anyOf:
+          - {type: string}
+          - {type: 'null'}
+        period: {$ref: '#/components/schemas/TimeRange'}
+        time_interval: {$ref: '#/components/schemas/TimeRange'}
+        modality:
+          type: string
+          enum:
+          - asserted
+          - announced
+          - planned
+          - estimated
+          - denied
+          - corrected
+        evidence_ids:
+          type: array
+          items: {type: string, minLength: 1, maxLength: 128}
+        conflict_group:
+          anyOf:
+          - {type: string, minLength: 1, maxLength: 128}
+          - {type: 'null'}
+      required:
+      - fact_id
+      - subject_ids
+      - predicate
+      - object_entity_ids
+      - value
+      - unit
+      - currency
+      - original_value
+      - period
+      - time_interval
+      - modality
+      - evidence_ids
+      - conflict_group
+      additionalProperties: true
+    Event:
+      type: object
+      properties:
+        id: {type: string, minLength: 1, maxLength: 128}
+        version_id: {type: string, minLength: 1, maxLength: 128}
+        status:
+          type: string
+          enum:
+          - candidate
+          - active
+          - resolved
+          - retracted
+        canonical_id:
+          anyOf:
+          - {type: string, minLength: 1, maxLength: 128}
+          - {type: 'null'}
+        replacement_ids:
+          type: array
+          items: {type: string, minLength: 1, maxLength: 128}
+        title: {type: string}
+        event_type:
+          type: string
+          enum:
+          - model_release
+          - product_update
+          - research_result
+          - earnings
+          - financing
+          - ma
+          - personnel
+          - buyback
+          - regulation
+          - litigation
+          - macro_release
+          - monetary_policy
+          - other
+        event_time: {$ref: '#/components/schemas/TimeRange'}
+        first_seen_at: {type: string, format: date-time, pattern: '(Z|[+-]\d{2}:\d{2})$'}
+        available_at: {type: string, format: date-time, pattern: '(Z|[+-]\d{2}:\d{2})$'}
+        last_fact_change_at: {type: string, format: date-time, pattern: '(Z|[+-]\d{2}:\d{2})$'}
+        latest_report_at: {type: string, format: date-time, pattern: '(Z|[+-]\d{2}:\d{2})$'}
+        knowledge_status:
+          type: string
+          enum:
+          - reported
+          - corroborated
+          - disputed
+          - confirmed_by_primary
+          - retracted
+          - unknown
+        facts:
+          type: array
+          items: {$ref: '#/components/schemas/Fact'}
+        entities:
+          type: array
+          items: {$ref: '#/components/schemas/ObjectRef'}
+        topics:
+          type: array
+          items: {$ref: '#/components/schemas/ObjectRef'}
+        report_count: {type: integer, minimum: 0}
+        publisher_count: {type: integer, minimum: 0}
+        independent_origin_count:
+          anyOf:
+          - {type: integer, minimum: 0}
+          - {type: 'null'}
+        unknown_origin_count: {type: integer, minimum: 0}
+        evidence_coverage: {$ref: '#/components/schemas/Coverage'}
+        analysis_refs:
+          type: array
+          items: {$ref: '#/components/schemas/AnalysisRef'}
+        point_in_time_eligible: {type: boolean}
+      required:
+      - id
+      - version_id
+      - status
+      - canonical_id
+      - replacement_ids
+      - title
+      - event_type
+      - event_time
+      - first_seen_at
+      - available_at
+      - last_fact_change_at
+      - latest_report_at
+      - knowledge_status
+      - facts
+      - entities
+      - topics
+      - report_count
+      - publisher_count
+      - independent_origin_count
+      - unknown_origin_count
+      - evidence_coverage
+      - analysis_refs
+      - point_in_time_eligible
+      additionalProperties: true
+    EventAlias:
+      type: object
+      properties:
+        id: {type: string, minLength: 1, maxLength: 128}
+        version_id: {type: string, minLength: 1, maxLength: 128}
+        status:
+          type: string
+          enum:
+          - merged
+          - split
+        canonical_id:
+          anyOf:
+          - {type: string, minLength: 1, maxLength: 128}
+          - {type: 'null'}
+        replacement_ids:
+          type: array
+          items: {type: string, minLength: 1, maxLength: 128}
+        available_at: {type: string, format: date-time, pattern: '(Z|[+-]\d{2}:\d{2})$'}
+        reason: {type: string}
+      required:
+      - id
+      - version_id
+      - status
+      - canonical_id
+      - replacement_ids
+      - available_at
+      - reason
+      additionalProperties: true
+      examples:
+      - id: event-demo-old
+        version_id: ev-demo-003
+        status: merged
+        canonical_id: event-demo-survivor
+        replacement_ids: []
+        available_at: '2026-09-14T12:00:00.000000Z'
+        reason: Reviewed reports describe the same event.
+    EventView:
+      oneOf:
+      - {$ref: '#/components/schemas/Event'}
+      - {$ref: '#/components/schemas/EventAlias'}
+    EventEvidence:
+      type: object
+      properties:
+        event_id: {type: string, minLength: 1, maxLength: 128}
+        event_version_id: {type: string, minLength: 1, maxLength: 128}
+        fact_id: {type: string, minLength: 1, maxLength: 128}
+        role:
+          type: string
+          enum:
+          - supports
+          - contradicts
+          - context
+        evidence: {$ref: '#/components/schemas/Evidence'}
+      required:
+      - event_id
+      - event_version_id
+      - fact_id
+      - role
+      - evidence
+      additionalProperties: true
+    Identifier:
+      type: object
+      properties:
+        namespace: {type: string}
+        value: {type: string}
+        exchange:
+          anyOf:
+          - {type: string}
+          - {type: 'null'}
+        valid_from:
+          anyOf:
+          - {type: string, format: date-time, pattern: '(Z|[+-]\d{2}:\d{2})$'}
+          - {type: 'null'}
+        valid_to:
+          anyOf:
+          - {type: string, format: date-time, pattern: '(Z|[+-]\d{2}:\d{2})$'}
+          - {type: 'null'}
+        evidence_id:
+          anyOf:
+          - {type: string, minLength: 1, maxLength: 128}
+          - {type: 'null'}
+      required:
+      - namespace
+      - value
+      - exchange
+      - valid_from
+      - valid_to
+      - evidence_id
+      additionalProperties: false
+    Entity:
+      type: object
+      properties:
+        id: {type: string, minLength: 1, maxLength: 128}
+        version_id: {type: string, minLength: 1, maxLength: 128}
+        type:
+          type: string
+          enum:
+          - organization
+          - person
+          - product
+          - model
+          - industry
+          - region
+          - macro_concept
+        canonical_name: {type: string}
+        status:
+          type: string
+          enum:
+          - active
+          - retired
+          - merged
+        canonical_id:
+          anyOf:
+          - {type: string, minLength: 1, maxLength: 128}
+          - {type: 'null'}
+        aliases:
+          type: array
+          items: {type: string}
+        identifiers:
+          type: array
+          items: {$ref: '#/components/schemas/Identifier'}
+        available_at: {type: string, format: date-time, pattern: '(Z|[+-]\d{2}:\d{2})$'}
+      required:
+      - id
+      - version_id
+      - type
+      - canonical_name
+      - status
+      - canonical_id
+      - aliases
+      - identifiers
+      - available_at
+      additionalProperties: true
+    Topic:
+      type: object
+      properties:
+        id: {type: string, minLength: 1, maxLength: 128}
+        version_id: {type: string, minLength: 1, maxLength: 128}
+        slug: {type: string}
+        name: {type: string}
+        description: {type: string}
+        group:
+          type: string
+          enum:
+          - company_model
+          - technology
+          - format
+          - macro
+          - research
+        status:
+          type: string
+          enum:
+          - active
+          - retired
+        document_count: {type: integer, minimum: 0}
+        event_count: {type: integer, minimum: 0}
+        counted_at: {type: string, format: date-time, pattern: '(Z|[+-]\d{2}:\d{2})$'}
+        available_at: {type: string, format: date-time, pattern: '(Z|[+-]\d{2}:\d{2})$'}
+      required:
+      - id
+      - version_id
+      - slug
+      - name
+      - description
+      - group
+      - status
+      - document_count
+      - event_count
+      - counted_at
+      - available_at
+      additionalProperties: true
+    Source:
+      type: object
+      properties:
+        id: {type: string, minLength: 1, maxLength: 128}
+        version_id: {type: string, minLength: 1, maxLength: 128}
+        key: {type: string}
+        name: {type: string}
+        type: {type: string}
+        status:
+          type: string
+          enum:
+          - enabled
+          - disabled
+          - retired
+        public_url:
+          anyOf:
+          - {type: string, format: uri}
+          - {type: 'null'}
+        publisher_id:
+          anyOf:
+          - {type: string, minLength: 1, maxLength: 128}
+          - {type: 'null'}
+        languages:
+          type: array
+          items: {type: string}
+        coverage_description: {type: string}
+        content_policy: {type: string}
+        available_at: {type: string, format: date-time, pattern: '(Z|[+-]\d{2}:\d{2})$'}
+      required:
+      - id
+      - version_id
+      - key
+      - name
+      - type
+      - status
+      - public_url
+      - publisher_id
+      - languages
+      - coverage_description
+      - content_policy
+      - available_at
+      additionalProperties: true
+    CitedText:
+      type: object
+      properties:
+        text: {type: string}
+        evidence_ids:
+          type: array
+          items: {type: string, minLength: 1, maxLength: 128}
+      required:
+      - text
+      - evidence_ids
+      additionalProperties: false
+    Classification:
+      type: object
+      properties:
+        label: {type: string}
+        taxonomy_version: {type: string}
+        status:
+          type: string
+          enum:
+          - assigned
+          - unknown
+        evidence_ids:
+          type: array
+          items: {type: string, minLength: 1, maxLength: 128}
+      required:
+      - label
+      - taxonomy_version
+      - status
+      - evidence_ids
+      additionalProperties: false
+    ImportanceOutput:
+      type: object
+      properties:
+        score:
+          anyOf:
+          - {type: number, minimum: 0, maximum: 100}
+          - {type: 'null'}
+        policy_version: {type: string}
+        reason: {type: string}
+        evidence_ids:
+          type: array
+          items: {type: string, minLength: 1, maxLength: 128}
+      required:
+      - score
+      - policy_version
+      - reason
+      - evidence_ids
+      additionalProperties: false
+    TranslationOutput:
+      type: object
+      properties:
+        source_language: {type: string}
+        target_language: {type: string}
+        title:
+          anyOf:
+          - {type: string}
+          - {type: 'null'}
+        segments:
+          type: array
+          items: {$ref: '#/components/schemas/CitedText'}
+        limitations:
+          type: array
+          items: {type: string}
+      required:
+      - source_language
+      - target_language
+      - title
+      - segments
+      - limitations
+      additionalProperties: false
+    RelevanceOutput:
+      type: object
+      properties:
+        labels:
+          type: array
+          items: {$ref: '#/components/schemas/Classification'}
+        status:
+          type: string
+          enum:
+          - classified
+          - unknown
+          - insufficient_evidence
+      required:
+      - labels
+      - status
+      additionalProperties: false
+    SummaryOutput:
+      type: object
+      properties:
+        sentences:
+          type: array
+          items: {$ref: '#/components/schemas/CitedText'}
+        coverage: {$ref: '#/components/schemas/Coverage'}
+      required:
+      - sentences
+      - coverage
+      additionalProperties: false
+    CurationOutput:
+      type: object
+      properties:
+        translation:
+          anyOf:
+          - {$ref: '#/components/schemas/TranslationOutput'}
+          - {type: 'null'}
+        summary:
+          anyOf:
+          - {$ref: '#/components/schemas/SummaryOutput'}
+          - {type: 'null'}
+        relevance: {$ref: '#/components/schemas/RelevanceOutput'}
+        importance: {$ref: '#/components/schemas/ImportanceOutput'}
+      required:
+      - translation
+      - summary
+      - relevance
+      - importance
+      additionalProperties: false
+    EntityLinkingOutput:
+      type: object
+      properties:
+        mentions:
+          type: array
+          items: {$ref: '#/components/schemas/EntityMention'}
+      required:
+      - mentions
+      additionalProperties: false
+    ExtractedEvent:
+      type: object
+      properties:
+        candidate_key: {type: string, minLength: 1, maxLength: 128}
+        event_type: {type: string}
+        title: {type: string}
+        facts:
+          type: array
+          items: {$ref: '#/components/schemas/Fact'}
+        event_time: {$ref: '#/components/schemas/TimeRange'}
+      required:
+      - candidate_key
+      - event_type
+      - title
+      - facts
+      - event_time
+      additionalProperties: false
+    EventExtractionOutput:
+      type: object
+      properties:
+        candidates:
+          type: array
+          items: {$ref: '#/components/schemas/ExtractedEvent'}
+      required:
+      - candidates
+      additionalProperties: false
+    EventLinkDecision:
+      type: object
+      properties:
+        candidate_ref: {$ref: '#/components/schemas/ObjectRef'}
+        decision:
+          type: string
+          enum:
+          - same_event
+          - related
+          - distinct
+          - uncertain
+        reason: {type: string}
+        evidence_ids:
+          type: array
+          items: {type: string, minLength: 1, maxLength: 128}
+      required:
+      - candidate_ref
+      - decision
+      - reason
+      - evidence_ids
+      additionalProperties: false
+    EventLinkingOutput:
+      type: object
+      properties:
+        decisions:
+          type: array
+          items: {$ref: '#/components/schemas/EventLinkDecision'}
+      required:
+      - decisions
+      additionalProperties: false
+    Horizon:
+      oneOf:
+      - type: object
+        properties:
+          bucket: {const: immediate}
+          min_days: {const: 0}
+          max_days: {const: 7}
+        required:
+        - bucket
+        - min_days
+        - max_days
+        additionalProperties: false
+      - type: object
+        properties:
+          bucket: {const: quarter}
+          min_days: {const: 8}
+          max_days: {const: 90}
+        required:
+        - bucket
+        - min_days
+        - max_days
+        additionalProperties: false
+      - type: object
+        properties:
+          bucket: {const: long_term}
+          min_days: {const: 91}
+          max_days: {const: 730}
+        required:
+        - bucket
+        - min_days
+        - max_days
+        additionalProperties: false
+      - type: object
+        properties:
+          bucket: {const: unspecified}
+          min_days: {const: null}
+          max_days: {const: null}
+        required:
+        - bucket
+        - min_days
+        - max_days
+        additionalProperties: false
+    Target:
+      type: object
+      properties:
+        entity_id: {type: string, minLength: 1, maxLength: 128}
+        type:
+          type: string
+          enum:
+          - organization
+          - person
+          - product
+          - model
+          - industry
+          - region
+          - macro_concept
+      required:
+      - entity_id
+      - type
+      additionalProperties: false
+    Confidence:
+      type: object
+      properties:
+        raw_confidence:
+          anyOf:
+          - {type: number, minimum: 0, maximum: 1}
+          - {type: 'null'}
+        calibrated_confidence:
+          anyOf:
+          - {type: number, minimum: 0, maximum: 1}
+          - {type: 'null'}
+        calibration_version:
+          anyOf:
+          - {type: string}
+          - {type: 'null'}
+        uncertainty_reason:
+          anyOf:
+          - {type: string}
+          - {type: 'null'}
+      required:
+      - raw_confidence
+      - calibrated_confidence
+      - calibration_version
+      - uncertainty_reason
+      additionalProperties: false
+      allOf:
+      - if:
+          properties:
+            calibrated_confidence: {type: number}
+        then:
+          properties:
+            calibration_version: {type: string, minLength: 1}
+    ToneAssessment:
+      type: object
+      properties:
+        speaker_entity_id:
+          anyOf:
+          - {type: string, minLength: 1, maxLength: 128}
+          - {type: 'null'}
+        target:
+          anyOf:
+          - {$ref: '#/components/schemas/Target'}
+          - {type: 'null'}
+        aspect: {type: string}
+        polarity:
+          type: string
+          enum:
+          - positive
+          - negative
+          - neutral
+          - mixed
+          - unknown
+        intensity:
+          anyOf:
+          - {type: number, minimum: 0, maximum: 1}
+          - {type: 'null'}
+        evidence_ids:
+          type: array
+          items: {type: string, minLength: 1, maxLength: 128}
+        confidence: {$ref: '#/components/schemas/Confidence'}
+      required:
+      - speaker_entity_id
+      - target
+      - aspect
+      - polarity
+      - intensity
+      - evidence_ids
+      - confidence
+      additionalProperties: false
+    ToneOutput:
+      type: object
+      properties:
+        status:
+          type: string
+          enum:
+          - analyzed
+          - insufficient_evidence
+          - needs_review
+        assessments:
+          type: array
+          items: {$ref: '#/components/schemas/ToneAssessment'}
+      required:
+      - status
+      - assessments
+      additionalProperties: false
+    ImpactAssessment:
+      type: object
+      properties:
+        target: {$ref: '#/components/schemas/Target'}
+        aspect: {type: string}
+        horizon: {$ref: '#/components/schemas/Horizon'}
+        direction:
+          type: string
+          enum:
+          - positive
+          - negative
+          - neutral
+          - mixed
+          - unknown
+        intensity:
+          anyOf:
+          - {type: number, minimum: 0, maximum: 1}
+          - {type: 'null'}
+        evidence_ids:
+          type: array
+          items: {type: string, minLength: 1, maxLength: 128}
+        contradicting_evidence_ids:
+          type: array
+          items: {type: string, minLength: 1, maxLength: 128}
+        mechanism: {type: string}
+        assumptions:
+          type: array
+          items: {type: string}
+        raw_confidence:
+          anyOf:
+          - {type: number, minimum: 0, maximum: 1}
+          - {type: 'null'}
+        calibrated_confidence:
+          anyOf:
+          - {type: number, minimum: 0, maximum: 1}
+          - {type: 'null'}
+        calibration_version:
+          anyOf:
+          - {type: string}
+          - {type: 'null'}
+        uncertainty_reason:
+          anyOf:
+          - {type: string}
+          - {type: 'null'}
+      required:
+      - target
+      - aspect
+      - horizon
+      - direction
+      - intensity
+      - evidence_ids
+      - contradicting_evidence_ids
+      - mechanism
+      - assumptions
+      - raw_confidence
+      - calibrated_confidence
+      - calibration_version
+      - uncertainty_reason
+      additionalProperties: false
+      allOf:
+      - if:
+          properties:
+            calibrated_confidence: {type: number}
+        then:
+          properties:
+            calibration_version: {type: string, minLength: 1}
+    ImpactOutput:
+      type: object
+      properties:
+        schema_version: {const: impact/1.0}
+        subject:
+          type: object
+          properties:
+            event_id: {type: string, minLength: 1, maxLength: 128}
+            event_version_id: {type: string, minLength: 1, maxLength: 128}
+          required:
+          - event_id
+          - event_version_id
+          additionalProperties: false
+        status:
+          type: string
+          enum:
+          - analyzed
+          - insufficient_evidence
+          - needs_review
+        assessments:
+          type: array
+          items: {$ref: '#/components/schemas/ImpactAssessment'}
+      required:
+      - schema_version
+      - subject
+      - status
+      - assessments
+      additionalProperties: false
+      examples:
+      - schema_version: impact/1.0
+        subject: {event_id: event-demo, event_version_id: ev-demo-003}
+        status: needs_review
+        assessments:
+        - target: {entity_id: entity-demo-company, type: organization}
+          aspect: operating_cost
+          horizon: {bucket: quarter, min_days: 8, max_days: 90}
+          direction: positive
+          intensity: 0.4
+          evidence_ids:
+          - evidence-demo-001
+          contradicting_evidence_ids: []
+          mechanism: If the announced cost reduction is implemented, operating cost burden may fall.
+          assumptions:
+          - Execution on schedule; no offsetting costs
+          raw_confidence: 0.72
+          calibrated_confidence: null
+          calibration_version: null
+          uncertainty_reason: Plan only; no realized cost outcome.
+    MacroObservation:
+      type: object
+      properties:
+        factor_id: {type: string, minLength: 1, maxLength: 128}
+        region_id:
+          anyOf:
+          - {type: string, minLength: 1, maxLength: 128}
+          - {type: 'null'}
+        direction:
+          type: string
+          enum:
+          - up
+          - down
+          - unchanged
+          - mixed
+          - unknown
+        metric_name:
+          anyOf:
+          - {type: string}
+          - {type: 'null'}
+        value:
+          anyOf:
+          - {type: string, pattern: '^-?\d+(\.\d+)?$'}
+          - {type: 'null'}
+        unit:
+          anyOf:
+          - {type: string}
+          - {type: 'null'}
+        currency:
+          anyOf:
+          - {type: string}
+          - {type: 'null'}
+        period: {$ref: '#/components/schemas/TimeRange'}
+        seasonal_adjustment:
+          anyOf:
+          - {type: string}
+          - {type: 'null'}
+        basis:
+          anyOf:
+          - type: string
+            enum:
+            - yoy
+            - qoq
+            - level
+            - other
+          - {type: 'null'}
+        value_role:
+          type: string
+          enum:
+          - actual
+          - forecast
+          - prior
+          - revised
+          - not_numeric
+        expectation_basis:
+          type: string
+          enum:
+          - source_claim
+          - external_snapshot
+          - unknown
+        release_time:
+          anyOf:
+          - {type: string, format: date-time, pattern: '(Z|[+-]\d{2}:\d{2})$'}
+          - {type: 'null'}
+        mechanism: {type: string}
+        evidence_ids:
+          type: array
+          items: {type: string, minLength: 1, maxLength: 128}
+      required:
+      - factor_id
+      - region_id
+      - direction
+      - metric_name
+      - value
+      - unit
+      - currency
+      - period
+      - seasonal_adjustment
+      - basis
+      - value_role
+      - expectation_basis
+      - release_time
+      - mechanism
+      - evidence_ids
+      additionalProperties: false
+    MacroMappingOutput:
+      type: object
+      properties:
+        observations:
+          type: array
+          items: {$ref: '#/components/schemas/MacroObservation'}
+      required:
+      - observations
+      additionalProperties: false
+    ReportOutput:
+      type: object
+      properties:
+        markdown: {type: string}
+        citations:
+          type: array
+          items: {$ref: '#/components/schemas/CitedText'}
+        coverage: {$ref: '#/components/schemas/Coverage'}
+      required:
+      - markdown
+      - citations
+      - coverage
+      additionalProperties: false
+    AnalysisMetadata:
+      type: object
+      properties:
+        id: {type: string, minLength: 1, maxLength: 128}
+        view_version_id: {type: string, minLength: 1, maxLength: 128}
+        state_as_of: {type: string, format: date-time, pattern: '(Z|[+-]\d{2}:\d{2})$'}
+        schema_version: {type: string}
+        subject_ref: {$ref: '#/components/schemas/SubjectRef'}
+        input_refs:
+          type: array
+          items: {$ref: '#/components/schemas/InputRef'}
+        input_hash: {type: string, pattern: '^[a-f0-9]{64}$'}
+        pipeline_version: {type: string}
+        provider: {type: string}
+        model_requested:
+          anyOf:
+          - {type: string}
+          - {type: 'null'}
+        model_resolved:
+          anyOf:
+          - {type: string}
+          - {type: 'null'}
+        prompt_hash:
+          anyOf:
+          - {type: string, pattern: '^[a-f0-9]{64}$'}
+          - {type: 'null'}
+        parameters_hash: {type: string, pattern: '^[a-f0-9]{64}$'}
+        analyzed_at: {type: string, format: date-time, pattern: '(Z|[+-]\d{2}:\d{2})$'}
+        available_at: {type: string, format: date-time, pattern: '(Z|[+-]\d{2}:\d{2})$'}
+        validation_status:
+          type: string
+          enum:
+          - passed
+          - failed
+          - needs_review
+        review_status:
+          type: string
+          enum:
+          - unreviewed
+          - accepted
+          - rejected
+          - corrected
+        stale: {type: boolean}
+        evidence_refs:
+          type: array
+          items: {type: string, minLength: 1, maxLength: 128}
+        evidence_status:
+          type: string
+          enum:
+          - supported
+          - partial
+          - insufficient
+          - restricted
+        processing_state:
+          type: string
+          enum:
+          - complete
+          - partial
+          - insufficient_evidence
+      required:
+      - id
+      - view_version_id
+      - state_as_of
+      - schema_version
+      - subject_ref
+      - input_refs
+      - input_hash
+      - pipeline_version
+      - provider
+      - model_requested
+      - model_resolved
+      - prompt_hash
+      - parameters_hash
+      - analyzed_at
+      - available_at
+      - validation_status
+      - review_status
+      - stale
+      - evidence_refs
+      - evidence_status
+      - processing_state
+      additionalProperties: true
+    Analysis:
+      allOf:
+      - {$ref: '#/components/schemas/AnalysisMetadata'}
+      - oneOf:
+        - type: object
+          properties:
+            task_type: {const: curation}
+            output: {$ref: '#/components/schemas/CurationOutput'}
+          required:
+          - task_type
+          - output
+          additionalProperties: true
+        - type: object
+          properties:
+            task_type: {const: translation}
+            output: {$ref: '#/components/schemas/TranslationOutput'}
+          required:
+          - task_type
+          - output
+          additionalProperties: true
+        - type: object
+          properties:
+            task_type: {const: relevance}
+            output: {$ref: '#/components/schemas/RelevanceOutput'}
+          required:
+          - task_type
+          - output
+          additionalProperties: true
+        - type: object
+          properties:
+            task_type: {const: summarization}
+            output: {$ref: '#/components/schemas/SummaryOutput'}
+          required:
+          - task_type
+          - output
+          additionalProperties: true
+        - type: object
+          properties:
+            task_type: {const: importance}
+            output: {$ref: '#/components/schemas/ImportanceOutput'}
+          required:
+          - task_type
+          - output
+          additionalProperties: true
+        - type: object
+          properties:
+            task_type: {const: entity_linking}
+            output: {$ref: '#/components/schemas/EntityLinkingOutput'}
+          required:
+          - task_type
+          - output
+          additionalProperties: true
+        - type: object
+          properties:
+            task_type: {const: event_extraction}
+            output: {$ref: '#/components/schemas/EventExtractionOutput'}
+          required:
+          - task_type
+          - output
+          additionalProperties: true
+        - type: object
+          properties:
+            task_type: {const: event_linking}
+            output: {$ref: '#/components/schemas/EventLinkingOutput'}
+          required:
+          - task_type
+          - output
+          additionalProperties: true
+        - type: object
+          properties:
+            task_type: {const: tone}
+            output: {$ref: '#/components/schemas/ToneOutput'}
+          required:
+          - task_type
+          - output
+          additionalProperties: true
+        - type: object
+          properties:
+            task_type: {const: impact}
+            output: {$ref: '#/components/schemas/ImpactOutput'}
+          required:
+          - task_type
+          - output
+          additionalProperties: true
+        - type: object
+          properties:
+            task_type: {const: macro_mapping}
+            output: {$ref: '#/components/schemas/MacroMappingOutput'}
+          required:
+          - task_type
+          - output
+          additionalProperties: true
+        - type: object
+          properties:
+            task_type: {const: report}
+            output: {$ref: '#/components/schemas/ReportOutput'}
+          required:
+          - task_type
+          - output
+          additionalProperties: true
+    SourceShare:
+      type: object
+      properties:
+        publisher_id:
+          anyOf:
+          - {type: string, minLength: 1, maxLength: 128}
+          - {type: 'null'}
+        origin_group_id:
+          anyOf:
+          - {type: string, minLength: 1, maxLength: 128}
+          - {type: 'null'}
+        event_count: {type: integer, minimum: 0}
+        share: {type: number, minimum: 0, maximum: 1}
+      required:
+      - publisher_id
+      - origin_group_id
+      - event_count
+      - share
+      additionalProperties: false
+    Signal:
+      type: object
+      properties:
+        id: {type: string, minLength: 1, maxLength: 128}
+        version_id: {type: string, minLength: 1, maxLength: 128}
+        target: {$ref: '#/components/schemas/Target'}
+        aspect: {type: string}
+        horizon: {$ref: '#/components/schemas/Horizon'}
+        window_start: {type: string, format: date-time, pattern: '(Z|[+-]\d{2}:\d{2})$'}
+        window_end: {type: string, format: date-time, pattern: '(Z|[+-]\d{2}:\d{2})$'}
+        as_of: {type: string, format: date-time, pattern: '(Z|[+-]\d{2}:\d{2})$'}
+        available_at: {type: string, format: date-time, pattern: '(Z|[+-]\d{2}:\d{2})$'}
+        formula_version: {type: string}
+        analysis_version_group: {type: string}
+        score:
+          anyOf:
+          - {type: number, minimum: -100, maximum: 100}
+          - {type: 'null'}
+        n_events: {type: integer, minimum: 0}
+        n_eligible: {type: integer, minimum: 0}
+        n_valid: {type: integer, minimum: 0}
+        n_unknown: {type: integer, minimum: 0}
+        n_mixed: {type: integer, minimum: 0}
+        coverage: {$ref: '#/components/schemas/Coverage'}
+        valid_fraction:
+          anyOf:
+          - {type: number, minimum: 0, maximum: 1}
+          - {type: 'null'}
+        source_mix:
+          type: array
+          items: {$ref: '#/components/schemas/SourceShare'}
+        status:
+          type: string
+          enum:
+          - ready
+          - partial
+          - insufficient_sample
+          - experimental
+        input_manifest_ref: {type: string, minLength: 1, maxLength: 128}
+        supersedes:
+          anyOf:
+          - {type: string, minLength: 1, maxLength: 128}
+          - {type: 'null'}
+      required:
+      - id
+      - version_id
+      - target
+      - aspect
+      - horizon
+      - window_start
+      - window_end
+      - as_of
+      - available_at
+      - formula_version
+      - analysis_version_group
+      - score
+      - n_events
+      - n_eligible
+      - n_valid
+      - n_unknown
+      - n_mixed
+      - coverage
+      - valid_fraction
+      - source_mix
+      - status
+      - input_manifest_ref
+      - supersedes
+      additionalProperties: true
+    Citation:
+      type: object
+      properties:
+        citation_id: {type: string, minLength: 1, maxLength: 128}
+        evidence_ids:
+          type: array
+          items: {type: string, minLength: 1, maxLength: 128}
+        document_version_ids:
+          type: array
+          items: {type: string, minLength: 1, maxLength: 128}
+        claim_text: {type: string}
+        access_status:
+          type: string
+          enum:
+          - available
+          - partial
+          - restricted
+          - missing
+      required:
+      - citation_id
+      - evidence_ids
+      - document_version_ids
+      - claim_text
+      - access_status
+      additionalProperties: false
+    Report:
+      type: object
+      properties:
+        id: {type: string, minLength: 1, maxLength: 128}
+        version_id: {type: string, minLength: 1, maxLength: 128}
+        date: {type: string, format: date}
+        timezone: {type: string}
+        as_of: {type: string, format: date-time, pattern: '(Z|[+-]\d{2}:\d{2})$'}
+        available_at: {type: string, format: date-time, pattern: '(Z|[+-]\d{2}:\d{2})$'}
+        mode:
+          type: string
+          enum:
+          - llm
+          - structured_fallback
+          - legacy_unknown
+        markdown: {type: string}
+        citations:
+          type: array
+          items: {$ref: '#/components/schemas/Citation'}
+        input_manifest:
+          type: array
+          items: {$ref: '#/components/schemas/InputRef'}
+        coverage: {$ref: '#/components/schemas/Coverage'}
+        analysis_refs:
+          type: array
+          items: {$ref: '#/components/schemas/AnalysisRef'}
+        supersedes:
+          anyOf:
+          - {type: string, minLength: 1, maxLength: 128}
+          - {type: 'null'}
+        point_in_time_eligible: {type: boolean}
+      required:
+      - id
+      - version_id
+      - date
+      - timezone
+      - as_of
+      - available_at
+      - mode
+      - markdown
+      - citations
+      - input_manifest
+      - coverage
+      - analysis_refs
+      - supersedes
+      - point_in_time_eligible
+      additionalProperties: true
+    Tombstone:
+      type: object
+      properties:
+        id: {type: string, minLength: 1, maxLength: 128}
+        version_id: {type: string, minLength: 1, maxLength: 128}
+        status: {const: deleted}
+        reason_code: {type: string}
+        available_at: {type: string, format: date-time, pattern: '(Z|[+-]\d{2}:\d{2})$'}
+      required:
+      - id
+      - version_id
+      - status
+      - reason_code
+      - available_at
+      additionalProperties: false
+    Meta:
+      type: object
+      properties:
+        api_version: {const: v1}
+        schema_version: {type: string}
+        dataset_id: {type: string, minLength: 1, maxLength: 128}
+        dataset_epoch: {type: string, minLength: 1, maxLength: 128}
+        request_id: {type: string, minLength: 1, maxLength: 128}
+        generated_at: {type: string, format: date-time, pattern: '(Z|[+-]\d{2}:\d{2})$'}
+      required:
+      - api_version
+      - schema_version
+      - dataset_id
+      - dataset_epoch
+      - request_id
+      - generated_at
+      additionalProperties: true
+    Pagination:
+      type: object
+      properties:
+        limit: {type: integer, minimum: 1, maximum: 100}
+        next_cursor:
+          anyOf:
+          - {type: string}
+          - {type: 'null'}
+        consistency:
+          type: string
+          enum:
+          - live
+          - snapshot
+      required:
+      - limit
+      - next_cursor
+      - consistency
+      additionalProperties: false
+    SnapshotRequest:
+      type: object
+      properties:
+        resources:
+          type: array
+          items:
+            type: string
+            enum:
+            - items
+            - events
+            - entities
+            - topics
+            - sources
+            - analyses
+            - signals
+            - reports
+            - evidence
+          minItems: 1
+          uniqueItems: true
+        scope:
+          type: string
+          enum:
+          - research
+          - selected
+      required:
+      - resources
+      - scope
+      additionalProperties: false
+    SnapshotManifestEntry:
+      type: object
+      properties:
+        resource:
+          type: string
+          enum:
+          - items
+          - events
+          - entities
+          - topics
+          - sources
+          - analyses
+          - signals
+          - reports
+          - evidence
+        count: {type: integer, minimum: 0}
+        sha256: {type: string, pattern: '^[a-f0-9]{64}$'}
+      required:
+      - resource
+      - count
+      - sha256
+      additionalProperties: false
+    Snapshot:
+      type: object
+      properties:
+        id: {type: string, minLength: 1, maxLength: 128}
+        status:
+          type: string
+          enum:
+          - pending
+          - running
+          - ready
+          - failed
+          - expired
+        resources:
+          type: array
+          items:
+            type: string
+            enum:
+            - items
+            - events
+            - entities
+            - topics
+            - sources
+            - analyses
+            - signals
+            - reports
+            - evidence
+        scope:
+          type: string
+          enum:
+          - research
+          - selected
+        dataset_epoch: {type: string, minLength: 1, maxLength: 128}
+        high_water:
+          anyOf:
+          - {type: integer, minimum: 0}
+          - {type: 'null'}
+        expires_at:
+          anyOf:
+          - {type: string, format: date-time, pattern: '(Z|[+-]\d{2}:\d{2})$'}
+          - {type: 'null'}
+        resume_cursor:
+          anyOf:
+          - {type: string}
+          - {type: 'null'}
+        manifest:
+          type: array
+          items: {$ref: '#/components/schemas/SnapshotManifestEntry'}
+        checksum_algorithm: {const: jcs-sha256-v1}
+        error_code:
+          anyOf:
+          - {type: string}
+          - {type: 'null'}
+        created_at: {type: string, format: date-time, pattern: '(Z|[+-]\d{2}:\d{2})$'}
+      required:
+      - id
+      - status
+      - resources
+      - scope
+      - dataset_epoch
+      - high_water
+      - expires_at
+      - resume_cursor
+      - manifest
+      - checksum_algorithm
+      - error_code
+      - created_at
+      additionalProperties: true
+    ResourceRecord:
+      oneOf:
+      - type: object
+        properties:
+          resource_type: {const: item}
+          resource_id: {type: string, minLength: 1, maxLength: 128}
+          version_id: {type: string, minLength: 1, maxLength: 128}
+          payload: {$ref: '#/components/schemas/Item'}
+        required:
+        - resource_type
+        - resource_id
+        - version_id
+        - payload
+        additionalProperties: true
+      - type: object
+        properties:
+          resource_type: {const: event}
+          resource_id: {type: string, minLength: 1, maxLength: 128}
+          version_id: {type: string, minLength: 1, maxLength: 128}
+          payload: {$ref: '#/components/schemas/EventView'}
+        required:
+        - resource_type
+        - resource_id
+        - version_id
+        - payload
+        additionalProperties: true
+      - type: object
+        properties:
+          resource_type: {const: entity}
+          resource_id: {type: string, minLength: 1, maxLength: 128}
+          version_id: {type: string, minLength: 1, maxLength: 128}
+          payload: {$ref: '#/components/schemas/Entity'}
+        required:
+        - resource_type
+        - resource_id
+        - version_id
+        - payload
+        additionalProperties: true
+      - type: object
+        properties:
+          resource_type: {const: topic}
+          resource_id: {type: string, minLength: 1, maxLength: 128}
+          version_id: {type: string, minLength: 1, maxLength: 128}
+          payload: {$ref: '#/components/schemas/Topic'}
+        required:
+        - resource_type
+        - resource_id
+        - version_id
+        - payload
+        additionalProperties: true
+      - type: object
+        properties:
+          resource_type: {const: source}
+          resource_id: {type: string, minLength: 1, maxLength: 128}
+          version_id: {type: string, minLength: 1, maxLength: 128}
+          payload: {$ref: '#/components/schemas/Source'}
+        required:
+        - resource_type
+        - resource_id
+        - version_id
+        - payload
+        additionalProperties: true
+      - type: object
+        properties:
+          resource_type: {const: analysis}
+          resource_id: {type: string, minLength: 1, maxLength: 128}
+          version_id: {type: string, minLength: 1, maxLength: 128}
+          payload: {$ref: '#/components/schemas/Analysis'}
+        required:
+        - resource_type
+        - resource_id
+        - version_id
+        - payload
+        additionalProperties: true
+      - type: object
+        properties:
+          resource_type: {const: signal}
+          resource_id: {type: string, minLength: 1, maxLength: 128}
+          version_id: {type: string, minLength: 1, maxLength: 128}
+          payload: {$ref: '#/components/schemas/Signal'}
+        required:
+        - resource_type
+        - resource_id
+        - version_id
+        - payload
+        additionalProperties: true
+      - type: object
+        properties:
+          resource_type: {const: report}
+          resource_id: {type: string, minLength: 1, maxLength: 128}
+          version_id: {type: string, minLength: 1, maxLength: 128}
+          payload: {$ref: '#/components/schemas/Report'}
+        required:
+        - resource_type
+        - resource_id
+        - version_id
+        - payload
+        additionalProperties: true
+      - type: object
+        properties:
+          resource_type: {const: evidence}
+          resource_id: {type: string, minLength: 1, maxLength: 128}
+          version_id: {type: string, minLength: 1, maxLength: 128}
+          payload: {$ref: '#/components/schemas/Evidence'}
+        required:
+        - resource_type
+        - resource_id
+        - version_id
+        - payload
+        additionalProperties: true
+    SnapshotPageResponse:
+      allOf:
+      - {$ref: '#/components/schemas/Meta'}
+      - type: object
+        properties:
+          data:
+            type: array
+            items: {$ref: '#/components/schemas/ResourceRecord'}
+          snapshot_id: {type: string, minLength: 1, maxLength: 128}
+          high_water: {type: integer, minimum: 0}
+          resource:
+            type: string
+            enum:
+            - items
+            - events
+            - entities
+            - topics
+            - sources
+            - analyses
+            - signals
+            - reports
+            - evidence
+          page_sha256: {type: string, pattern: '^[a-f0-9]{64}$'}
+          pagination: {$ref: '#/components/schemas/Pagination'}
+        required:
+        - data
+        - snapshot_id
+        - high_water
+        - resource
+        - page_sha256
+        - pagination
+        additionalProperties: true
+    ChangeMetadata:
+      type: object
+      properties:
+        seq: {type: integer, minimum: 1}
+        resource_id: {type: string, minLength: 1, maxLength: 128}
+        version_id: {type: string, minLength: 1, maxLength: 128}
+        operation:
+          type: string
+          enum:
+          - create
+          - update
+          - withdraw
+          - merge
+          - split
+          - delete
+        available_at: {type: string, format: date-time, pattern: '(Z|[+-]\d{2}:\d{2})$'}
+        payload_sha256: {type: string, pattern: '^[a-f0-9]{64}$'}
+      required:
+      - seq
+      - resource_id
+      - version_id
+      - operation
+      - available_at
+      - payload_sha256
+      additionalProperties: true
+    Change:
+      allOf:
+      - {$ref: '#/components/schemas/ChangeMetadata'}
+      - oneOf:
+        - type: object
+          properties:
+            resource_type: {const: item}
+            payload:
+              anyOf:
+              - {$ref: '#/components/schemas/Item'}
+              - {$ref: '#/components/schemas/Tombstone'}
+          required:
+          - resource_type
+          - payload
+          additionalProperties: true
+        - type: object
+          properties:
+            resource_type: {const: event}
+            payload:
+              anyOf:
+              - {$ref: '#/components/schemas/EventView'}
+              - {$ref: '#/components/schemas/Tombstone'}
+          required:
+          - resource_type
+          - payload
+          additionalProperties: true
+        - type: object
+          properties:
+            resource_type: {const: entity}
+            payload:
+              anyOf:
+              - {$ref: '#/components/schemas/Entity'}
+              - {$ref: '#/components/schemas/Tombstone'}
+          required:
+          - resource_type
+          - payload
+          additionalProperties: true
+        - type: object
+          properties:
+            resource_type: {const: topic}
+            payload:
+              anyOf:
+              - {$ref: '#/components/schemas/Topic'}
+              - {$ref: '#/components/schemas/Tombstone'}
+          required:
+          - resource_type
+          - payload
+          additionalProperties: true
+        - type: object
+          properties:
+            resource_type: {const: source}
+            payload:
+              anyOf:
+              - {$ref: '#/components/schemas/Source'}
+              - {$ref: '#/components/schemas/Tombstone'}
+          required:
+          - resource_type
+          - payload
+          additionalProperties: true
+        - type: object
+          properties:
+            resource_type: {const: analysis}
+            payload:
+              anyOf:
+              - {$ref: '#/components/schemas/Analysis'}
+              - {$ref: '#/components/schemas/Tombstone'}
+          required:
+          - resource_type
+          - payload
+          additionalProperties: true
+        - type: object
+          properties:
+            resource_type: {const: signal}
+            payload:
+              anyOf:
+              - {$ref: '#/components/schemas/Signal'}
+              - {$ref: '#/components/schemas/Tombstone'}
+          required:
+          - resource_type
+          - payload
+          additionalProperties: true
+        - type: object
+          properties:
+            resource_type: {const: report}
+            payload:
+              anyOf:
+              - {$ref: '#/components/schemas/Report'}
+              - {$ref: '#/components/schemas/Tombstone'}
+          required:
+          - resource_type
+          - payload
+          additionalProperties: true
+        - type: object
+          properties:
+            resource_type: {const: evidence}
+            payload:
+              anyOf:
+              - {$ref: '#/components/schemas/Evidence'}
+              - {$ref: '#/components/schemas/Tombstone'}
+          required:
+          - resource_type
+          - payload
+          additionalProperties: true
+      examples:
+      - seq: 1205
+        resource_type: event
+        resource_id: event-demo-old
+        version_id: ev-demo-003
+        operation: merge
+        available_at: '2026-09-14T12:00:00.000000Z'
+        payload:
+          id: event-demo-old
+          version_id: ev-demo-003
+          status: merged
+          canonical_id: event-demo-survivor
+          replacement_ids: []
+          available_at: '2026-09-14T12:00:00.000000Z'
+          reason: Reviewed reports describe the same event.
+        payload_sha256: 4920b876a11d803f81cce7b192550bff28aee286b5ecc0ebed9cbf6bf6b6bd84
+    ChangesResponse:
+      allOf:
+      - {$ref: '#/components/schemas/Meta'}
+      - type: object
+        properties:
+          data:
+            type: array
+            items: {$ref: '#/components/schemas/Change'}
+          next_cursor: {type: string, minLength: 1}
+          high_water: {type: integer, minimum: 0}
+          has_more: {type: boolean}
+        required:
+        - data
+        - next_cursor
+        - high_water
+        - has_more
+        additionalProperties: true
+      examples:
+      - api_version: v1
+        schema_version: 1.0.0
+        dataset_id: dataset-demo
+        dataset_epoch: epoch-demo
+        request_id: request-demo
+        generated_at: '2026-09-14T12:00:00.000000Z'
+        data: []
+        next_cursor: opaque-example-not-usable
+        high_water: 1205
+        has_more: false
+    Error:
+      type: object
+      properties:
+        error:
+          type: object
+          properties:
+            code: {type: string}
+            message: {type: string}
+            request_id: {type: string, minLength: 1, maxLength: 128}
+            retryable: {type: boolean}
+            details:
+              type: object
+              properties: {}
+              required: []
+              additionalProperties: true
+          required:
+          - code
+          - message
+          - request_id
+          - retryable
+          - details
+          additionalProperties: false
+      required:
+      - error
+      additionalProperties: false
+      examples:
+      - error:
+          code: cursor_expired
+          message: Create a new snapshot.
+          request_id: request-demo
+          retryable: false
+          details: {snapshot_required: true}
+    ItemListResponse:
+      allOf:
+      - {$ref: '#/components/schemas/Meta'}
+      - type: object
+        properties:
+          data:
+            type: array
+            items: {$ref: '#/components/schemas/Item'}
+          pagination: {$ref: '#/components/schemas/Pagination'}
+        required:
+        - data
+        - pagination
+        additionalProperties: true
+      examples:
+      - api_version: v1
+        schema_version: 1.0.0
+        dataset_id: dataset-demo
+        dataset_epoch: epoch-demo
+        request_id: request-demo
+        generated_at: '2026-09-14T12:00:00.000000Z'
+        data:
+        - id: doc-demo-001
+          version_id: drev-demo-002
+          legacy_item_id: 102
+          kind: article
+          status: active
+          canonical_id: null
+          title_original: Example company corrects its investment plan
+          title_display: Example company corrects its investment plan
+          summary_original: null
+          summary_display: null
+          canonical_url: https://example.com/report
+          language: en
+          display_provenance: {title_method: source_language, title_analysis_id: null, summary_analysis_id: null}
+          content_quality: {origin: legacy_unknown, extent: title_only, truncated: false, extraction_status: legacy_unverified}
+          published_at: '2026-09-10T09:00:00.000000Z'
+          published_precision: minute
+          time_status: legacy_unverified
+          first_seen_at: '2026-09-14T12:00:00.000000Z'
+          available_at: '2026-09-14T12:00:00.000000Z'
+          publisher: {id: null, name: null, attribution_status: unknown}
+          source_refs: []
+          entity_mentions: []
+          topic_refs: []
+          event_refs: []
+          analysis_refs: []
+          processing_state: insufficient_evidence
+          point_in_time_eligible: false
+          importance_score: null
+          selection: null
+        pagination: {limit: 50, next_cursor: null, consistency: live}
+    ItemResponse:
+      allOf:
+      - {$ref: '#/components/schemas/Meta'}
+      - type: object
+        properties:
+          data: {$ref: '#/components/schemas/Item'}
+        required:
+        - data
+        additionalProperties: true
+      examples:
+      - api_version: v1
+        schema_version: 1.0.0
+        dataset_id: dataset-demo
+        dataset_epoch: epoch-demo
+        request_id: request-demo
+        generated_at: '2026-09-14T12:00:00.000000Z'
+        data:
+          id: doc-demo-001
+          version_id: drev-demo-002
+          legacy_item_id: 102
+          kind: article
+          status: active
+          canonical_id: null
+          title_original: Example company corrects its investment plan
+          title_display: Example company corrects its investment plan
+          summary_original: null
+          summary_display: null
+          canonical_url: https://example.com/report
+          language: en
+          display_provenance: {title_method: source_language, title_analysis_id: null, summary_analysis_id: null}
+          content_quality: {origin: legacy_unknown, extent: title_only, truncated: false, extraction_status: legacy_unverified}
+          published_at: '2026-09-10T09:00:00.000000Z'
+          published_precision: minute
+          time_status: legacy_unverified
+          first_seen_at: '2026-09-14T12:00:00.000000Z'
+          available_at: '2026-09-14T12:00:00.000000Z'
+          publisher: {id: null, name: null, attribution_status: unknown}
+          source_refs: []
+          entity_mentions: []
+          topic_refs: []
+          event_refs: []
+          analysis_refs: []
+          processing_state: insufficient_evidence
+          point_in_time_eligible: false
+          importance_score: null
+          selection: null
+    DocumentVersionListResponse:
+      allOf:
+      - {$ref: '#/components/schemas/Meta'}
+      - type: object
+        properties:
+          data:
+            type: array
+            items: {$ref: '#/components/schemas/DocumentVersion'}
+          pagination: {$ref: '#/components/schemas/Pagination'}
+        required:
+        - data
+        - pagination
+        additionalProperties: true
+    EvidenceListResponse:
+      allOf:
+      - {$ref: '#/components/schemas/Meta'}
+      - type: object
+        properties:
+          data:
+            type: array
+            items: {$ref: '#/components/schemas/Evidence'}
+          pagination: {$ref: '#/components/schemas/Pagination'}
+        required:
+        - data
+        - pagination
+        additionalProperties: true
+    EventViewListResponse:
+      allOf:
+      - {$ref: '#/components/schemas/Meta'}
+      - type: object
+        properties:
+          data:
+            type: array
+            items: {$ref: '#/components/schemas/EventView'}
+          pagination: {$ref: '#/components/schemas/Pagination'}
+        required:
+        - data
+        - pagination
+        additionalProperties: true
+    EventViewResponse:
+      allOf:
+      - {$ref: '#/components/schemas/Meta'}
+      - type: object
+        properties:
+          data: {$ref: '#/components/schemas/EventView'}
+        required:
+        - data
+        additionalProperties: true
+    EventEvidenceListResponse:
+      allOf:
+      - {$ref: '#/components/schemas/Meta'}
+      - type: object
+        properties:
+          data:
+            type: array
+            items: {$ref: '#/components/schemas/EventEvidence'}
+          pagination: {$ref: '#/components/schemas/Pagination'}
+        required:
+        - data
+        - pagination
+        additionalProperties: true
+    AnalysisResponse:
+      allOf:
+      - {$ref: '#/components/schemas/Meta'}
+      - type: object
+        properties:
+          data: {$ref: '#/components/schemas/Analysis'}
+        required:
+        - data
+        additionalProperties: true
+    EntityListResponse:
+      allOf:
+      - {$ref: '#/components/schemas/Meta'}
+      - type: object
+        properties:
+          data:
+            type: array
+            items: {$ref: '#/components/schemas/Entity'}
+          pagination: {$ref: '#/components/schemas/Pagination'}
+        required:
+        - data
+        - pagination
+        additionalProperties: true
+    TopicListResponse:
+      allOf:
+      - {$ref: '#/components/schemas/Meta'}
+      - type: object
+        properties:
+          data:
+            type: array
+            items: {$ref: '#/components/schemas/Topic'}
+          pagination: {$ref: '#/components/schemas/Pagination'}
+        required:
+        - data
+        - pagination
+        additionalProperties: true
+    SourceListResponse:
+      allOf:
+      - {$ref: '#/components/schemas/Meta'}
+      - type: object
+        properties:
+          data:
+            type: array
+            items: {$ref: '#/components/schemas/Source'}
+          pagination: {$ref: '#/components/schemas/Pagination'}
+        required:
+        - data
+        - pagination
+        additionalProperties: true
+    SignalListResponse:
+      allOf:
+      - {$ref: '#/components/schemas/Meta'}
+      - type: object
+        properties:
+          data:
+            type: array
+            items: {$ref: '#/components/schemas/Signal'}
+          pagination: {$ref: '#/components/schemas/Pagination'}
+        required:
+        - data
+        - pagination
+        additionalProperties: true
+    ReportListResponse:
+      allOf:
+      - {$ref: '#/components/schemas/Meta'}
+      - type: object
+        properties:
+          data:
+            type: array
+            items: {$ref: '#/components/schemas/Report'}
+          pagination: {$ref: '#/components/schemas/Pagination'}
+        required:
+        - data
+        - pagination
+        additionalProperties: true
+    ReportResponse:
+      allOf:
+      - {$ref: '#/components/schemas/Meta'}
+      - type: object
+        properties:
+          data: {$ref: '#/components/schemas/Report'}
+        required:
+        - data
+        additionalProperties: true
+    SnapshotResponse:
+      allOf:
+      - {$ref: '#/components/schemas/Meta'}
+      - type: object
+        properties:
+          data: {$ref: '#/components/schemas/Snapshot'}
+        required:
+        - data
+        additionalProperties: true
+  responses:
+    Error400:
+      description: Invalid cursor or filter mismatch
+      content:
+        application/json:
+          schema: {$ref: '#/components/schemas/Error'}
+    Error401:
+      description: Missing, revoked or expired token
+      content:
+        application/json:
+          schema: {$ref: '#/components/schemas/Error'}
+    Error403:
+      description: Insufficient scope or restricted content
+      content:
+        application/json:
+          schema: {$ref: '#/components/schemas/Error'}
+    Error404:
+      description: Resource not found
+      content:
+        application/json:
+          schema: {$ref: '#/components/schemas/Error'}
+    Error409:
+      description: Epoch, version or idempotency conflict; snapshot not ready
+      content:
+        application/json:
+          schema: {$ref: '#/components/schemas/Error'}
+    Error410:
+      description: Expired cursor or snapshot; new snapshot required
+      content:
+        application/json:
+          schema: {$ref: '#/components/schemas/Error'}
+    Error422:
+      description: Invalid parameters or unsupported history
+      content:
+        application/json:
+          schema: {$ref: '#/components/schemas/Error'}
+    Error429:
+      description: Rate limited
+      content:
+        application/json:
+          schema: {$ref: '#/components/schemas/Error'}
+      headers:
+        Retry-After:
+          schema: {type: string}
+          description: Seconds or HTTP date before retry.
+    Error503:
+      description: Not ready or temporarily unavailable
+      content:
+        application/json:
+          schema: {$ref: '#/components/schemas/Error'}
+      headers:
+        Retry-After:
+          schema: {type: string}
+          description: Seconds or HTTP date before retry.
+x-scope-catalog:
+- read:catalog
+- read:items
+- read:events
+- read:analyses
+- read:evidence
+- read:signals
+- read:reports
+- read:sync
+- read:ops
+x-resource-name-map:
+  items: {change_type: item, schema: Item}
+  events: {change_type: event, schema: EventView}
+  entities: {change_type: entity, schema: Entity}
+  topics: {change_type: topic, schema: Topic}
+  sources: {change_type: source, schema: Source}
+  analyses: {change_type: analysis, schema: Analysis}
+  signals: {change_type: signal, schema: Signal}
+  reports: {change_type: report, schema: Report}
+  evidence: {change_type: evidence, schema: Evidence}

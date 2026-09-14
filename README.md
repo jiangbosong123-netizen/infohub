@@ -1,5 +1,7 @@
 # 行业情报站
 
+> **架构与后续开发入口：** [正式 SPEC 草案](SPEC.md)、[当前架构审计](docs/spec/AUDIT.md)、[分阶段 PR 路线图](docs/spec/ROADMAP.md)。审查基线为 `main@88a2a1e`（2026-09-14 UTC）；目标设计尚未实现，未合并的 PR #1 不代表生产已具备 API v1。本文下面描述现有运行方式。
+
 按 [AIHOT 主题页](https://aihot.news/topics) 的信息组织方式完善。新增 **主题总览 → 主题详情 → 持久事件时间线**，实现与公开源码核查见 [AIHOT 对标说明](docs/AIHOT_ALIGNMENT.md)。
 
 对标 [aihot.news](https://aihot.news/) 的行业信息聚合站：**AI / 机器人 / 美股港股科技企业** 三个频道，
@@ -11,7 +13,7 @@
 ## 快速开始（本机 Mac）
 
 ```bash
-# 1. 安装依赖（系统自带 python3 即可）
+# 1. 安装依赖（使用 Python 3.11 或 3.12，与 CI 一致）
 python3 -m venv .venv
 .venv/bin/pip install -r requirements.txt
 
@@ -26,10 +28,11 @@ python3 -m venv .venv
 # 浏览器打开 http://127.0.0.1:8000
 ```
 
-## 常驻运行（launchd，推荐）
+## Mac 本地常驻运行（可选开发方式）
 
-服务已配置为 **开机自启 + 崩溃自动拉起**（`KeepAlive` + `RunAtLoad`），配置文件在
-`launchd/com.infohub.server.plist`，安装方式：
+当前正式运行环境是 Windows Docker；Mac 用于开发。不要同时把 Mac 的常驻采集当成另一份生产数据。下面是旧的本地运行方式，是否安装需检查实际 launchd 状态。
+
+配置文件 `launchd/com.infohub.server.plist` 使用 `KeepAlive` + `RunAtLoad`，安装方式：
 
 ```bash
 cp launchd/com.infohub.server.plist ~/Library/LaunchAgents/
@@ -51,8 +54,10 @@ tail -f ~/infohub/data/launchd.err.log                          # 看运行日�
 
 推荐在 Windows 的 Docker Desktop + WSL2 中常驻运行。首次部署时复制 `.env.example`
 为 `.env`，按需填写模型配置，然后执行 `docker compose up -d --build`。容器配置了
-`restart: unless-stopped`，Docker 恢复后会自动重新启动；SQLite 数据持久化在宿主机的
-`data/` 目录。更新代码后重新执行相同命令即可滚动到新版本。
+`restart: unless-stopped`，在 Docker 引擎运行且容器没有被手动停止的条件下提供重启恢复；SQLite 数据持久化在宿主机的
+`data/` 目录。更新代码后重新执行相同命令会重建并替换容器，可能短暂中断，不是零停机滚动发布。Docker Desktop 和自动部署管理器的开机恢复依赖仍需现场演练。
+
+日常发布由独立的 [Windows Server Manager](https://github.com/jiangbosong123-netizen/windows-server-manager) 管理。Mac 修改先进入 PR，审核合并 main 后才进入生产发布流程。当前管理器的失败重试、CI门禁和迁移保护存在待修项，详见架构审计；“Git拉取成功”不等于“服务发布成功”。
 
 同一 Tailscale 网络内的设备可通过 `http://<Windows 的 Tailscale IP>:8000` 访问。
 只需允许 Windows 防火墙的专用网络或 Tailscale 网络访问 8000 端口，不要在路由器上
@@ -67,21 +72,21 @@ tail -f ~/infohub/data/launchd.err.log                          # 看运行日�
 
 - **财联社电报 / 华尔街见闻快讯 / 新浪 7x24** 三条分钟级中文快讯线，各每 10 分钟轮询；SEC / 港交所每 10 分钟
 - **Techmeme**（美国科技圈最强聚合）30 分钟；**每家公司专属 Google News 源**每 20 分钟一轮（中英别名严格匹配，防串公司）
-- 首页每 2 分钟自动刷新，顶部显示「数据更新于 X 分钟前」
-- Mac 睡眠唤醒后，错过的定时任务自动补跑（`misfire_grace_time=3600`）
+- 页面显示数据更新时间；当前没有每两分钟自动刷新的实现
+- 调度器设置 `misfire_grace_time=3600`，但任务在内存中；进程关闭期间错过的日报/对账不保证补跑，持久任务恢复是后续计划
 
 > 财联社的接口签名算法与华尔街见闻快讯端点，分别借鉴了 GitHub 开源项目
 > [RSSHub](https://github.com/DIYgod/RSSHub) 与 [newsnow](https://github.com/ourongxing/newsnow)
 > 的公开实现，在此致谢。36氪快讯因其内容加密+WAF 反爬暂未收录；机器之心可通过自建 RSSHub 实例补上。
 
-## 接入 AI 策展（已启用）
+## 接入 AI 策展（可选配置）
 
-`.env` 已配置智谱 GLM（`glm-4.6`，策展批次关闭深度思考以提速省钱）。生效逻辑：
+是否启用取决于各环境 `.env` 中的配置。项目使用 OpenAI 兼容接口，曾使用智谱 GLM；仓库不包含生产密钥，也不能仅凭 README 确定当前模型。生效逻辑：
 
 - 英文源自动翻译成中文摘要；每条打 0-100 重要性评分（重大事件 80-100，例行文件 <50 沉底）
 - 股市条目自动标注事件类型（财报/回购/并购/评级/内部人交易…）
 - 未评分条目均进入处理队列，优先处理新条目
-- 每天早 8 点由 GLM 生成三频道行业日报；AI 每 15 分钟自动处理一批新条目
+- 每天早 8 点由所配置模型生成三频道行业日报；AI 每 15 分钟自动处理一批新条目
 
 想换模型/厂商：改 `.env` 里 `LLM_BASE_URL / LLM_MODEL / LLM_API_KEY`（任何 OpenAI 兼容接口均可，
 DeepSeek、本地 Ollama 等），重启服务即生效。删除或清空 `.env` 则自动退回纯聚合模式。
@@ -143,7 +148,7 @@ config/watchlist.yaml # 关注公司清单
 
 ## 开发验证与本轮改进
 
-完整评估、已修复问题和后续计划见 [项目评估](docs/PROJECT_REVIEW.md)。
+本轮完整审查和后续计划见 [架构审计](docs/spec/AUDIT.md) 与 [SPEC](SPEC.md)；[项目评估](docs/PROJECT_REVIEW.md) 保留为历史记录。
 
 ```bash
 .venv/bin/pip install -r requirements.txt
@@ -154,8 +159,7 @@ config/watchlist.yaml # 关注公司清单
 测试使用临时数据库和模拟 AI 响应，不抓取外网、不调用付费模型。
 GitHub Actions 在 push / PR 时执行检查（Python 3.11 / 3.12）。
 
-升级已有实例前先用 SQLite backup API 备份数据库，再执行 `cli.py init-db`，
-最后重启服务。初始化会自动把历史中文标题纳入 FTS 搜索索引；重复运行不会重复迁移。
+当前版本启动时会初始化数据库和派生索引；不要由此推断任何未来版本都可直接启动升级。升级已有实例前按 [迁移与运维规范](docs/spec/OPERATIONS.md) 取得一致性备份，在隔离副本演练目标版本并确认旧版兼容，再执行该版本发布步骤。当前初始化会把历史中文标题纳入 FTS 搜索索引。
 新增 `nh3` 用于清洗日报 HTML。精选在 AI 已配置时按事件去重，只展示评分 ≥70、
 官方条目或至少两家发布方共同报道的事件，
 低分公司新闻仍可在「全部动态」查看；未配置 AI 时精选退回全量聚合。

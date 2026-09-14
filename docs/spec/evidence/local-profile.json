@@ -1,0 +1,550 @@
+{
+  "captured_at": "2026-09-14T22:25:38.301236+00:00",
+  "source_file": "app.db",
+  "scope": "Local database snapshot; NOT a fresh Windows production database export",
+  "sqlite_version": "3.51.0",
+  "item_rows_sha256": "bbb16509dd729325e4c6d0a94b4b9c6ca53e8842f95cb376443fbcef374af02f",
+  "results": {
+    "items": [
+      {
+        "total": 11050,
+        "raw_missing": 3302,
+        "raw_empty": 3535,
+        "raw_nonempty": 4213,
+        "pending_score": 54,
+        "skipped_score": 6,
+        "hidden": 2666,
+        "pending_tmt": 54,
+        "failed_title": 6,
+        "first_fetched_at": "2026-09-11T21:39:17.593142+00:00",
+        "last_fetched_at": "2026-09-14T22:22:20.421445+00:00",
+        "first_published_at": "2025-12-09T21:41:16+00:00",
+        "last_published_at": "2026-09-14T22:21:59+00:00"
+      }
+    ],
+    "channels": [
+      {
+        "channel": "ai",
+        "total": 1101,
+        "hidden": 112,
+        "raw_missing": 364,
+        "raw_empty": 2,
+        "pending_score": 0
+      },
+      {
+        "channel": "robot",
+        "total": 51,
+        "hidden": 0,
+        "raw_missing": 45,
+        "raw_empty": 0,
+        "pending_score": 2
+      },
+      {
+        "channel": "stock",
+        "total": 9898,
+        "hidden": 2554,
+        "raw_missing": 2893,
+        "raw_empty": 3533,
+        "pending_score": 52
+      }
+    ],
+    "stories": [
+      {
+        "total": 9380,
+        "redirects": 337,
+        "active": 6750,
+        "singletons": 5765,
+        "multipublisher": 788
+      }
+    ],
+    "counts": [
+      {
+        "enabled_sources": 42,
+        "companies": 23,
+        "topics": 56,
+        "dirty": 0,
+        "reports": 3,
+        "discoveries": 9969
+      }
+    ],
+    "integrity": [
+      {
+        "integrity_check": "ok"
+      }
+    ],
+    "foreign_keys": [],
+    "visibility_membership": [
+      {
+        "hidden_in_story": 0,
+        "visible_unindexed": 0,
+        "no_discovery": 1333
+      }
+    ],
+    "raw_by_fetch_day": [
+      {
+        "day": "2026-09-11",
+        "total": 2221,
+        "raw_missing": 2221,
+        "raw_empty": null
+      },
+      {
+        "day": "2026-09-12",
+        "total": 1437,
+        "raw_missing": 1081,
+        "raw_empty": 192
+      },
+      {
+        "day": "2026-09-13",
+        "total": 2132,
+        "raw_missing": 0,
+        "raw_empty": 1239
+      },
+      {
+        "day": "2026-09-14",
+        "total": 5260,
+        "raw_missing": 0,
+        "raw_empty": 2104
+      }
+    ],
+    "hidden_macro_keyword_candidates": [
+      {
+        "candidates": 116
+      }
+    ],
+    "per_source": [
+      {
+        "key": "sina-7x24",
+        "total": 2549,
+        "raw_missing": 334,
+        "raw_empty": 0
+      },
+      {
+        "key": "cls-telegraph",
+        "total": 777,
+        "raw_missing": 95,
+        "raw_empty": 25
+      },
+      {
+        "key": "wallstreetcn-live",
+        "total": 678,
+        "raw_missing": 165,
+        "raw_empty": 0
+      },
+      {
+        "key": "ithome",
+        "total": 577,
+        "raw_missing": 167,
+        "raw_empty": 0
+      },
+      {
+        "key": "sec-edgar",
+        "total": 536,
+        "raw_missing": 531,
+        "raw_empty": 0
+      },
+      {
+        "key": "googlenews-amazon",
+        "total": 532,
+        "raw_missing": 103,
+        "raw_empty": 429
+      },
+      {
+        "key": "googlenews-apple",
+        "total": 417,
+        "raw_missing": 118,
+        "raw_empty": 299
+      },
+      {
+        "key": "googlenews-openai",
+        "total": 397,
+        "raw_missing": 83,
+        "raw_empty": 314
+      },
+      {
+        "key": "googlenews-nvidia",
+        "total": 394,
+        "raw_missing": 90,
+        "raw_empty": 304
+      },
+      {
+        "key": "googlenews-tesla",
+        "total": 376,
+        "raw_missing": 88,
+        "raw_empty": 288
+      },
+      {
+        "key": "googlenews-meta",
+        "total": 332,
+        "raw_missing": 83,
+        "raw_empty": 249
+      },
+      {
+        "key": "googlenews-anthropic",
+        "total": 330,
+        "raw_missing": 78,
+        "raw_empty": 252
+      },
+      {
+        "key": "googlenews-microsoft",
+        "total": 319,
+        "raw_missing": 74,
+        "raw_empty": 245
+      },
+      {
+        "key": "googlenews-google",
+        "total": 308,
+        "raw_missing": 72,
+        "raw_empty": 236
+      },
+      {
+        "key": "googlenews-oracle",
+        "total": 288,
+        "raw_missing": 79,
+        "raw_empty": 209
+      },
+      {
+        "key": "hnrss",
+        "total": 209,
+        "raw_missing": 43,
+        "raw_empty": 0
+      },
+      {
+        "key": "googlenews-palantir",
+        "total": 195,
+        "raw_missing": 75,
+        "raw_empty": 120
+      },
+      {
+        "key": "googlenews-amd",
+        "total": 189,
+        "raw_missing": 76,
+        "raw_empty": 113
+      },
+      {
+        "key": "googlenews-broadcom",
+        "total": 171,
+        "raw_missing": 69,
+        "raw_empty": 102
+      },
+      {
+        "key": "googlenews-xiaomi",
+        "total": 166,
+        "raw_missing": 68,
+        "raw_empty": 98
+      },
+      {
+        "key": "wallstreetcn",
+        "total": 135,
+        "raw_missing": 75,
+        "raw_empty": 0
+      },
+      {
+        "key": "googlenews-tsmc",
+        "total": 133,
+        "raw_missing": 60,
+        "raw_empty": 73
+      },
+      {
+        "key": "googlenews-alibaba",
+        "total": 128,
+        "raw_missing": 62,
+        "raw_empty": 66
+      },
+      {
+        "key": "google-news",
+        "total": 108,
+        "raw_missing": 108,
+        "raw_empty": null
+      },
+      {
+        "key": "googlenews-tencent",
+        "total": 100,
+        "raw_missing": 65,
+        "raw_empty": 35
+      },
+      {
+        "key": "techmeme",
+        "total": 95,
+        "raw_missing": 22,
+        "raw_empty": 0
+      },
+      {
+        "key": "googlenews-arm",
+        "total": 72,
+        "raw_missing": 53,
+        "raw_empty": 19
+      },
+      {
+        "key": "googlenews-xpeng",
+        "total": 70,
+        "raw_missing": 40,
+        "raw_empty": 30
+      },
+      {
+        "key": "openai-news",
+        "total": 63,
+        "raw_missing": 62,
+        "raw_empty": 0
+      },
+      {
+        "key": "huggingface",
+        "total": 61,
+        "raw_missing": 60,
+        "raw_empty": 1
+      },
+      {
+        "key": "techcrunch",
+        "total": 51,
+        "raw_missing": 21,
+        "raw_empty": 0
+      },
+      {
+        "key": "cnbc-tech",
+        "total": 50,
+        "raw_missing": 32,
+        "raw_empty": 0
+      },
+      {
+        "key": "theverge",
+        "total": 47,
+        "raw_missing": 11,
+        "raw_empty": 0
+      },
+      {
+        "key": "qbitai",
+        "total": 31,
+        "raw_missing": 15,
+        "raw_empty": 1
+      },
+      {
+        "key": "ifanr",
+        "total": 30,
+        "raw_missing": 25,
+        "raw_empty": 0
+      },
+      {
+        "key": "ieee-robotics",
+        "total": 30,
+        "raw_missing": 30,
+        "raw_empty": null
+      },
+      {
+        "key": "googlenews-lixiang",
+        "total": 27,
+        "raw_missing": 15,
+        "raw_empty": 12
+      },
+      {
+        "key": "googlenews-baidu",
+        "total": 26,
+        "raw_missing": 17,
+        "raw_empty": 9
+      },
+      {
+        "key": "robot-report",
+        "total": 21,
+        "raw_missing": 15,
+        "raw_empty": 0
+      },
+      {
+        "key": "googlenews-meituan",
+        "total": 14,
+        "raw_missing": 10,
+        "raw_empty": 4
+      },
+      {
+        "key": "hkex",
+        "total": 10,
+        "raw_missing": 7,
+        "raw_empty": 0
+      },
+      {
+        "key": "googlenews-smic",
+        "total": 8,
+        "raw_missing": 6,
+        "raw_empty": 2
+      }
+    ],
+    "consistency": {
+      "company_link_mismatches": 0,
+      "invalid_json_rows": 0,
+      "invalid_time_fields": 0,
+      "naive_time_fields": 0,
+      "future_time_fields_at_capture": 0
+    }
+  },
+  "queries": {
+    "items": "SELECT COUNT(*) total, SUM(raw_summary IS NULL) raw_missing,\n        SUM(raw_summary='') raw_empty, SUM(length(raw_summary)>0) raw_nonempty,\n        SUM(score IS NULL) pending_score, SUM(score=-1) skipped_score,\n        SUM(tmt=0) hidden, SUM(tmt IS NULL) pending_tmt,\n        SUM(title_zh='-') failed_title, MIN(fetched_at) first_fetched_at,\n        MAX(fetched_at) last_fetched_at, MIN(published_at) first_published_at,\n        MAX(published_at) last_published_at FROM items",
+    "channels": "SELECT channel,COUNT(*) total,SUM(tmt=0) hidden,\n        SUM(raw_summary IS NULL) raw_missing,SUM(raw_summary='') raw_empty,\n        SUM(score IS NULL) pending_score FROM items GROUP BY channel",
+    "stories": "SELECT COUNT(*) total,SUM(redirect_to IS NOT NULL) redirects,\n        SUM(redirect_to IS NULL AND item_count>0) active,\n        SUM(redirect_to IS NULL AND item_count=1) singletons,\n        SUM(redirect_to IS NULL AND source_count>=2) multipublisher FROM stories",
+    "counts": "SELECT (SELECT COUNT(*) FROM sources WHERE enabled=1) enabled_sources,\n        (SELECT COUNT(*) FROM companies) companies,\n        (SELECT COUNT(*) FROM topics WHERE enabled=1) topics,\n        (SELECT COUNT(*) FROM derived_dirty) dirty,\n        (SELECT COUNT(*) FROM daily_reports) reports,\n        (SELECT COUNT(*) FROM item_discoveries) discoveries",
+    "integrity": "PRAGMA integrity_check",
+    "foreign_keys": "PRAGMA foreign_key_check",
+    "visibility_membership": "SELECT\n        SUM(tmt=0 AND EXISTS(SELECT 1 FROM story_items s WHERE s.item_id=i.id)) hidden_in_story,\n        SUM(COALESCE(tmt,1)!=0 AND NOT EXISTS(SELECT 1 FROM story_items s WHERE s.item_id=i.id)) visible_unindexed,\n        SUM(NOT EXISTS(SELECT 1 FROM item_discoveries d WHERE d.item_id=i.id)) no_discovery\n        FROM items i",
+    "raw_by_fetch_day": "SELECT substr(fetched_at,1,10) day,COUNT(*) total,\n        SUM(raw_summary IS NULL) raw_missing,SUM(raw_summary='') raw_empty\n        FROM items GROUP BY day",
+    "hidden_macro_keyword_candidates": "SELECT COUNT(*) candidates FROM items WHERE tmt=0\n        AND (title LIKE '%美联储%' OR title LIKE '%通胀%' OR title LIKE '%利率%'\n             OR title LIKE '%非农%' OR title LIKE '%CPI%')",
+    "per_source": "SELECT s.key,COUNT(i.id) total,SUM(i.raw_summary IS NULL) raw_missing,\n        SUM(i.raw_summary='') raw_empty FROM sources s JOIN items i ON i.source_id=s.id\n        GROUP BY s.id ORDER BY total DESC"
+  },
+  "schema": [
+    {
+      "name": "idx_clusters_heat",
+      "type": "index",
+      "sql": "CREATE INDEX idx_clusters_heat ON clusters(heat DESC)"
+    },
+    {
+      "name": "idx_ic_company",
+      "type": "index",
+      "sql": "CREATE INDEX idx_ic_company ON item_companies(company_id)"
+    },
+    {
+      "name": "idx_item_topics_slug",
+      "type": "index",
+      "sql": "CREATE INDEX idx_item_topics_slug ON item_topics(topic_slug,item_id)"
+    },
+    {
+      "name": "idx_items_channel_pub",
+      "type": "index",
+      "sql": "CREATE INDEX idx_items_channel_pub ON items(channel, published_at DESC)"
+    },
+    {
+      "name": "idx_items_pub",
+      "type": "index",
+      "sql": "CREATE INDEX idx_items_pub ON items(published_at DESC)"
+    },
+    {
+      "name": "idx_stories_recent",
+      "type": "index",
+      "sql": "CREATE INDEX idx_stories_recent ON stories(last_at DESC,heat DESC)"
+    },
+    {
+      "name": "idx_story_items_story",
+      "type": "index",
+      "sql": "CREATE INDEX idx_story_items_story ON story_items(story_id,item_id)"
+    },
+    {
+      "name": "cluster_members",
+      "type": "table",
+      "sql": "CREATE TABLE cluster_members (\n    cluster_id INTEGER NOT NULL REFERENCES clusters(id) ON DELETE CASCADE,\n    item_id INTEGER UNIQUE NOT NULL REFERENCES items(id) ON DELETE CASCADE,\n    PRIMARY KEY (cluster_id, item_id)\n)"
+    },
+    {
+      "name": "clusters",
+      "type": "table",
+      "sql": "CREATE TABLE clusters (\n    id INTEGER PRIMARY KEY,\n    channel TEXT NOT NULL,\n    title TEXT NOT NULL,\n    url TEXT DEFAULT '',\n    heat REAL NOT NULL DEFAULT 0,\n    source_count INTEGER NOT NULL DEFAULT 1,\n    company_slugs TEXT NOT NULL DEFAULT '[]',\n    updated_at TEXT NOT NULL\n)"
+    },
+    {
+      "name": "companies",
+      "type": "table",
+      "sql": "CREATE TABLE companies (\n    id INTEGER PRIMARY KEY,\n    slug TEXT UNIQUE NOT NULL,\n    name TEXT NOT NULL,\n    name_zh TEXT DEFAULT '',\n    ticker TEXT DEFAULT '',          -- 美股代码\n    code TEXT DEFAULT '',            -- 港股代码（如 0700）\n    market TEXT NOT NULL,            -- US / HK / PRIVATE\n    cik TEXT DEFAULT '',             -- SEC CIK（美股，自动解析后回填）\n    hkex_stock_id TEXT DEFAULT '',   -- 港交所内部 stockId（自动解析后回填）\n    aliases TEXT NOT NULL DEFAULT '[]'\n)"
+    },
+    {
+      "name": "daily_reports",
+      "type": "table",
+      "sql": "CREATE TABLE daily_reports (\n    id INTEGER PRIMARY KEY,\n    date TEXT UNIQUE NOT NULL,       -- YYYY-MM-DD（报告覆盖的日期）\n    content TEXT NOT NULL,\n    created_at TEXT NOT NULL\n)"
+    },
+    {
+      "name": "derived_dirty",
+      "type": "table",
+      "sql": "CREATE TABLE derived_dirty (\n    item_id INTEGER PRIMARY KEY REFERENCES items(id) ON DELETE CASCADE\n)"
+    },
+    {
+      "name": "fetch_log",
+      "type": "table",
+      "sql": "CREATE TABLE fetch_log (\n    id INTEGER PRIMARY KEY,\n    source_id INTEGER NOT NULL,\n    ran_at TEXT NOT NULL,\n    ok INTEGER NOT NULL,\n    new_items INTEGER NOT NULL DEFAULT 0,\n    message TEXT DEFAULT ''\n)"
+    },
+    {
+      "name": "indexed_items",
+      "type": "table",
+      "sql": "CREATE TABLE indexed_items (\n    item_id INTEGER PRIMARY KEY REFERENCES items(id) ON DELETE CASCADE\n)"
+    },
+    {
+      "name": "item_companies",
+      "type": "table",
+      "sql": "CREATE TABLE item_companies (\n    item_id INTEGER NOT NULL REFERENCES items(id) ON DELETE CASCADE,\n    company_id INTEGER NOT NULL REFERENCES companies(id),\n    PRIMARY KEY (item_id, company_id)\n)"
+    },
+    {
+      "name": "item_discoveries",
+      "type": "table",
+      "sql": "CREATE TABLE item_discoveries (\n    item_id INTEGER NOT NULL REFERENCES items(id) ON DELETE CASCADE,\n    source_id INTEGER NOT NULL REFERENCES sources(id),\n    first_seen_at TEXT NOT NULL, last_seen_at TEXT NOT NULL,\n    PRIMARY KEY(item_id,source_id)\n)"
+    },
+    {
+      "name": "item_topics",
+      "type": "table",
+      "sql": "CREATE TABLE item_topics (\n    item_id INTEGER NOT NULL REFERENCES items(id) ON DELETE CASCADE,\n    topic_slug TEXT NOT NULL REFERENCES topics(slug), evidence TEXT NOT NULL,\n    PRIMARY KEY(item_id,topic_slug)\n)"
+    },
+    {
+      "name": "items",
+      "type": "table",
+      "sql": "CREATE TABLE items (\n    id INTEGER PRIMARY KEY,\n    source_id INTEGER NOT NULL REFERENCES sources(id),\n    url TEXT UNIQUE NOT NULL,\n    title TEXT NOT NULL,\n    title_en TEXT DEFAULT '',\n    summary TEXT DEFAULT '',\n    channel TEXT NOT NULL,           -- ai / robot / stock\n    event_type TEXT DEFAULT '',      -- 股市: earnings/insider/buyback/ma/personnel/product/regulation/rating/offering/other\n    score INTEGER,                   -- AI 重要性 0-100\n    heat REAL NOT NULL DEFAULT 0,\n    companies TEXT NOT NULL DEFAULT '[]',  -- 关联公司 slug 列表(JSON，冗余存一份便于渲染)\n    official INTEGER NOT NULL DEFAULT 0,   -- 官方一手来源\n    via TEXT NOT NULL DEFAULT 'normal',    -- normal / reconcile(对账补录)\n    published_at TEXT NOT NULL,      -- ISO8601（含时区）\n    fetched_at TEXT NOT NULL,\n    extra TEXT NOT NULL DEFAULT '{}' -- 表单类型、PDF 链接等 JSON\n, title_zh TEXT DEFAULT '', tmt INTEGER, reason TEXT DEFAULT '', ai_cat TEXT DEFAULT '', raw_summary TEXT)"
+    },
+    {
+      "name": "items_fts",
+      "type": "table",
+      "sql": "CREATE VIRTUAL TABLE items_fts USING fts5(\n                    title, title_zh, summary, content='items', content_rowid='id', tokenize='trigram')"
+    },
+    {
+      "name": "items_fts_config",
+      "type": "table",
+      "sql": "CREATE TABLE 'items_fts_config'(k PRIMARY KEY, v) WITHOUT ROWID"
+    },
+    {
+      "name": "items_fts_data",
+      "type": "table",
+      "sql": "CREATE TABLE 'items_fts_data'(id INTEGER PRIMARY KEY, block BLOB)"
+    },
+    {
+      "name": "items_fts_docsize",
+      "type": "table",
+      "sql": "CREATE TABLE 'items_fts_docsize'(id INTEGER PRIMARY KEY, sz BLOB)"
+    },
+    {
+      "name": "items_fts_idx",
+      "type": "table",
+      "sql": "CREATE TABLE 'items_fts_idx'(segid, term, pgno, PRIMARY KEY(segid, term)) WITHOUT ROWID"
+    },
+    {
+      "name": "sources",
+      "type": "table",
+      "sql": "CREATE TABLE sources (\n    id INTEGER PRIMARY KEY,\n    key TEXT UNIQUE NOT NULL,\n    name TEXT NOT NULL,\n    channel TEXT NOT NULL,           -- ai / robot / stock\n    tier TEXT NOT NULL DEFAULT 'media',   -- official / media / info / reconcile\n    type TEXT NOT NULL,              -- rss / html / sec / hkex\n    url TEXT DEFAULT '',\n    company_slug TEXT DEFAULT '',    -- 个股源绑定的公司（如 yahoo-nvda → nvidia）\n    enabled INTEGER NOT NULL DEFAULT 1,\n    interval_minutes INTEGER NOT NULL DEFAULT 30,\n    state TEXT NOT NULL DEFAULT '{}', -- 水位等状态 JSON\n    fail_count INTEGER NOT NULL DEFAULT 0,\n    last_success_at TEXT,\n    last_run_at TEXT,\n    last_error TEXT\n)"
+    },
+    {
+      "name": "stories",
+      "type": "table",
+      "sql": "CREATE TABLE stories (\n    id TEXT PRIMARY KEY, anchor_item_id INTEGER REFERENCES items(id) ON DELETE SET NULL,\n    title TEXT NOT NULL, channel TEXT NOT NULL, url TEXT NOT NULL,\n    heat REAL NOT NULL DEFAULT 0, source_count INTEGER NOT NULL DEFAULT 0,\n    item_count INTEGER NOT NULL DEFAULT 0, first_at TEXT NOT NULL, last_at TEXT NOT NULL,\n    company_slugs TEXT NOT NULL DEFAULT '[]', redirect_to TEXT REFERENCES stories(id)\n)"
+    },
+    {
+      "name": "story_items",
+      "type": "table",
+      "sql": "CREATE TABLE story_items (\n    item_id INTEGER PRIMARY KEY REFERENCES items(id) ON DELETE CASCADE,\n    story_id TEXT NOT NULL REFERENCES stories(id),\n    match_reason TEXT NOT NULL DEFAULT '', match_score REAL NOT NULL DEFAULT 1\n)"
+    },
+    {
+      "name": "topics",
+      "type": "table",
+      "sql": "CREATE TABLE topics (\n    slug TEXT PRIMARY KEY, name TEXT NOT NULL, group_key TEXT NOT NULL,\n    description TEXT NOT NULL, rules TEXT NOT NULL, position INTEGER NOT NULL,\n    enabled INTEGER NOT NULL DEFAULT 1\n)"
+    },
+    {
+      "name": "items_ad",
+      "type": "trigger",
+      "sql": "CREATE TRIGGER items_ad AFTER DELETE ON items BEGIN\n                    INSERT INTO items_fts(items_fts,rowid,title,title_zh,summary)\n                    VALUES('delete',old.id,old.title,old.title_zh,old.summary);\n                END"
+    },
+    {
+      "name": "items_ai",
+      "type": "trigger",
+      "sql": "CREATE TRIGGER items_ai AFTER INSERT ON items BEGIN\n                    INSERT INTO items_fts(rowid,title,title_zh,summary)\n                    VALUES(new.id,new.title,new.title_zh,new.summary);\n                END"
+    },
+    {
+      "name": "items_au",
+      "type": "trigger",
+      "sql": "CREATE TRIGGER items_au AFTER UPDATE OF title,title_zh,summary ON items BEGIN\n                    INSERT INTO items_fts(items_fts,rowid,title,title_zh,summary)\n                    VALUES('delete',old.id,old.title,old.title_zh,old.summary);\n                    INSERT INTO items_fts(rowid,title,title_zh,summary)\n                    VALUES(new.id,new.title,new.title_zh,new.summary);\n                END"
+    },
+    {
+      "name": "items_derived_insert",
+      "type": "trigger",
+      "sql": "CREATE TRIGGER items_derived_insert AFTER INSERT ON items BEGIN\n    INSERT OR IGNORE INTO derived_dirty(item_id) VALUES(new.id);\nEND"
+    },
+    {
+      "name": "items_derived_update",
+      "type": "trigger",
+      "sql": "CREATE TRIGGER items_derived_update\nAFTER UPDATE OF title,title_zh,summary,raw_summary,companies,score,tmt,event_type,ai_cat,official,extra,published_at ON items BEGIN\n    INSERT OR IGNORE INTO derived_dirty(item_id) VALUES(new.id);\nEND"
+    }
+  ]
+}

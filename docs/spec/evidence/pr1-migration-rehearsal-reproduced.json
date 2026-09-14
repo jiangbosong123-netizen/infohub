@@ -1,0 +1,294 @@
+[
+  {
+    "captured_at": "2026-09-14T23:10:44.729173+00:00",
+    "source_file": "app.db",
+    "scope": "Local file copy, not current Windows export",
+    "python": "3.9.6",
+    "sqlite": "3.51.0",
+    "init_twice_seconds": 0.007,
+    "original_tables_identical": true,
+    "before": {
+      "cluster_members": {
+        "count": 1837,
+        "sha256": "968cb47fd10c398bffbd331c5da16ec5f1a9db81d8890c0a53b7ef95252ebf83"
+      },
+      "clusters": {
+        "count": 1489,
+        "sha256": "82f6087e865bcbfca58156e2bbcb081902d3e8e890d6c616671426d76de8fa98"
+      },
+      "companies": {
+        "count": 23,
+        "sha256": "5c672766f237fe0e488ec42fc8b118d34ad3d41e16a4c6f78b90ec2f740cf05b"
+      },
+      "daily_reports": {
+        "count": 3,
+        "sha256": "513a741471ffc4a804c58c48821b0ef450f371cc0531827f72ab22b23aa322e0"
+      },
+      "derived_dirty": {
+        "count": 0,
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      "fetch_log": {
+        "count": 3670,
+        "sha256": "10a436e827d9460787ec1de17ddb77210ec947e7c90f8cb4c8f173cfef8fc304"
+      },
+      "indexed_items": {
+        "count": 11142,
+        "sha256": "24da94bc2e139c786cdd94ef3e56d72b655ad7d3b34d9967518c2c86b2db78ce"
+      },
+      "item_companies": {
+        "count": 7444,
+        "sha256": "3e95d5063e5d0669964f64b8d138f2208319afb2eeab79865305cc0aee63d34f"
+      },
+      "item_discoveries": {
+        "count": 10822,
+        "sha256": "914322c13543c34ebdc4439f91004de11041d2104494282bfb85084f8c431e03"
+      },
+      "item_topics": {
+        "count": 11970,
+        "sha256": "35ec247e707a22accbe028f8c97af31f2ff567db4833b26e07bc3d940fcea0b8"
+      },
+      "items": {
+        "count": 11142,
+        "sha256": "925fd11708d84dfc1d6dd14365a5fb8464b5cc6f4099ec5cd351146d072cbfbe"
+      },
+      "sources": {
+        "count": 57,
+        "sha256": "c6ebbd91e660e8095be94d3a1ae0ddacbedac21e68dbe0d35a55bbff9b84e86c"
+      },
+      "stories": {
+        "count": 9459,
+        "sha256": "ce13b0a6eac37356b8562e5634af757b5a569a05cd545db5cbfc9322d04a96d1"
+      },
+      "story_items": {
+        "count": 8434,
+        "sha256": "33d78bc8784c9c7834477ed7b9ce7d7e69e341337722542701cd5f13c03c1b72"
+      },
+      "topics": {
+        "count": 56,
+        "sha256": "3b2735ae728ad8c82f43f2ea0a69da95103ba166435a0b031dc1911ddc1f0903"
+      }
+    },
+    "after": {
+      "cluster_members": {
+        "count": 1837,
+        "sha256": "968cb47fd10c398bffbd331c5da16ec5f1a9db81d8890c0a53b7ef95252ebf83"
+      },
+      "clusters": {
+        "count": 1489,
+        "sha256": "82f6087e865bcbfca58156e2bbcb081902d3e8e890d6c616671426d76de8fa98"
+      },
+      "companies": {
+        "count": 23,
+        "sha256": "5c672766f237fe0e488ec42fc8b118d34ad3d41e16a4c6f78b90ec2f740cf05b"
+      },
+      "daily_reports": {
+        "count": 3,
+        "sha256": "513a741471ffc4a804c58c48821b0ef450f371cc0531827f72ab22b23aa322e0"
+      },
+      "derived_dirty": {
+        "count": 0,
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      "fetch_log": {
+        "count": 3670,
+        "sha256": "10a436e827d9460787ec1de17ddb77210ec947e7c90f8cb4c8f173cfef8fc304"
+      },
+      "indexed_items": {
+        "count": 11142,
+        "sha256": "24da94bc2e139c786cdd94ef3e56d72b655ad7d3b34d9967518c2c86b2db78ce"
+      },
+      "item_companies": {
+        "count": 7444,
+        "sha256": "3e95d5063e5d0669964f64b8d138f2208319afb2eeab79865305cc0aee63d34f"
+      },
+      "item_discoveries": {
+        "count": 10822,
+        "sha256": "914322c13543c34ebdc4439f91004de11041d2104494282bfb85084f8c431e03"
+      },
+      "item_topics": {
+        "count": 11970,
+        "sha256": "35ec247e707a22accbe028f8c97af31f2ff567db4833b26e07bc3d940fcea0b8"
+      },
+      "items": {
+        "count": 11142,
+        "sha256": "925fd11708d84dfc1d6dd14365a5fb8464b5cc6f4099ec5cd351146d072cbfbe"
+      },
+      "sources": {
+        "count": 57,
+        "sha256": "c6ebbd91e660e8095be94d3a1ae0ddacbedac21e68dbe0d35a55bbff9b84e86c"
+      },
+      "stories": {
+        "count": 9459,
+        "sha256": "ce13b0a6eac37356b8562e5634af757b5a569a05cd545db5cbfc9322d04a96d1"
+      },
+      "story_items": {
+        "count": 8434,
+        "sha256": "33d78bc8784c9c7834477ed7b9ce7d7e69e341337722542701cd5f13c03c1b72"
+      },
+      "topics": {
+        "count": 56,
+        "sha256": "3b2735ae728ad8c82f43f2ea0a69da95103ba166435a0b031dc1911ddc1f0903"
+      }
+    },
+    "integrity": [
+      [
+        "ok"
+      ]
+    ],
+    "foreign_keys": [],
+    "fts_integrity": "passed",
+    "migrations": [
+      [
+        1,
+        "versioned NLP result storage"
+      ]
+    ]
+  },
+  {
+    "captured_at": "2026-09-14T23:10:45.577976+00:00",
+    "source_file": "app.windows-migration.db",
+    "scope": "Local file copy, not current Windows export",
+    "python": "3.9.6",
+    "sqlite": "3.51.0",
+    "init_twice_seconds": 0.009,
+    "original_tables_identical": true,
+    "before": {
+      "cluster_members": {
+        "count": 1837,
+        "sha256": "968cb47fd10c398bffbd331c5da16ec5f1a9db81d8890c0a53b7ef95252ebf83"
+      },
+      "clusters": {
+        "count": 1489,
+        "sha256": "82f6087e865bcbfca58156e2bbcb081902d3e8e890d6c616671426d76de8fa98"
+      },
+      "companies": {
+        "count": 23,
+        "sha256": "5c672766f237fe0e488ec42fc8b118d34ad3d41e16a4c6f78b90ec2f740cf05b"
+      },
+      "daily_reports": {
+        "count": 3,
+        "sha256": "513a741471ffc4a804c58c48821b0ef450f371cc0531827f72ab22b23aa322e0"
+      },
+      "derived_dirty": {
+        "count": 30,
+        "sha256": "ff0e25a6fd4716bf25563ac02d48b6d6b85e58e97f2dcb7fb1272346d7620ecb"
+      },
+      "fetch_log": {
+        "count": 3144,
+        "sha256": "421f0f494029c8b7b48df7133566903c4efac9ab8efeb5996ddd5e1f63302366"
+      },
+      "indexed_items": {
+        "count": 10241,
+        "sha256": "28f521667c275c6b368782578cabc8c5fe2f3b982024b01e490be0b5fc37eb9e"
+      },
+      "item_companies": {
+        "count": 6761,
+        "sha256": "bc15eb99b0aaa5e80c084755b636b9df23a240bcd5531ed5f5af75d94e423040"
+      },
+      "item_discoveries": {
+        "count": 9126,
+        "sha256": "d956a6d58779227471880f6760bb832bea02b8709e53dae2cf21b7824d0224e3"
+      },
+      "item_topics": {
+        "count": 10399,
+        "sha256": "f1e32b83bbec6f8d95b8b3e8609861b9934e868d878fbd0a1547fb50e396575c"
+      },
+      "items": {
+        "count": 10241,
+        "sha256": "88747372f59f895d9a505b4b110bb8ab5541846f3ffc991a6278008e3a82cc10"
+      },
+      "sources": {
+        "count": 57,
+        "sha256": "0dd16da22df66d38b92904f81b2080bfb2e426b56941b3a2eff3993c7e1afb9f"
+      },
+      "stories": {
+        "count": 8716,
+        "sha256": "8053bb07eedfee351cdf5bce24ed2cca220a4938d0525a92573166e56d1c338b"
+      },
+      "story_items": {
+        "count": 8093,
+        "sha256": "56daf511ba45221aa64057745225cc7b3d2d4627ac5a30cda319a8fa1f9c97fd"
+      },
+      "topics": {
+        "count": 56,
+        "sha256": "3b2735ae728ad8c82f43f2ea0a69da95103ba166435a0b031dc1911ddc1f0903"
+      }
+    },
+    "after": {
+      "cluster_members": {
+        "count": 1837,
+        "sha256": "968cb47fd10c398bffbd331c5da16ec5f1a9db81d8890c0a53b7ef95252ebf83"
+      },
+      "clusters": {
+        "count": 1489,
+        "sha256": "82f6087e865bcbfca58156e2bbcb081902d3e8e890d6c616671426d76de8fa98"
+      },
+      "companies": {
+        "count": 23,
+        "sha256": "5c672766f237fe0e488ec42fc8b118d34ad3d41e16a4c6f78b90ec2f740cf05b"
+      },
+      "daily_reports": {
+        "count": 3,
+        "sha256": "513a741471ffc4a804c58c48821b0ef450f371cc0531827f72ab22b23aa322e0"
+      },
+      "derived_dirty": {
+        "count": 30,
+        "sha256": "ff0e25a6fd4716bf25563ac02d48b6d6b85e58e97f2dcb7fb1272346d7620ecb"
+      },
+      "fetch_log": {
+        "count": 3144,
+        "sha256": "421f0f494029c8b7b48df7133566903c4efac9ab8efeb5996ddd5e1f63302366"
+      },
+      "indexed_items": {
+        "count": 10241,
+        "sha256": "28f521667c275c6b368782578cabc8c5fe2f3b982024b01e490be0b5fc37eb9e"
+      },
+      "item_companies": {
+        "count": 6761,
+        "sha256": "bc15eb99b0aaa5e80c084755b636b9df23a240bcd5531ed5f5af75d94e423040"
+      },
+      "item_discoveries": {
+        "count": 9126,
+        "sha256": "d956a6d58779227471880f6760bb832bea02b8709e53dae2cf21b7824d0224e3"
+      },
+      "item_topics": {
+        "count": 10399,
+        "sha256": "f1e32b83bbec6f8d95b8b3e8609861b9934e868d878fbd0a1547fb50e396575c"
+      },
+      "items": {
+        "count": 10241,
+        "sha256": "88747372f59f895d9a505b4b110bb8ab5541846f3ffc991a6278008e3a82cc10"
+      },
+      "sources": {
+        "count": 57,
+        "sha256": "0dd16da22df66d38b92904f81b2080bfb2e426b56941b3a2eff3993c7e1afb9f"
+      },
+      "stories": {
+        "count": 8716,
+        "sha256": "8053bb07eedfee351cdf5bce24ed2cca220a4938d0525a92573166e56d1c338b"
+      },
+      "story_items": {
+        "count": 8093,
+        "sha256": "56daf511ba45221aa64057745225cc7b3d2d4627ac5a30cda319a8fa1f9c97fd"
+      },
+      "topics": {
+        "count": 56,
+        "sha256": "3b2735ae728ad8c82f43f2ea0a69da95103ba166435a0b031dc1911ddc1f0903"
+      }
+    },
+    "integrity": [
+      [
+        "ok"
+      ]
+    ],
+    "foreign_keys": [],
+    "fts_integrity": "passed",
+    "migrations": [
+      [
+        1,
+        "versioned NLP result storage"
+      ]
+    ]
+  }
+]

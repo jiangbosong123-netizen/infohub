@@ -1,0 +1,26 @@
+{
+  "reanalysis_same_version": [
+    {
+      "model": "model-b",
+      "output_json": "{\"score\": 90}"
+    }
+  ],
+  "same_url_correction": {
+    "title": "OpenAI launches a new model for coding",
+    "raw_summary": "Original report"
+  },
+  "no_success_source_health": "ok",
+  "since_misses_late_arrival": true,
+  "malformed_cursor_status": 400,
+  "openapi_items_response_schema": {},
+  "topic_count_grain": {
+    "selected_count": 2,
+    "rendered_events": 1
+  },
+  "reintroduced_source_enabled": 0,
+  "malformed_cls_response": [],
+  "malformed_wscn_response": [],
+  "malformed_rss_response": [],
+  "failed_migration_leaves_ddl": true,
+  "failed_migration_markers": 0
+}
