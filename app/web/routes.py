@@ -319,6 +319,33 @@ def search(request: Request, q: str = ""):
     return templates.TemplateResponse(request, "search.html", dict(q=q, items=items))
 
 
+@app.get("/saved", response_class=HTMLResponse)
+def saved(request: Request, ids: str = ""):
+    parsed = []
+    for value in ids.split(",")[:200]:
+        try:
+            item_id = int(value)
+        except ValueError:
+            continue
+        if item_id > 0 and item_id not in parsed:
+            parsed.append(item_id)
+    rows = []
+    if parsed:
+        marks = ",".join("?" * len(parsed))
+        with get_db() as db:
+            rows = db.execute(f"""SELECT i.*,s.name AS source_name FROM items i
+                JOIN sources s ON s.id=i.source_id
+                WHERE i.id IN ({marks}) AND COALESCE(i.tmt,1)!=0
+                ORDER BY i.published_at DESC,i.id DESC""", parsed).fetchall()
+    days = []
+    for item in _decorate(rows):
+        if not days or days[-1]["key"] != item["date_key"]:
+            days.append(dict(key=item["date_key"],
+                label=_date_label(datetime.fromisoformat(item["date_key"])), rows=[]))
+        days[-1]["rows"].append(item)
+    return templates.TemplateResponse(request, "saved.html", dict(days=days, has_ids=bool(ids)))
+
+
 @app.get("/health", response_class=HTMLResponse)
 def health(request: Request):
     with get_db() as db:

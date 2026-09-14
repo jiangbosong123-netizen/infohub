@@ -1,5 +1,5 @@
 {% macro item_card(it, mode='selected') %}
-<div class="t-item {{ 't-hot' if it.score is not none and it.score >= 70 }}">
+<div class="t-item {{ 't-hot' if it.score is not none and it.score >= 70 }}" data-item-id="{{ it.id }}">
   <span class="t-dot"></span>
   <div class="t-time">{{ it.hms }}</div>
   <div class="t-card">
@@ -15,10 +15,11 @@
       <span class="scoreline {{ 's80' if it.score >= 80 else ('s60' if it.score >= 60 else '') }}"><span class="sdot">●</span> AI 评分 {{ it.score }}/100</span>
       {% endif %}
     </div>
-    <h2><a href="{{ it.url }}" target="_blank" rel="noopener">{{ it.title }}</a></h2>
+    <h2><a href="{{ it.url }}" target="_blank" rel="noopener" data-read-id="{{ it.id }}">{{ it.title }}</a></h2>
     {% if it.summary %}<p class="sum">{{ it.summary }}</p>{% endif %}
     {% if it.reason %}<div class="t-reason"><b>推荐理由</b>：{{ it.reason }}</div>{% endif %}
     <div class="t-sub">
+      <button type="button" class="save-button" data-save-id="{{ it.id }}" aria-pressed="false">☆ 稍后读</button>
       {% if it.story_count > 1 %}<a class="more" href="/story/{{ it.cluster_id }}">查看事件 · {{ it.story_count }} 篇报道{% if it.extra_sources > 0 %} · 另有 {{ it.extra_sources }} 家发布方{% endif %}</a>{% endif %}
       {% for t in it.topics %}<a class="chip sm" href="/topics/{{ t.slug }}">{{ t.name }}</a>{% endfor %}
       {% if it.ai_cat %}<a class="more" href="/?channel=ai&amp;cat={{ it.ai_cat }}&amp;mode={{ mode }}">{{ {'model':'模型','product':'产品','industry':'行业','paper':'论文','opinion':'观点'}.get(it.ai_cat, '') }}相关</a>{% endif %}

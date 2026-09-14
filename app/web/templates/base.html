@@ -25,6 +25,7 @@
     <a href="/hot" class="{{ 'on' if nav == 'hot' }}">◎ 热点榜</a>
     <a href="/daily" class="{{ 'on' if nav == 'daily' }}">▤ AI 日报</a>
     <a href="/topics" class="{{ 'on' if nav == 'topics' }}">▦ 主题</a>
+    <a href="/saved" class="{{ 'on' if nav == 'saved' }}">☆ 稍后读 <span class="saved-count" hidden></span></a>
     <a href="/health" class="{{ 'on' if nav == 'health' }}">◷ 源状态</a>
     <div class="navgroup">更多</div>
     <a href="https://github.com/jiangbosong123-netizen/infohub" target="_blank" rel="noopener">⌥ GitHub</a>
@@ -50,6 +51,51 @@ document.querySelectorAll('[data-set-theme]').forEach(function(b){
     document.documentElement.dataset.theme = t;
   });
 });
+(function(){
+  var savedKey = 'infohub_saved_v1', readKey = 'infohub_read_v1';
+  function load(key) {
+    try { var value = JSON.parse(localStorage.getItem(key) || '[]'); return Array.isArray(value) ? value.map(String) : []; }
+    catch (_) { return []; }
+  }
+  function store(key, values) { localStorage.setItem(key, JSON.stringify(values.slice(0, 200))); }
+  var saved = load(savedKey), read = load(readKey);
+  function paint() {
+    document.querySelectorAll('[data-save-id]').forEach(function(button) {
+      var active = saved.indexOf(button.dataset.saveId) >= 0;
+      button.classList.toggle('on', active);
+      button.textContent = active ? '★ 已收藏' : '☆ 稍后读';
+      button.setAttribute('aria-pressed', active ? 'true' : 'false');
+    });
+    document.querySelectorAll('[data-item-id]').forEach(function(card) {
+      card.classList.toggle('is-read', read.indexOf(card.dataset.itemId) >= 0);
+    });
+    document.querySelectorAll('.saved-count').forEach(function(count) {
+      count.textContent = saved.length;
+      count.hidden = saved.length === 0;
+    });
+  }
+  document.addEventListener('click', function(event) {
+    var saveButton = event.target.closest('[data-save-id]');
+    if (saveButton) {
+      var id = saveButton.dataset.saveId, index = saved.indexOf(id);
+      if (index >= 0) saved.splice(index, 1); else saved.unshift(id);
+      store(savedKey, saved); paint();
+      if (document.body.dataset.savedPage && index >= 0) {
+        var item = saveButton.closest('[data-item-id]');
+        if (item) item.remove();
+      }
+      return;
+    }
+    var readLink = event.target.closest('[data-read-id]');
+    if (readLink) {
+      var readId = readLink.dataset.readId;
+      read = [readId].concat(read.filter(function(id) { return id !== readId; }));
+      store(readKey, read); paint();
+    }
+  });
+  window.InfoHubReading = { saved: saved, paint: paint };
+  paint();
+})();
 </script>
 </body>
 </html>

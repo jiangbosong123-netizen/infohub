@@ -1,0 +1,44 @@
+{% extends "base.html" %}
+{% from "macros.html" import item_card %}
+{% block title %}稍后读 — 行业情报站{% endblock %}
+{% block content %}
+<div class="titlerow">
+  <h1 class="pagetitle">稍后读 <small>只保存在当前浏览器，不上传账户</small></h1>
+</div>
+<div id="saved-loading" class="empty">正在读取你的收藏…</div>
+<div id="saved-content" hidden>
+  {% if has_ids and not days %}<p class="empty">收藏的内容已不存在或暂时不可见。</p>{% endif %}
+  {% for d in days %}
+  <details class="day" open>
+    <summary><span class="chev">▶</span> {{ d.label }} <span class="cnt">· {{ d.rows | length }} 条</span></summary>
+    <div class="timeline">
+      {% for it in d.rows %}{{ item_card(it, 'selected') }}{% endfor %}
+    </div>
+  </details>
+  {% endfor %}
+</div>
+<script>
+document.body.dataset.savedPage = 'true';
+(function(){
+document.addEventListener('DOMContentLoaded', function(){
+  var ids = (window.InfoHubReading && window.InfoHubReading.saved) || [];
+  var params = new URLSearchParams(location.search);
+  if ((params.get('ids') || '') !== ids.join(',')) {
+    if (!ids.length && !params.has('ids')) {
+      document.getElementById('saved-loading').hidden = true;
+      document.getElementById('saved-content').hidden = false;
+      document.getElementById('saved-content').innerHTML =
+        '<p class="empty">还没有收藏内容。回到精选页，点击新闻下方的“☆ 稍后读”即可加入。</p>';
+      return;
+    }
+    location.replace('/saved?ids=' + encodeURIComponent(ids.join(',')));
+    return;
+  }
+  document.getElementById('saved-loading').hidden = true;
+  document.getElementById('saved-content').hidden = false;
+  if (!ids.length) document.getElementById('saved-content').innerHTML =
+    '<p class="empty">还没有收藏内容。回到精选页，点击新闻下方的“☆ 稍后读”即可加入。</p>';
+});
+})();
+</script>
+{% endblock %}

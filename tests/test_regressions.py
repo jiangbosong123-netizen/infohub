@@ -168,8 +168,19 @@ class RegressionTests(unittest.TestCase):
             self.item(channel + ' unrelated headline',channel=channel,published_at=datetime.now(timezone.utc).isoformat())
         refresh_derived()
         self.assertEqual([x['channel'] for x in routes._top_clusters(8,'ai')], ['ai'])
-        for path in ('/','/hot','/daily','/search','/health','/topics'):
+        for path in ('/','/hot','/daily','/search','/health','/topics','/saved'):
             self.assertEqual(self.client.get(path).status_code, 200)
+
+    def test_saved_page_only_returns_requested_visible_items(self):
+        visible = self.item('saved visible')
+        hidden = self.item('saved hidden')
+        other = self.item('not requested')
+        with database.get_db() as db:
+            db.execute('UPDATE items SET tmt=0 WHERE id=?', (hidden,))
+        response = self.client.get('/saved', params={'ids':f'{visible},{hidden},bad,-1'})
+        rendered = [item['id'] for day in response.context['days'] for item in day['rows']]
+        self.assertEqual(rendered, [visible])
+        self.assertNotIn(other, rendered)
 
     def test_selected_mode_without_llm(self):
         self.item()
