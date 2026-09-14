@@ -1,7 +1,7 @@
 {
   "openapi": "3.1.0 valid",
-  "paths": 18,
-  "schemas": 83,
+  "paths": 24,
+  "schemas": 89,
   "complete_openapi_examples": 8,
   "prose_examples": "4 valid",
   "negative_horizon_example": "correctly rejected",

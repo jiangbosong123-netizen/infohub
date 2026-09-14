@@ -234,6 +234,47 @@ paths:
         in: query
         required: false
         schema: {type: string, minLength: 1}
+  /api/v1/evidence/{id}:
+    get:
+      operationId: getEvidence
+      summary: Resolve an immutable evidence reference
+      tags:
+      - evidence
+      x-required-scopes:
+      - read:evidence
+      security:
+      - ConsumerToken: []
+      description: Target contract, not yet implemented. Unknown query parameters are rejected with 422. See API_CONTRACT.md
+        for transaction and authorization invariants.
+      responses:
+        '200':
+          description: Successful read
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/EvidenceResponse'}
+          headers:
+            ETag:
+              schema: {type: string}
+              description: Permission-aware immutable revision validator.
+        '400': {$ref: '#/components/responses/Error400'}
+        '401': {$ref: '#/components/responses/Error401'}
+        '403': {$ref: '#/components/responses/Error403'}
+        '404': {$ref: '#/components/responses/Error404'}
+        '409': {$ref: '#/components/responses/Error409'}
+        '410': {$ref: '#/components/responses/Error410'}
+        '422': {$ref: '#/components/responses/Error422'}
+        '429': {$ref: '#/components/responses/Error429'}
+        '503': {$ref: '#/components/responses/Error503'}
+        '304': {description: Not modified; no body.}
+      parameters:
+      - name: id
+        in: path
+        required: true
+        schema: {type: string, minLength: 1, maxLength: 128}
+      - name: If-None-Match
+        in: header
+        required: false
+        schema: {type: string}
   /api/v1/events:
     get:
       operationId: listEvents
@@ -497,6 +538,57 @@ paths:
           - industry
           - region
           - macro_concept
+  /api/v1/entities/{id}:
+    get:
+      operationId: getEntity
+      summary: Resolve a current or historical entity
+      tags:
+      - entities
+      x-required-scopes:
+      - read:catalog
+      security:
+      - ConsumerToken: []
+      description: Target contract, not yet implemented. Unknown query parameters are rejected with 422. See API_CONTRACT.md
+        for transaction and authorization invariants.
+      responses:
+        '200':
+          description: Successful read
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/EntityResponse'}
+          headers:
+            ETag:
+              schema: {type: string}
+              description: Permission-aware immutable revision validator.
+        '400': {$ref: '#/components/responses/Error400'}
+        '401': {$ref: '#/components/responses/Error401'}
+        '403': {$ref: '#/components/responses/Error403'}
+        '404': {$ref: '#/components/responses/Error404'}
+        '409': {$ref: '#/components/responses/Error409'}
+        '410': {$ref: '#/components/responses/Error410'}
+        '422': {$ref: '#/components/responses/Error422'}
+        '429': {$ref: '#/components/responses/Error429'}
+        '503': {$ref: '#/components/responses/Error503'}
+        '304': {description: Not modified; no body.}
+      parameters:
+      - name: id
+        in: path
+        required: true
+        schema: {type: string, minLength: 1, maxLength: 128}
+      - name: version_id
+        in: query
+        required: false
+        schema: {type: string, minLength: 1, maxLength: 128}
+        description: Mutually exclusive with as_of.
+      - name: as_of
+        in: query
+        required: false
+        schema: {type: string, format: date-time, pattern: '(Z|[+-]\d{2}:\d{2})$'}
+        description: 'Knowledge cutoff: only versions available by this instant; mutually exclusive with version_id.'
+      - name: If-None-Match
+        in: header
+        required: false
+        schema: {type: string}
   /api/v1/topics:
     get:
       operationId: listTopics
@@ -544,6 +636,57 @@ paths:
           - format
           - macro
           - research
+  /api/v1/topics/{id}:
+    get:
+      operationId: getTopic
+      summary: Resolve a current or historical topic
+      tags:
+      - topics
+      x-required-scopes:
+      - read:catalog
+      security:
+      - ConsumerToken: []
+      description: Target contract, not yet implemented. Unknown query parameters are rejected with 422. See API_CONTRACT.md
+        for transaction and authorization invariants.
+      responses:
+        '200':
+          description: Successful read
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/TopicResponse'}
+          headers:
+            ETag:
+              schema: {type: string}
+              description: Permission-aware immutable revision validator.
+        '400': {$ref: '#/components/responses/Error400'}
+        '401': {$ref: '#/components/responses/Error401'}
+        '403': {$ref: '#/components/responses/Error403'}
+        '404': {$ref: '#/components/responses/Error404'}
+        '409': {$ref: '#/components/responses/Error409'}
+        '410': {$ref: '#/components/responses/Error410'}
+        '422': {$ref: '#/components/responses/Error422'}
+        '429': {$ref: '#/components/responses/Error429'}
+        '503': {$ref: '#/components/responses/Error503'}
+        '304': {description: Not modified; no body.}
+      parameters:
+      - name: id
+        in: path
+        required: true
+        schema: {type: string, minLength: 1, maxLength: 128}
+      - name: version_id
+        in: query
+        required: false
+        schema: {type: string, minLength: 1, maxLength: 128}
+        description: Mutually exclusive with as_of.
+      - name: as_of
+        in: query
+        required: false
+        schema: {type: string, format: date-time, pattern: '(Z|[+-]\d{2}:\d{2})$'}
+        description: 'Knowledge cutoff: only versions available by this instant; mutually exclusive with version_id.'
+      - name: If-None-Match
+        in: header
+        required: false
+        schema: {type: string}
   /api/v1/sources:
     get:
       operationId: listSources
@@ -580,6 +723,57 @@ paths:
         in: query
         required: false
         schema: {type: string, minLength: 1}
+  /api/v1/sources/{id}:
+    get:
+      operationId: getSource
+      summary: Resolve a current or historical source
+      tags:
+      - sources
+      x-required-scopes:
+      - read:catalog
+      security:
+      - ConsumerToken: []
+      description: Target contract, not yet implemented. Unknown query parameters are rejected with 422. See API_CONTRACT.md
+        for transaction and authorization invariants.
+      responses:
+        '200':
+          description: Successful read
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/SourceResponse'}
+          headers:
+            ETag:
+              schema: {type: string}
+              description: Permission-aware immutable revision validator.
+        '400': {$ref: '#/components/responses/Error400'}
+        '401': {$ref: '#/components/responses/Error401'}
+        '403': {$ref: '#/components/responses/Error403'}
+        '404': {$ref: '#/components/responses/Error404'}
+        '409': {$ref: '#/components/responses/Error409'}
+        '410': {$ref: '#/components/responses/Error410'}
+        '422': {$ref: '#/components/responses/Error422'}
+        '429': {$ref: '#/components/responses/Error429'}
+        '503': {$ref: '#/components/responses/Error503'}
+        '304': {description: Not modified; no body.}
+      parameters:
+      - name: id
+        in: path
+        required: true
+        schema: {type: string, minLength: 1, maxLength: 128}
+      - name: version_id
+        in: query
+        required: false
+        schema: {type: string, minLength: 1, maxLength: 128}
+        description: Mutually exclusive with as_of.
+      - name: as_of
+        in: query
+        required: false
+        schema: {type: string, format: date-time, pattern: '(Z|[+-]\d{2}:\d{2})$'}
+        description: 'Knowledge cutoff: only versions available by this instant; mutually exclusive with version_id.'
+      - name: If-None-Match
+        in: header
+        required: false
+        schema: {type: string}
   /api/v1/signals:
     get:
       operationId: listSignals
@@ -644,6 +838,101 @@ paths:
         in: query
         required: false
         schema: {type: string, minLength: 1, maxLength: 128}
+  /api/v1/signals/{id}:
+    get:
+      operationId: getSignal
+      summary: Read a current or historical signal
+      tags:
+      - signals
+      x-required-scopes:
+      - read:signals
+      security:
+      - ConsumerToken: []
+      description: Target contract, not yet implemented. Unknown query parameters are rejected with 422. See API_CONTRACT.md
+        for transaction and authorization invariants.
+      responses:
+        '200':
+          description: Successful read
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/SignalResponse'}
+          headers:
+            ETag:
+              schema: {type: string}
+              description: Permission-aware immutable revision validator.
+        '400': {$ref: '#/components/responses/Error400'}
+        '401': {$ref: '#/components/responses/Error401'}
+        '403': {$ref: '#/components/responses/Error403'}
+        '404': {$ref: '#/components/responses/Error404'}
+        '409': {$ref: '#/components/responses/Error409'}
+        '410': {$ref: '#/components/responses/Error410'}
+        '422': {$ref: '#/components/responses/Error422'}
+        '429': {$ref: '#/components/responses/Error429'}
+        '503': {$ref: '#/components/responses/Error503'}
+        '304': {description: Not modified; no body.}
+      parameters:
+      - name: id
+        in: path
+        required: true
+        schema: {type: string, minLength: 1, maxLength: 128}
+      - name: version_id
+        in: query
+        required: false
+        schema: {type: string, minLength: 1, maxLength: 128}
+        description: Mutually exclusive with as_of.
+      - name: as_of
+        in: query
+        required: false
+        schema: {type: string, format: date-time, pattern: '(Z|[+-]\d{2}:\d{2})$'}
+        description: 'Knowledge cutoff: only versions available by this instant; mutually exclusive with version_id.'
+      - name: If-None-Match
+        in: header
+        required: false
+        schema: {type: string}
+  /api/v1/signals/{id}/inputs:
+    get:
+      operationId: listSignalInputs
+      summary: Resolve a fixed signal input manifest
+      tags:
+      - signals
+      x-required-scopes:
+      - read:signals
+      security:
+      - ConsumerToken: []
+      description: Target contract, not yet implemented. Unknown query parameters are rejected with 422. See API_CONTRACT.md
+        for transaction and authorization invariants.
+      responses:
+        '200':
+          description: Successful read
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/InputRefListResponse'}
+        '400': {$ref: '#/components/responses/Error400'}
+        '401': {$ref: '#/components/responses/Error401'}
+        '403': {$ref: '#/components/responses/Error403'}
+        '404': {$ref: '#/components/responses/Error404'}
+        '409': {$ref: '#/components/responses/Error409'}
+        '410': {$ref: '#/components/responses/Error410'}
+        '422': {$ref: '#/components/responses/Error422'}
+        '429': {$ref: '#/components/responses/Error429'}
+        '503': {$ref: '#/components/responses/Error503'}
+      parameters:
+      - name: id
+        in: path
+        required: true
+        schema: {type: string, minLength: 1, maxLength: 128}
+      - name: version_id
+        in: query
+        required: true
+        schema: {type: string, minLength: 1, maxLength: 128}
+      - name: limit
+        in: query
+        required: false
+        schema: {type: integer, minimum: 1, maximum: 100, default: 50}
+      - name: cursor
+        in: query
+        required: false
+        schema: {type: string, minLength: 1}
   /api/v1/reports:
     get:
       operationId: listReports
@@ -3377,6 +3666,15 @@ components:
         - data
         - pagination
         additionalProperties: true
+    EvidenceResponse:
+      allOf:
+      - {$ref: '#/components/schemas/Meta'}
+      - type: object
+        properties:
+          data: {$ref: '#/components/schemas/Evidence'}
+        required:
+        - data
+        additionalProperties: true
     EventViewListResponse:
       allOf:
       - {$ref: '#/components/schemas/Meta'}
@@ -3434,6 +3732,15 @@ components:
         - data
         - pagination
         additionalProperties: true
+    EntityResponse:
+      allOf:
+      - {$ref: '#/components/schemas/Meta'}
+      - type: object
+        properties:
+          data: {$ref: '#/components/schemas/Entity'}
+        required:
+        - data
+        additionalProperties: true
     TopicListResponse:
       allOf:
       - {$ref: '#/components/schemas/Meta'}
@@ -3446,6 +3753,15 @@ components:
         required:
         - data
         - pagination
+        additionalProperties: true
+    TopicResponse:
+      allOf:
+      - {$ref: '#/components/schemas/Meta'}
+      - type: object
+        properties:
+          data: {$ref: '#/components/schemas/Topic'}
+        required:
+        - data
         additionalProperties: true
     SourceListResponse:
       allOf:
@@ -3460,6 +3776,15 @@ components:
         - data
         - pagination
         additionalProperties: true
+    SourceResponse:
+      allOf:
+      - {$ref: '#/components/schemas/Meta'}
+      - type: object
+        properties:
+          data: {$ref: '#/components/schemas/Source'}
+        required:
+        - data
+        additionalProperties: true
     SignalListResponse:
       allOf:
       - {$ref: '#/components/schemas/Meta'}
@@ -3468,6 +3793,28 @@ components:
           data:
             type: array
             items: {$ref: '#/components/schemas/Signal'}
+          pagination: {$ref: '#/components/schemas/Pagination'}
+        required:
+        - data
+        - pagination
+        additionalProperties: true
+    SignalResponse:
+      allOf:
+      - {$ref: '#/components/schemas/Meta'}
+      - type: object
+        properties:
+          data: {$ref: '#/components/schemas/Signal'}
+        required:
+        - data
+        additionalProperties: true
+    InputRefListResponse:
+      allOf:
+      - {$ref: '#/components/schemas/Meta'}
+      - type: object
+        properties:
+          data:
+            type: array
+            items: {$ref: '#/components/schemas/InputRef'}
           pagination: {$ref: '#/components/schemas/Pagination'}
         required:
         - data

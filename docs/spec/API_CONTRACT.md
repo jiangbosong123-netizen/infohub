@@ -42,14 +42,20 @@
 | GET `/items/{id}` | 单文档指定视图 | version_id 或 as_of 二选一；原文可得状态、版本、分析引用 |
 | GET `/items/{id}/versions` | 文档版本列表 | limit,cursor，按版本号倒序；不返回未经授权的全文 |
 | GET `/items/{id}/evidence` | 原文证据 | 必须 version_id；分页，精确定位和证据类型 |
+| GET `/evidence/{id}` | 按引用ID读取证据 | 不可变版本定位；受限内容返回明确状态或403 |
 | GET `/events` | 稳定事件列表 | topic_id,entity_id,type,status,available_from/to,limit,cursor |
 | GET `/events/{id}` | 当前或历史事件 | version_id/as_of，facts、引用、状态、canonical/replacement ID |
 | GET `/events/{id}/evidence` | 支持/冲突/背景证据 | 必须 version_id，可 role；不将冲突证据隐藏 |
 | GET `/analyses/{id}` | 不可变分析结果及复核状态 | 可选as_of；输出内容不可变，状态按指定知识时点解析；原始请求敏感信息不外泄 |
 | GET `/entities` | 实体目录 | q,type,limit,cursor；稳定 ID、别名和证券标识 |
+| GET `/entities/{id}` | 实体指定版本 | version_id/as_of；解析历史事件引用的实体名称与身份 |
 | GET `/topics` | 主题目录 | group,limit,cursor；计数明确为文档/事件和统计时间 |
+| GET `/topics/{id}` | 主题指定版本 | version_id/as_of；目录属性按历史版本，统计使用对应时点 |
 | GET `/sources` | 来源目录与覆盖说明 | 可公开元数据，排除凭据/内部路径；运行细节另需 read:ops |
+| GET `/sources/{id}` | 来源公开配置指定版本 | version_id/as_of；配置历史依然脱敏 |
 | GET `/signals` | 宏观/情绪汇总 | target_id,aspect,horizon,window_from/to,as_of,formula_version,limit,cursor |
+| GET `/signals/{id}` | 某信号的指定版本 | version_id/as_of；样本、覆盖与manifest标识 |
+| GET `/signals/{id}/inputs` | 分页读取信号输入清单 | 必须version_id，limit/cursor；每条InputRef可进一步取事件/分析/证据 |
 | GET `/reports` | 报告目录 | date_from/to,limit,cursor |
 | GET `/reports/{id}` | 报告某版本 | version_id/as_of；正文、素材 manifest、引用、覆盖与生成模式 |
 | POST `/sync/snapshots` | 建立一致性导出 | resources,scope；202+snapshot_id，需 read:sync 及各资源读权限 |
@@ -137,6 +143,8 @@ Example：
 ### 5.4 Signal / Report
 
 信号包含：target/aspect/horizon、window_start/end、as_of、formula_version、analysis_version_group、score（可空）、n_events/n_eligible/n_valid/n_unknown/n_mixed、coverage、valid_fraction、source_mix、status、input_manifest_ref。coverage是覆盖范围/缺失说明对象，valid_fraction是n_valid/n_eligible（分母0则NULL），二者不能混用。
+
+input_manifest_ref在同一信号版本的`/signals/{id}/inputs?version_id=...`解析，不能是只有服务器能打开的路径。该接口按固定InputRef清单分页；普通文档/事件/分析引用分别通过对应详情与version_id/as_of读取，证据用/evidence/{id}。目录的历史version_id也有详情读取路径，不要求消费者预先缓存所有旧目录。
 
 报告包含：date/timezone/as_of/version、mode=llm/structured_fallback/legacy_unknown、markdown、citations、input_manifest、coverage、supersedes。晚到数据补充报告形成新版本。
 
