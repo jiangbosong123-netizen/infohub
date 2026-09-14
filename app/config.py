@@ -30,6 +30,7 @@ REPORT_MINUTE = int(os.getenv("REPORT_MINUTE", "0"))
 # --- SEC 官方要求：请求需带可联系的 User-Agent ---
 SEC_USER_AGENT = os.getenv("SEC_USER_AGENT", "personal-news-aggregator admin@example.com")
 
+WEB_HOST = os.getenv("WEB_HOST", "127.0.0.1").strip() or "127.0.0.1"
 WEB_PORT = int(os.getenv("PORT", "8000"))
 
 

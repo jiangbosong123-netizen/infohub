@@ -150,7 +150,7 @@ def cmd_serve() -> None:
     print(f"定时任务已启动：抓取每 {config.CRAWL_TICK_MINUTES} 分钟 · AI 每 15 分钟 · "
           f"对账 {config.RECONCILE_HOUR:02d}:{config.RECONCILE_MINUTE:02d} · 日报 {config.REPORT_HOUR:02d}:{config.REPORT_MINUTE:02d}")
     try:
-        uvicorn.run(app, host="127.0.0.1", port=config.WEB_PORT, log_level="info")
+        uvicorn.run(app, host=config.WEB_HOST, port=config.WEB_PORT, log_level="info")
     finally:
         sched.shutdown(wait=False)
 

@@ -47,6 +47,13 @@ tail -f ~/infohub/data/launchd.err.log                          # 看运行日�
 
 不装 launchd 也可以临时手动跑：`cd ~/infohub && .venv/bin/python cli.py serve`。
 
+## Windows 服务器与 Tailscale 访问
+
+Windows 主机需要在 `.env` 中设置 `WEB_HOST=0.0.0.0`，再运行
+`.venv\\Scripts\\python.exe cli.py serve`。同一 Tailscale 网络内的设备随后可通过
+`http://<Windows 的 Tailscale IP>:8000` 访问。只需允许 Windows 防火墙的专用网络或
+Tailscale 网络访问 8000 端口，不要在路由器上做公网端口映射。
+
 ## 实时性设计
 
 - **财联社电报 / 华尔街见闻快讯 / 新浪 7x24** 三条分钟级中文快讯线，各每 10 分钟轮询；SEC / 港交所每 10 分钟
