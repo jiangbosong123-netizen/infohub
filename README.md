@@ -59,6 +59,10 @@ tail -f ~/infohub/data/launchd.err.log                          # 看运行日�
 做公网端口映射。临时不用 Docker 时，也可以在 `.env` 中设置 `WEB_HOST=0.0.0.0` 后运行
 `.venv\\Scripts\\python.exe cli.py serve`。
 
+`/api/health` 提供机器可读的运行版本、信息源异常、AI 待处理量、主题/事件索引积压和
+日报状态；网页 `/health` 展示相同的运维概览。通过 Windows Server Manager 部署时，
+构建版本会自动记录为当前 Git 提交号。
+
 ## 实时性设计
 
 - **财联社电报 / 华尔街见闻快讯 / 新浪 7x24** 三条分钟级中文快讯线，各每 10 分钟轮询；SEC / 港交所每 10 分钟

@@ -72,3 +72,16 @@ class CrawlerHealthTests(unittest.TestCase):
             source=db.execute('SELECT * FROM sources').fetchone()
             self.assertEqual(source['fail_count'],0)
             self.assertIsNone(source['last_error'])
+
+    def test_machine_health_reports_pipeline_backlog(self):
+        with database.get_db() as db:
+            db.execute("""INSERT INTO items(source_id,url,title,channel,published_at,fetched_at)
+                VALUES(1,'https://example.com/pending','Pending','ai',?,?)""",
+                ('2026-09-14T10:00:00+00:00','2026-09-14T10:01:00+00:00'))
+        response = TestClient(app).get('/api/health')
+        self.assertEqual(response.status_code, 200)
+        body = response.json()
+        self.assertEqual(body['items']['pending_score'], 1)
+        self.assertEqual(body['items']['pending_tmt'], 1)
+        self.assertEqual(body['items']['derived_pending'], 1)
+        self.assertIn(body['status'], {'ok','degraded'})

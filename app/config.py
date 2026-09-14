@@ -32,6 +32,7 @@ SEC_USER_AGENT = os.getenv("SEC_USER_AGENT", "personal-news-aggregator admin@exa
 
 WEB_HOST = os.getenv("WEB_HOST", "127.0.0.1").strip() or "127.0.0.1"
 WEB_PORT = int(os.getenv("PORT", "8000"))
+APP_VERSION = os.getenv("APP_VERSION", "unknown").strip() or "unknown"
 
 
 def llm_enabled() -> bool:

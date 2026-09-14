@@ -2,6 +2,8 @@ services:
   infohub:
     build:
       context: .
+      args:
+        APP_VERSION: ${APP_VERSION:-unknown}
     container_name: infohub
     restart: unless-stopped
     env_file:

@@ -252,6 +252,12 @@ table.health th, table.health td { padding: 8px 10px; border-bottom: 1px solid v
 table.health th { color: var(--muted); font-weight: 600; font-size: 12px; }
 table.health tr.bad td { background: rgba(244,112,103,.08); }
 table.health .err { color: var(--red); font-size: 12px; max-width: 240px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.health-summary { display: grid; grid-template-columns: repeat(3,minmax(0,1fr)); gap: 12px; margin: 0 0 20px; }
+.health-metric { display: flex; flex-direction: column; gap: 5px; padding: 16px 18px; border: 1px solid var(--line); border-radius: 12px; background: var(--card); }
+.health-metric span, .health-metric small { color: var(--muted); font-size: 12px; }
+.health-metric strong { color: var(--ink); font-size: 24px; font-variant-numeric: tabular-nums; }
+.health-metric .metric-ok { color: var(--accent); }
+.health-metric .metric-warn { color: var(--gold); }
 .srcname { font-weight: 600; }
 .dot-ok, .dot-bad, .dot-never { display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin-left: 6px; }
 .dot-ok { background: var(--accent); }
@@ -266,6 +272,7 @@ code { background: var(--card2); padding: 1px 6px; border-radius: 5px; font-size
 .t-card, .hottitle { overflow-wrap: anywhere; }
 a:focus-visible, button:focus-visible, select:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; }
 @media (max-width: 600px) {
+  .health-summary { grid-template-columns: repeat(2,minmax(0,1fr)); }
   .side { flex-wrap: wrap; }
   .side nav { width: 100%; }
   .titlerow { flex-wrap: wrap; }

@@ -12,7 +12,7 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
 from ..ai.daily import EVENT_NAMES, render_markdown
-from ..config import APP_TZ, BASE_DIR, llm_enabled
+from ..config import APP_TZ, APP_VERSION, BASE_DIR, llm_enabled
 from ..database import get_db
 from ..provenance import publisher, display_title
 from ..topics import GROUPS
@@ -22,6 +22,7 @@ app.mount("/static", StaticFiles(directory=BASE_DIR / "app" / "web" / "static"),
 templates = Jinja2Templates(directory=str(BASE_DIR / "app" / "web" / "templates"))
 
 CHANNEL_TABS = [("all", "全部"), ("ai", "AI"), ("robot", "机器人"), ("stock", "股市")]
+STARTED_AT = datetime.now(timezone.utc)
 
 
 def _selected_clause(alias: str = "i") -> str:
@@ -53,6 +54,52 @@ def _relative(iso: str | None) -> str:
     if hours < 48:
         return f"{hours} 小时前"
     return f"{hours // 24} 天前"
+
+
+def _source_status(row, now: datetime | None = None) -> str:
+    status = "bad" if row["fail_count"] else ("ok" if row["last_success_at"] else "never")
+    if row["last_error"] and not row["fail_count"]:
+        status = "partial"
+    now = now or datetime.now(timezone.utc)
+    if (status == "ok" and now - _fmt_dt(row["last_success_at"])
+            > timedelta(minutes=max(15, row["interval_minutes"] * 3))):
+        status = "stale"
+    return status
+
+
+def _system_snapshot() -> dict:
+    now = datetime.now(timezone.utc)
+    with get_db() as db:
+        item = db.execute("""SELECT COUNT(*) AS total,
+            COALESCE(SUM(CASE WHEN score IS NULL THEN 1 ELSE 0 END),0) AS pending_score,
+            COALESCE(SUM(CASE WHEN tmt IS NULL THEN 1 ELSE 0 END),0) AS pending_tmt,
+            COALESCE(SUM(CASE WHEN tmt=0 THEN 1 ELSE 0 END),0) AS hidden,
+            MAX(fetched_at) AS last_item_at FROM items""").fetchone()
+        derived_pending = db.execute("SELECT COUNT(*) FROM derived_dirty").fetchone()[0]
+        reports = db.execute(
+            "SELECT COUNT(*) AS total, MAX(date) AS latest FROM daily_reports").fetchone()
+        source_rows = db.execute("""SELECT fail_count,last_success_at,last_error,interval_minutes
+            FROM sources WHERE enabled=1""").fetchall()
+        last_fetch = db.execute("SELECT MAX(ran_at) FROM fetch_log").fetchone()[0]
+    source_states = [_source_status(row, now) for row in source_rows]
+    issues = sum(state in {"bad", "partial", "stale"} for state in source_states)
+    return {
+        "status": "degraded" if issues else "ok",
+        "version": APP_VERSION,
+        "started_at": STARTED_AT.isoformat(),
+        "uptime_seconds": max(0, int((now - STARTED_AT).total_seconds())),
+        "items": {
+            "total": item["total"], "pending_score": item["pending_score"],
+            "pending_tmt": item["pending_tmt"], "hidden": item["hidden"],
+            "derived_pending": derived_pending, "last_item_at": item["last_item_at"],
+            "last_item_relative": _relative(item["last_item_at"]),
+        },
+        "sources": {
+            "enabled": len(source_rows), "issues": issues, "last_run_at": last_fetch,
+        },
+        "reports": {"total": reports["total"], "latest": reports["latest"]},
+        "checked_at": now.isoformat(),
+    }
 
 
 def _date_label(d: datetime) -> str:
@@ -285,14 +332,18 @@ def health(request: Request):
             "SELECT channel, COUNT(*) AS n FROM items GROUP BY channel")}
     sources = []
     for r in rows:
-        status = "bad" if r["fail_count"] else ("ok" if r["last_success_at"] else "never")
-        if r['last_error'] and not r['fail_count']:
-            status = 'partial'
-        if status == "ok" and datetime.now(timezone.utc) - _fmt_dt(r["last_success_at"]) > timedelta(minutes=max(15, r["interval_minutes"] * 3)):
-            status = "stale"
+        status = _source_status(r)
         sources.append(dict(r, last_success_rel=_relative(r["last_success_at"]), status=status))
+    system = _system_snapshot()
     return templates.TemplateResponse(request, "health.html", dict(
-        sources=sources, counts=counts, now=datetime.now(APP_TZ).strftime("%Y-%m-%d %H:%M")))
+        sources=sources, counts=counts, system=system,
+        now=datetime.now(APP_TZ).strftime("%Y-%m-%d %H:%M")))
+
+
+@app.get("/api/health")
+def api_health():
+    """Machine-readable deployment and pipeline status for monitoring."""
+    return _system_snapshot()
 
 
 @app.get("/about-heat", response_class=HTMLResponse)

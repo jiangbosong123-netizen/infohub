@@ -4,6 +4,14 @@
 <div class="titlerow">
   <h1 class="pagetitle">信息源状态 <small>刷新于 {{ now }} · 库存：AI {{ counts.get('ai', 0) }} 条 / 机器人 {{ counts.get('robot', 0) }} 条 / 股市 {{ counts.get('stock', 0) }} 条</small></h1>
 </div>
+<section class="health-summary">
+  <div class="health-metric"><span>运行状态</span><strong class="{{ 'metric-ok' if system.status == 'ok' else 'metric-warn' }}">{{ '正常' if system.status == 'ok' else '需要关注' }}</strong><small>版本 {{ system.version }}</small></div>
+  <div class="health-metric"><span>全部信息</span><strong>{{ system['items'].total }}</strong><small>最近入库 {{ system['items'].last_item_relative }}</small></div>
+  <div class="health-metric"><span>AI 待评分</span><strong class="{{ 'metric-warn' if system['items'].pending_score else '' }}">{{ system['items'].pending_score }}</strong><small>TMT 待判定 {{ system['items'].pending_tmt }}</small></div>
+  <div class="health-metric"><span>索引队列</span><strong class="{{ 'metric-warn' if system['items'].derived_pending else '' }}">{{ system['items'].derived_pending }}</strong><small>等待主题与事件归并</small></div>
+  <div class="health-metric"><span>日报</span><strong>{{ system.reports.total }}</strong><small>最新 {{ system.reports.latest or '暂无' }}</small></div>
+  <div class="health-metric"><span>信息源异常</span><strong class="{{ 'metric-warn' if system.sources.issues else 'metric-ok' }}">{{ system.sources.issues }}</strong><small>启用 {{ system.sources.enabled }} 个源</small></div>
+</section>
 <p class="hint">黄色 = 部分失败或长时间未成功更新；红色 = 连续失败（自动退避重试中，恢复后自动续抓）；「对账兜底」每日自动核对 Google News，漏掉的会补录并标记。</p>
 <div class="table-scroll"><table class="health">
   <thead><tr><th>信息源</th><th>频道</th><th>层级</th><th>类型</th><th>间隔</th><th>最近成功</th><th>连续失败</th><th>最近错误</th></tr></thead>
