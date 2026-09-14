@@ -69,6 +69,16 @@ class StoryTests(unittest.TestCase):
         self.assertEqual(response.status_code,302)
         self.assertEqual(response.headers['location'],'/story/'+survivor)
 
+    def test_editorial_launch_synonyms_merge_and_matcher_version_reindexes(self):
+        one = self.item('OpenAI 发布人工智能助手英文测试版')
+        two = self.item('OpenAI 推出 AI 助手英文测试版')
+        refresh_derived()
+        self.assertEqual(self.story_id(one), self.story_id(two))
+        with database.get_db() as db:
+            db.execute("UPDATE story_items SET match_reason='titles-v2' WHERE item_id=?", (one,))
+        self.assertGreaterEqual(refresh_derived()['processed'], 1)
+        self.assertEqual(self.story_id(one), self.story_id(two))
+
     def test_different_versions_companies_and_periods_stay_separate(self):
         ids=[self.item('OpenAI releases GPT-4.1 coding model'),
              self.item('OpenAI releases GPT-4.2 coding model'),

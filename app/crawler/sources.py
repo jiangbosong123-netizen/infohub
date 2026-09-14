@@ -38,7 +38,7 @@ SOURCES: list[dict] = [
          url=SEC_SUBMISSIONS_URL, interval_minutes=10),
     dict(key="hkex", name="港交所披露易", channel="stock", tier="official", type="hkex",
          url=HKEX_BASE, interval_minutes=10),
-    dict(key="openai-news", name="OpenAI 官网动态", channel="stock", tier="official", type="rss",
+    dict(key="openai-news", name="OpenAI 官网动态", channel="ai", tier="official", type="rss",
          url="https://openai.com/news/rss.xml", interval_minutes=60),
 
     # ---------- 股市：媒体 ----------

@@ -216,6 +216,7 @@ def upsert_sources() -> None:
     with get_db() as db:
         for s in all_sources():
             keys.append(s["key"])
+            previous = db.execute("SELECT id,channel FROM sources WHERE key=?", (s["key"],)).fetchone()
             db.execute(
                 """INSERT INTO sources (key, name, channel, tier, type, url, company_slug,
                                         enabled, interval_minutes)
@@ -225,5 +226,10 @@ def upsert_sources() -> None:
                        company_slug=excluded.company_slug, interval_minutes=excluded.interval_minutes""",
                 (s["key"], s["name"], s["channel"], s.get("tier", "media"), s["type"],
                  s.get("url", ""), s.get("company_slug", ""), s.get("interval_minutes", 30)))
+            if previous and previous["channel"] != s["channel"]:
+                # Source taxonomy is canonical. Reclassify history and let the
+                # derived trigger rebuild topic/event membership incrementally.
+                db.execute("UPDATE items SET channel=? WHERE source_id=?",
+                           (s["channel"], previous["id"]))
         db.execute(f"UPDATE sources SET enabled=0 WHERE key NOT IN ({','.join('?' * len(keys))})", keys)
     company_match.invalidate_cache()

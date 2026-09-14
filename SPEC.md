@@ -38,7 +38,7 @@
 
 | 层级 tier | 源 | 频率 | 作用 |
 |---|---|---|---|
-| official 官方一手 | SEC EDGAR、港交所披露易、OpenAI Newsroom | 10-60min | 官方披露优先覆盖 |
+| official 官方一手 | SEC EDGAR、港交所披露易、OpenAI Newsroom（AI 频道） | 10-60min | 官方披露优先覆盖 |
 | media 财经媒体 | 财联社电报、华尔街见闻快讯、新浪 7x24、CNBC、Techmeme、每公司 Google News 源 | 10-30min | 速度与广度 |
 | info 科技资讯 | 量子位、IT之家、爱范儿、HN、TechCrunch、The Verge、HF Blog、IEEE、Robot Report | 30-60min | AI/机器人纵深 |
 | reconcile 对账 | Google News 按公司检索 | 每日 06:30 | 防漏保险 |

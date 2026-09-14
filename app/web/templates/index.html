@@ -5,7 +5,7 @@
 
 <div class="titlerow">
   <h1 class="pagetitle">{{ '精选' if mode == 'selected' else '全部动态' }}
-    <small>{{ 'AI 筛选的今日重点' if mode == 'selected' else 'TMT 全量信息流' }}</small>
+    <small>{{ '事件去重后的今日重点' if mode == 'selected' else 'TMT 全量信息流' }}</small>
   </h1>
   <form action="/search" class="searchbox">
     <input type="search" name="q" value="{{ q or '' }}" placeholder="搜索标题、摘要…" required>

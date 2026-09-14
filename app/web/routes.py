@@ -24,6 +24,15 @@ templates = Jinja2Templates(directory=str(BASE_DIR / "app" / "web" / "templates"
 CHANNEL_TABS = [("all", "全部"), ("ai", "AI"), ("robot", "机器人"), ("stock", "股市")]
 
 
+def _selected_clause(alias: str = "i") -> str:
+    """High-signal entries: strong AI score, official source, or corroborated event."""
+    return f"""(COALESCE({alias}.score, 0) >= 70 OR {alias}.official=1 OR EXISTS (
+        SELECT 1 FROM story_items selected_si
+        JOIN stories selected_st ON selected_st.id=selected_si.story_id
+        WHERE selected_si.item_id={alias}.id AND selected_st.redirect_to IS NULL
+          AND selected_st.source_count>=2))"""
+
+
 def _fmt_dt(iso: str) -> datetime:
     dt = datetime.fromisoformat(iso)
     if dt.tzinfo is None:
@@ -111,27 +120,38 @@ def _decorate(rows) -> list[dict]:
 
 def _query_items(channel: str = "all", company: str = "", event: str = "", cat: str = "",
                  mode: str = "selected", limit: int = 60, offset: int = 0):
-    """mode: selected=精选(高分/官方；无 AI 配置时展示全量) all=全部（tmt=0 的非 TMT 噪声始终隐藏）"""
-    sql = """SELECT i.*, s.name AS source_name FROM items i
-             JOIN sources s ON s.id = i.source_id
-             WHERE COALESCE(i.tmt, 1) != 0"""
+    """Selected is a deduplicated event feed; all preserves every visible report."""
+    where = " WHERE COALESCE(i.tmt, 1) != 0"
     params: list = []
     if mode == "selected" and llm_enabled():
-        sql += " AND (COALESCE(i.score, 0) >= 60 OR i.official=1)"
+        where += " AND " + _selected_clause()
     if channel and channel != "all":
-        sql += " AND i.channel=?"
+        where += " AND i.channel=?"
         params.append(channel)
     if cat:
-        sql += " AND i.ai_cat=?"
+        where += " AND i.ai_cat=?"
         params.append(cat)
     if company:
-        sql += (" AND EXISTS (SELECT 1 FROM item_companies ic JOIN companies c "
+        where += (" AND EXISTS (SELECT 1 FROM item_companies ic JOIN companies c "
                 "ON c.id=ic.company_id WHERE ic.item_id=i.id AND c.slug=?)")
         params.append(company)
     if event:
-        sql += " AND i.event_type=?"
+        where += " AND i.event_type=?"
         params.append(event)
-    sql += " ORDER BY i.published_at DESC LIMIT ? OFFSET ?"
+
+    base = """SELECT i.*, s.name AS source_name, si.story_id
+              FROM items i JOIN sources s ON s.id=i.source_id
+              LEFT JOIN story_items si ON si.item_id=i.id""" + where
+    if mode == "selected":
+        sql = """WITH eligible AS (""" + base + """), ranked AS (
+            SELECT eligible.*, ROW_NUMBER() OVER (
+                PARTITION BY COALESCE(story_id, 'item:' || id)
+                ORDER BY published_at DESC, official DESC, COALESCE(score,-1) DESC, id DESC
+            ) AS story_rank FROM eligible)
+            SELECT * FROM ranked WHERE story_rank=1
+            ORDER BY published_at DESC,id DESC LIMIT ? OFFSET ?"""
+    else:
+        sql = base + " ORDER BY i.published_at DESC,i.id DESC LIMIT ? OFFSET ?"
     params += [limit, offset]
     with get_db() as db:
         rows = db.execute(sql, params).fetchall()
@@ -165,10 +185,11 @@ def index(request: Request, channel: str = "all", company: str = "", event: str 
           cat: str = "", mode: str = "selected", page: int = 1):
     page = max(1, page)
     mode = mode if mode in ("selected", "all") else "selected"
+    page_size = 30 if mode == "selected" else 60
     rows = _query_items(channel=channel, company=company, event=event, cat=cat, mode=mode,
-                        limit=61, offset=(page - 1) * 60)
-    has_next = len(rows) > 60
-    rows = rows[:60]
+                        limit=page_size + 1, offset=(page - 1) * page_size)
+    has_next = len(rows) > page_size
+    rows = rows[:page_size]
     items = _decorate(rows)
     days: list[dict] = []
     for it in items:
@@ -280,7 +301,7 @@ def about_heat():
 
 
 def _topic_stats(db):
-    selected = "(i.score>=60 OR i.official=1)" if llm_enabled() else "1=1"
+    selected = _selected_clause() if llm_enabled() else "1=1"
     return [dict(r) for r in db.execute(f"""SELECT t.*,COUNT(i.id) AS total,
         COALESCE(SUM(CASE WHEN i.id IS NOT NULL AND {selected} THEN 1 ELSE 0 END),0) AS selected,
         MAX(i.published_at) AS last_at FROM topics t
@@ -301,15 +322,26 @@ def topics_index(request: Request):
 @app.get('/topics/{slug}',response_class=HTMLResponse)
 def topic_detail(request: Request,slug: str,mode: str='selected',page: int=Query(1,ge=1)):
     mode = mode if mode in ('all','selected') else 'selected'
-    selected = " AND (i.score>=60 OR i.official=1)" if mode=='selected' and llm_enabled() else ''
+    selected = " AND " + _selected_clause() if mode=='selected' and llm_enabled() else ''
     with get_db() as db:
         topic = next((t for t in _topic_stats(db) if t['slug']==slug),None)
         if topic is None:
             raise HTTPException(404,'主题不存在')
-        rows = db.execute(f"""SELECT i.*,s.name AS source_name FROM item_topics it
+        base = f"""SELECT i.*,s.name AS source_name,si.story_id FROM item_topics it
             JOIN items i ON i.id=it.item_id JOIN sources s ON s.id=i.source_id
-            WHERE it.topic_slug=? AND COALESCE(i.tmt,1)!=0 {selected}
-            ORDER BY i.published_at DESC,i.id DESC LIMIT 21 OFFSET ?""",(slug,(page-1)*20)).fetchall()
+            LEFT JOIN story_items si ON si.item_id=i.id
+            WHERE it.topic_slug=? AND COALESCE(i.tmt,1)!=0 {selected}"""
+        if mode == 'selected':
+            sql = """WITH eligible AS (""" + base + """), ranked AS (
+                SELECT eligible.*,ROW_NUMBER() OVER (
+                    PARTITION BY COALESCE(story_id,'item:' || id)
+                    ORDER BY published_at DESC,official DESC,COALESCE(score,-1) DESC,id DESC
+                ) AS story_rank FROM eligible)
+                SELECT * FROM ranked WHERE story_rank=1
+                ORDER BY published_at DESC,id DESC LIMIT 21 OFFSET ?"""
+        else:
+            sql = base + " ORDER BY i.published_at DESC,i.id DESC LIMIT 21 OFFSET ?"
+        rows = db.execute(sql,(slug,(page-1)*20)).fetchall()
     days = []
     for item in _decorate(rows[:20]):
         if not days or days[-1]['key']!=item['date_key']:

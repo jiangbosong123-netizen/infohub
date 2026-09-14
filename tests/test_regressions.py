@@ -142,6 +142,18 @@ class RegressionTests(unittest.TestCase):
         self.assertEqual(runner.retry_interval(10,3), 80)
         self.assertEqual(runner.retry_interval(10,99), 360)
 
+    def test_source_channel_change_reclassifies_history(self):
+        one = self.item(channel='ai')
+        source = dict(key='test', name='Test', channel='robot', tier='info',
+                      type='rss', url='https://example.com/feed', interval_minutes=30)
+        with patch.object(runner, 'all_sources', return_value=[source]):
+            runner.upsert_sources()
+        with database.get_db() as db:
+            self.assertEqual(db.execute('SELECT channel FROM items WHERE id=?', (one,)).fetchone()[0],
+                             'robot')
+            self.assertEqual(db.execute('SELECT count(*) FROM derived_dirty WHERE item_id=?',
+                                        (one,)).fetchone()[0], 1)
+
     def test_markdown_sanitization(self):
         html = daily.render_markdown('# 标题\n<script>alert(1)</script>\n<img src="x" onerror="alert(2)">\n[坏链接](javascript:alert)\n[来源](https://example.com)')
         self.assertNotIn('<script',html)
@@ -172,6 +184,31 @@ class RegressionTests(unittest.TestCase):
             self.assertEqual(routes._query_items(), [])
             self.assertEqual(len(routes._query_items(mode='all')), 1)
 
+    def test_selected_feed_deduplicates_events_and_keeps_corroborated_news(self):
+        from app.stories import refresh_derived
+        now = datetime.now(timezone.utc).isoformat()
+        one = self.item('OpenAI launches a major coding model', score=40, published_at=now)
+        two = self.item('OpenAI launches a major coding model today', score=40,
+                        url='https://second.example/second', published_at=now)
+        refresh_derived()
+        with patch.object(routes, 'llm_enabled', return_value=True):
+            selected = routes._query_items(mode='selected')
+            self.assertEqual(len(selected), 1)
+            self.assertIn(selected[0]['id'], (one, two))
+            self.assertEqual(len(routes._query_items(mode='all')), 2)
+            topic = self.client.get('/topics/openai')
+            self.assertEqual(sum(len(day['rows']) for day in topic.context['days']), 1)
+
+        single = self.item('A routine single-source company update', score=60,
+                           url='https://example.com/routine', published_at=now)
+        refresh_derived()
+        with patch.object(routes, 'llm_enabled', return_value=True):
+            self.assertNotIn(single, {row['id'] for row in routes._query_items(mode='selected')})
+        with database.get_db() as db:
+            db.execute('UPDATE items SET score=70 WHERE id=?', (single,))
+        with patch.object(routes, 'llm_enabled', return_value=True):
+            self.assertIn(single, {row['id'] for row in routes._query_items(mode='selected')})
+
     def test_search_index_delete(self):
         one = self.item('searchable')
         with database.get_db() as db:
@@ -187,7 +224,8 @@ class RegressionTests(unittest.TestCase):
         response = self.client.get('/', params={'channel':'ai','cat':'model'})
         self.assertTrue(response.context['has_next'])
         self.assertIn('cat=model&amp;page=2',response.text)
-        self.assertFalse(self.client.get('/',params={'channel':'ai','cat':'model','page':2}).context['has_next'])
+        self.assertTrue(self.client.get('/',params={'channel':'ai','cat':'model','page':2}).context['has_next'])
+        self.assertFalse(self.client.get('/',params={'channel':'ai','cat':'model','page':3}).context['has_next'])
 
 
 if __name__ == '__main__':

@@ -186,6 +186,16 @@ def init_schema() -> None:
             # Historical summaries may already be AI-generated; leave them NULL.
             db.execute('ALTER TABLE items ADD COLUMN raw_summary TEXT')
         db.executescript(DERIVED_SCHEMA)
+        # Keep the trigger definition current on existing databases. Channel
+        # changes also affect event membership and must enter the derived queue.
+        db.executescript("""
+            DROP TRIGGER IF EXISTS items_derived_update;
+            CREATE TRIGGER items_derived_update
+            AFTER UPDATE OF title,title_zh,summary,raw_summary,companies,score,tmt,event_type,
+                            ai_cat,official,extra,published_at,channel ON items BEGIN
+                INSERT OR IGNORE INTO derived_dirty(item_id) VALUES(new.id);
+            END;
+        """)
         db.execute("INSERT OR IGNORE INTO derived_dirty(item_id) SELECT id FROM items WHERE id NOT IN (SELECT item_id FROM indexed_items)")
 
 
@@ -231,7 +241,7 @@ CREATE TRIGGER IF NOT EXISTS items_derived_insert AFTER INSERT ON items BEGIN
     INSERT OR IGNORE INTO derived_dirty(item_id) VALUES(new.id);
 END;
 CREATE TRIGGER IF NOT EXISTS items_derived_update
-AFTER UPDATE OF title,title_zh,summary,raw_summary,companies,score,tmt,event_type,ai_cat,official,extra,published_at ON items BEGIN
+AFTER UPDATE OF title,title_zh,summary,raw_summary,companies,score,tmt,event_type,ai_cat,official,extra,published_at,channel ON items BEGIN
     INSERT OR IGNORE INTO derived_dirty(item_id) VALUES(new.id);
 END;
 """

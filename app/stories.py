@@ -17,7 +17,7 @@ from .database import get_db
 from .provenance import display_title, object_json, publisher
 from .topics import sync_topics, assign_topics
 
-MATCH_VERSION = 'titles-v2'
+MATCH_VERSION = 'titles-v3'
 MATCH_THRESHOLD = 0.72
 MAX_EVENT_HOURS = 72
 
@@ -28,7 +28,13 @@ def _dt(value):
 
 
 def _norm(text):
-    return re.sub(r'[\W_]+', '', text.casefold())
+    text = text.casefold()
+    # Common editorial synonyms should not split the same launch into separate
+    # events. Numeric/version guards and entity constraints still apply later.
+    text = text.replace('人工智能', 'ai').replace('发布', '推出').replace('上线', '推出')
+    text = re.sub(r'\b(?:launches|launched|releases|released|introduces|introduced)\b',
+                  'launch', text)
+    return re.sub(r'[\W_]+', '', text)
 
 
 def _titles(row):
@@ -122,6 +128,10 @@ def refresh_derived() -> dict:
     with get_db() as db:
         db.execute('BEGIN IMMEDIATE')
         definitions = sync_topics(db)
+        # A matcher change must revisit existing memberships; match_reason acts
+        # as a lightweight index version without another schema table.
+        db.execute("""INSERT OR IGNORE INTO derived_dirty(item_id)
+            SELECT item_id FROM story_items WHERE match_reason!=?""", (MATCH_VERSION,))
         # Editing an anchor can invalidate its other members; recheck the whole
         # event in the same transaction rather than leaving stale assignments.
         db.execute("""INSERT OR IGNORE INTO derived_dirty(item_id)
