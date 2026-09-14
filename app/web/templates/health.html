@@ -11,6 +11,7 @@
   <div class="health-metric"><span>索引队列</span><strong class="{{ 'metric-warn' if system['items'].derived_pending else '' }}">{{ system['items'].derived_pending }}</strong><small>等待主题与事件归并</small></div>
   <div class="health-metric"><span>日报</span><strong>{{ system.reports.total }}</strong><small>最新 {{ system.reports.latest or '暂无' }}</small></div>
   <div class="health-metric"><span>信息源异常</span><strong class="{{ 'metric-warn' if system.sources.issues else 'metric-ok' }}">{{ system.sources.issues }}</strong><small>启用 {{ system.sources.enabled }} 个源</small></div>
+  <div class="health-metric"><span>NLP 结果档案</span><strong>{{ system.nlp.stored_results }}</strong><small>数据库版本 {{ system.schema_version }}</small></div>
 </section>
 <p class="hint">黄色 = 部分失败或长时间未成功更新；红色 = 连续失败（自动退避重试中，恢复后自动续抓）；「对账兜底」每日自动核对 Google News，漏掉的会补录并标记。</p>
 <div class="table-scroll"><table class="health">

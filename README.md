@@ -63,6 +63,16 @@ tail -f ~/infohub/data/launchd.err.log                          # 看运行日�
 日报状态；网页 `/health` 展示相同的运维概览。通过 Windows Server Manager 部署时，
 构建版本会自动记录为当前 Git 提交号。
 
+供后续大系统和 NLP 模块读取的稳定只读接口：
+
+- `/api/v1/items`：条目流，支持游标分页以及频道、主题、公司和时间过滤
+- `/api/v1/items/{id}`：单条情报、原始证据及版本化 NLP 结果
+- `/api/v1/stories`：持续事件流
+- `/api/v1/topics`：主题目录及统计
+- `/docs`：FastAPI 自动生成的接口文档
+
+当前接口通过 Tailscale 私有网络使用；接入公网或多人系统前需要增加身份认证和限流。
+
 ## 实时性设计
 
 - **财联社电报 / 华尔街见闻快讯 / 新浪 7x24** 三条分钟级中文快讯线，各每 10 分钟轮询；SEC / 港交所每 10 分钟

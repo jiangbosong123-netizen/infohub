@@ -98,7 +98,9 @@ class RegressionTests(unittest.TestCase):
             self.assertEqual(pipeline.process_pending(), 1)
         with database.get_db() as db:
             row = db.execute('SELECT * FROM items').fetchone()
+            audit = db.execute('SELECT * FROM nlp_results WHERE item_id=?', (one,)).fetchone()
         self.assertEqual((row['score'], row['tmt'], row['event_type']), (88,1,'earnings'))
+        self.assertEqual(audit['pipeline_version'], pipeline.CURATION_VERSION)
 
     def test_ai_transient_failure_stays_pending(self):
         self.item()

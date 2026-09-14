@@ -16,8 +16,10 @@ from ..config import APP_TZ, APP_VERSION, BASE_DIR, llm_enabled
 from ..database import get_db
 from ..provenance import publisher, display_title
 from ..topics import GROUPS
+from .api import router as api_v1_router
 
 app = FastAPI(title="行业情报站")
+app.include_router(api_v1_router)
 app.mount("/static", StaticFiles(directory=BASE_DIR / "app" / "web" / "static"), name="static")
 templates = Jinja2Templates(directory=str(BASE_DIR / "app" / "web" / "templates"))
 
@@ -81,6 +83,10 @@ def _system_snapshot() -> dict:
         source_rows = db.execute("""SELECT fail_count,last_success_at,last_error,interval_minutes
             FROM sources WHERE enabled=1""").fetchall()
         last_fetch = db.execute("SELECT MAX(ran_at) FROM fetch_log").fetchone()[0]
+        schema_version = db.execute(
+            "SELECT COALESCE(MAX(version),0) FROM schema_migrations").fetchone()[0]
+        nlp = db.execute("""SELECT COUNT(*) AS total,MAX(created_at) AS latest
+            FROM nlp_results""").fetchone()
     source_states = [_source_status(row, now) for row in source_rows]
     issues = sum(state in {"bad", "partial", "stale"} for state in source_states)
     return {
@@ -98,6 +104,8 @@ def _system_snapshot() -> dict:
             "enabled": len(source_rows), "issues": issues, "last_run_at": last_fetch,
         },
         "reports": {"total": reports["total"], "latest": reports["latest"]},
+        "nlp": {"stored_results": nlp["total"], "latest": nlp["latest"]},
+        "schema_version": schema_version,
         "checked_at": now.isoformat(),
     }
 

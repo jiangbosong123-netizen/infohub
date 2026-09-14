@@ -2,9 +2,28 @@ from __future__ import annotations
 
 """SQLite 数据层：连接管理 + schema 初始化。WAL 模式，每次操作独立连接，线程安全。"""
 import sqlite3
+from datetime import datetime, timezone
 from pathlib import Path
 
 from .config import DB_PATH
+
+MIGRATIONS = (
+    (1, "versioned NLP result storage", (
+        """CREATE TABLE IF NOT EXISTS nlp_results (
+            id INTEGER PRIMARY KEY,
+            item_id INTEGER NOT NULL REFERENCES items(id) ON DELETE CASCADE,
+            analysis_type TEXT NOT NULL,
+            pipeline_version TEXT NOT NULL,
+            model TEXT NOT NULL DEFAULT '',
+            input_json TEXT NOT NULL,
+            output_json TEXT NOT NULL,
+            created_at TEXT NOT NULL,
+            UNIQUE(item_id, analysis_type, pipeline_version)
+        )""",
+        "CREATE INDEX IF NOT EXISTS idx_nlp_results_item ON nlp_results(item_id, analysis_type)",
+        "CREATE INDEX IF NOT EXISTS idx_nlp_results_type_created ON nlp_results(analysis_type, created_at DESC)",
+    )),
+)
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS companies (
@@ -186,6 +205,7 @@ def init_schema() -> None:
             # Historical summaries may already be AI-generated; leave them NULL.
             db.execute('ALTER TABLE items ADD COLUMN raw_summary TEXT')
         db.executescript(DERIVED_SCHEMA)
+        _apply_migrations(db)
         # Keep the trigger definition current on existing databases. Channel
         # changes also affect event membership and must enter the derived queue.
         db.executescript("""
@@ -197,6 +217,24 @@ def init_schema() -> None:
             END;
         """)
         db.execute("INSERT OR IGNORE INTO derived_dirty(item_id) SELECT id FROM items WHERE id NOT IN (SELECT item_id FROM indexed_items)")
+
+
+def _apply_migrations(db: sqlite3.Connection) -> None:
+    """Apply ordered, transactional schema changes once and retain an audit trail."""
+    db.execute("""CREATE TABLE IF NOT EXISTS schema_migrations (
+        version INTEGER PRIMARY KEY,
+        name TEXT NOT NULL,
+        applied_at TEXT NOT NULL
+    )""")
+    applied = {row[0] for row in db.execute("SELECT version FROM schema_migrations")}
+    for version, name, statements in MIGRATIONS:
+        if version in applied:
+            continue
+        for statement in statements:
+            db.execute(statement)
+        db.execute(
+            "INSERT INTO schema_migrations(version,name,applied_at) VALUES(?,?,?)",
+            (version, name, datetime.now(timezone.utc).isoformat()))
 
 
 DERIVED_SCHEMA = """

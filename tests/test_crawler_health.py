@@ -84,4 +84,6 @@ class CrawlerHealthTests(unittest.TestCase):
         self.assertEqual(body['items']['pending_score'], 1)
         self.assertEqual(body['items']['pending_tmt'], 1)
         self.assertEqual(body['items']['derived_pending'], 1)
+        self.assertEqual(body['schema_version'], 1)
+        self.assertEqual(body['nlp']['stored_results'], 0)
         self.assertIn(body['status'], {'ok','degraded'})

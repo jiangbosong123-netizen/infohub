@@ -13,6 +13,7 @@ from openai import OpenAI
 
 from .. import config
 from ..database import get_db
+from .audit import CURATION_VERSION, save_result
 
 log = logging.getLogger(__name__)
 
@@ -127,6 +128,7 @@ def process_pending(limit: int = 20) -> int:
                     db.execute("UPDATE items SET score=-1 WHERE id=?", (item_id,))
 
     updated = 0
+    payload_by_id = {row["id"]: row for row in payload}
     with get_db() as db:
         for r in _valid_results(results, rows):
             if type(r.get("tmt")) is not bool or type(r.get("score")) is not int:
@@ -151,6 +153,19 @@ def process_pending(limit: int = 20) -> int:
                  _text(r.get("reason"), 200),
                  _category(r, row),
                  item_id))
+            normalized = {
+                "title_zh": title_zh,
+                "tmt": bool(_keep_tmt(r, row)),
+                "score": score,
+                "summary_zh": summary,
+                "reason": _text(r.get("reason"), 200),
+                "event_type": etype or None,
+                "ai_cat": _category(r, row) or None,
+            }
+            save_result(
+                db, item_id=item_id, analysis_type="curation",
+                pipeline_version=CURATION_VERSION, model=config.LLM_MODEL,
+                input_data=payload_by_id[item_id], output_data=normalized)
             updated += 1
     return updated
 
