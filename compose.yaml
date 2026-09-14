@@ -1,0 +1,15 @@
+services:
+  infohub:
+    build:
+      context: .
+    container_name: infohub
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      WEB_HOST: 0.0.0.0
+      PORT: 8000
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./data:/app/data

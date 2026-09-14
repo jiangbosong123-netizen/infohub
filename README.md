@@ -49,10 +49,15 @@ tail -f ~/infohub/data/launchd.err.log                          # 看运行日�
 
 ## Windows 服务器与 Tailscale 访问
 
-Windows 主机需要在 `.env` 中设置 `WEB_HOST=0.0.0.0`，再运行
-`.venv\\Scripts\\python.exe cli.py serve`。同一 Tailscale 网络内的设备随后可通过
-`http://<Windows 的 Tailscale IP>:8000` 访问。只需允许 Windows 防火墙的专用网络或
-Tailscale 网络访问 8000 端口，不要在路由器上做公网端口映射。
+推荐在 Windows 的 Docker Desktop + WSL2 中常驻运行。首次部署时复制 `.env.example`
+为 `.env`，按需填写模型配置，然后执行 `docker compose up -d --build`。容器配置了
+`restart: unless-stopped`，Docker 恢复后会自动重新启动；SQLite 数据持久化在宿主机的
+`data/` 目录。更新代码后重新执行相同命令即可滚动到新版本。
+
+同一 Tailscale 网络内的设备可通过 `http://<Windows 的 Tailscale IP>:8000` 访问。
+只需允许 Windows 防火墙的专用网络或 Tailscale 网络访问 8000 端口，不要在路由器上
+做公网端口映射。临时不用 Docker 时，也可以在 `.env` 中设置 `WEB_HOST=0.0.0.0` 后运行
+`.venv\\Scripts\\python.exe cli.py serve`。
 
 ## 实时性设计
 
