@@ -54,9 +54,6 @@ tail -f ~/infohub/data/launchd.err.log                          # 看运行日�
 `restart: unless-stopped`，Docker 恢复后会自动重新启动；SQLite 数据持久化在宿主机的
 `data/` 目录。更新代码后重新执行相同命令即可滚动到新版本。
 
-Windows 上也可以直接双击仓库根目录的 `deploy-windows.cmd`。它会检查 Docker、
-拉取 `main` 的最新代码、重新构建并启动服务，然后显示容器状态。
-
 同一 Tailscale 网络内的设备可通过 `http://<Windows 的 Tailscale IP>:8000` 访问。
 只需允许 Windows 防火墙的专用网络或 Tailscale 网络访问 8000 端口，不要在路由器上
 做公网端口映射。临时不用 Docker 时，也可以在 `.env` 中设置 `WEB_HOST=0.0.0.0` 后运行
