@@ -5,7 +5,7 @@ from unittest.mock import patch
 from types import SimpleNamespace
 
 from fastapi.testclient import TestClient
-from app import database,company_match
+from app import company_match, config, database
 from app.crawler import googlenews,hkex_source,sec_source,runner
 from app.web.routes import app
 
@@ -84,4 +84,7 @@ class CrawlerHealthTests(unittest.TestCase):
         self.assertEqual(body['items']['pending_score'], 1)
         self.assertEqual(body['items']['pending_tmt'], 1)
         self.assertEqual(body['items']['derived_pending'], 1)
+        self.assertEqual(body['runtime']['environment_id'], config.ENVIRONMENT_ID)
+        self.assertEqual(body['runtime']['process_role'], config.PROCESS_ROLE)
+        self.assertNotIn('database_path', body['runtime'])
         self.assertIn(body['status'], {'ok','degraded'})

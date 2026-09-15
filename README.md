@@ -5,8 +5,8 @@
 对标 [aihot.news](https://aihot.news/) 的行业信息聚合站：**AI / 机器人 / 美股港股科技企业** 三个频道，
 多源抓取 → 热度聚类 → 热点榜 + 按日期时间线 + 每日日报，可选接入 LLM 做 AI 策展。
 
-> 项目实际位于 `~/infohub`（`Documents` 里的「信息抓取」是软链接）。之所以移出 Documents：
-> macOS 隐私保护（TCC）不允许 launchd 后台服务读取 Documents 下的文件，导致无法开机自启。
+Mac 是开发端，Windows Docker 是当前生产运行端。默认本地命令使用
+`.runtime/development-local/` 下的隔离数据，并且不会抓取外网或调用模型。
 
 ## 快速开始（本机 Mac）
 
@@ -15,68 +15,61 @@
 python3 -m venv .venv
 .venv/bin/pip install -r requirements.txt
 
-# 2. 初始化数据库（导入 config/watchlist.yaml 的公司清单 + 源注册表）
+# 2. 查看当前环境和数据路径（输出不包含密钥）
+.venv/bin/python cli.py runtime-config
+
+# 3. 初始化隔离的开发数据库（导入公司清单 + 源注册表）
 .venv/bin/python cli.py init-db
 
-# 3. 首跑灌一次数据（约 2-3 分钟，同时验证所有源是否可用）
-.venv/bin/python cli.py crawl
-
-# 4. 启动网站 + 定时任务（启动时会立即抓一轮）
+# 4. 启动本地门户。开发环境默认只启动网页，不运行定时任务
 .venv/bin/python cli.py serve
 # 浏览器打开 http://127.0.0.1:8000
+
+# 确实需要一次性抓取开发样本时，必须显式放行该次网络任务
+INFOHUB_ALLOW_NETWORK_TASKS=true .venv/bin/python cli.py crawl
 ```
 
-## 常驻运行（launchd，推荐）
+## 旧 Mac 常驻配置（迁移兼容）
 
-服务已配置为 **开机自启 + 崩溃自动拉起**（`KeepAlive` + `RunAtLoad`），配置文件在
-`launchd/com.infohub.server.plist`，安装方式：
+仓库仍保留旧 `launchd/com.infohub.server.plist` 供一个发布周期内识别和回退，但不再推荐
+把 Mac 作为第二个生产采集器。已有旧库只有在明确设置
+`INFOHUB_LEGACY_DATA_LAYOUT=true` 时才使用 `data/app.db`；不会自动搬动或修改该文件。
 
 ```bash
-cp launchd/com.infohub.server.plist ~/Library/LaunchAgents/
-launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/com.infohub.server.plist
+INFOHUB_LEGACY_DATA_LAYOUT=true .venv/bin/python cli.py runtime-config
 ```
-
-管理命令：
-
-```bash
-launchctl list | grep infohub                                   # 看状态（第二列 0 = 正常）
-launchctl kickstart -k gui/$(id -u)/com.infohub.server          # 重启服务
-launchctl bootout gui/$(id -u)/com.infohub.server               # 停止（取消自启）
-tail -f ~/infohub/data/launchd.err.log                          # 看运行日志
-```
-
-不装 launchd 也可以临时手动跑：`cd ~/infohub && .venv/bin/python cli.py serve`。
 
 ## Windows 服务器与 Tailscale 访问
 
 推荐在 Windows 的 Docker Desktop + WSL2 中常驻运行。首次部署时复制 `.env.example`
 为 `.env`，按需填写模型配置，然后执行 `docker compose up -d --build`。容器配置了
 `restart: unless-stopped`，Docker 恢复后会自动重新启动；SQLite 数据持久化在宿主机的
-`data/` 目录。更新代码后重新执行相同命令即可滚动到新版本。
+`data/` 目录。Compose 显式设置 `windows-production` 环境、`/app/data/app.db`、blob、备份
+目录和调度开关，缺少生产标识或路径时应用会拒绝启动。
 
 同一 Tailscale 网络内的设备可通过 `http://<Windows 的 Tailscale IP>:8000` 访问。
 只需允许 Windows 防火墙的专用网络或 Tailscale 网络访问 8000 端口，不要在路由器上
-做公网端口映射。临时不用 Docker 时，也可以在 `.env` 中设置 `WEB_HOST=0.0.0.0` 后运行
-`.venv\\Scripts\\python.exe cli.py serve`。
+做公网端口映射。
 
 `/api/health` 提供机器可读的运行版本、信息源异常、AI 待处理量、主题/事件索引积压和
-日报状态；网页 `/health` 展示相同的运维概览。通过 Windows Server Manager 部署时，
-构建版本会自动记录为当前 Git 提交号。
+日报状态，并标明 `environment_id`、环境类型、进程角色和调度状态；不会暴露数据库路径。
+网页 `/health` 展示相同的运维概览。通过 Windows Server Manager 部署时，构建版本会
+自动记录为当前 Git 提交号。
 
 ## 实时性设计
 
 - **财联社电报 / 华尔街见闻快讯 / 新浪 7x24** 三条分钟级中文快讯线，各每 10 分钟轮询；SEC / 港交所每 10 分钟
 - **Techmeme**（美国科技圈最强聚合）30 分钟；**每家公司专属 Google News 源**每 20 分钟一轮（中英别名严格匹配，防串公司）
 - 首页每 2 分钟自动刷新，顶部显示「数据更新于 X 分钟前」
-- Mac 睡眠唤醒后，错过的定时任务自动补跑（`misfire_grace_time=3600`）
+- Windows 生产 Compose 运行调度；Mac 开发环境默认关闭调度，避免两台机器重复采集
 
 > 财联社的接口签名算法与华尔街见闻快讯端点，分别借鉴了 GitHub 开源项目
 > [RSSHub](https://github.com/DIYgod/RSSHub) 与 [newsnow](https://github.com/ourongxing/newsnow)
 > 的公开实现，在此致谢。36氪快讯因其内容加密+WAF 反爬暂未收录；机器之心可通过自建 RSSHub 实例补上。
 
-## 接入 AI 策展（已启用）
+## 接入 AI 策展（可选）
 
-`.env` 已配置智谱 GLM（`glm-4.6`，策展批次关闭深度思考以提速省钱）。生效逻辑：
+生产环境是否启用取决于 Windows 的 `.env`；仓库不包含生产密钥，程序只在运行环境读取。生效逻辑：
 
 - 英文源自动翻译成中文摘要；每条打 0-100 重要性评分（重大事件 80-100，例行文件 <50 沉底）
 - 股市条目自动标注事件类型（财报/回购/并购/评级/内部人交易…）
@@ -84,7 +77,8 @@ tail -f ~/infohub/data/launchd.err.log                          # 看运行日�
 - 每天早 8 点由 GLM 生成三频道行业日报；AI 每 15 分钟自动处理一批新条目
 
 想换模型/厂商：改 `.env` 里 `LLM_BASE_URL / LLM_MODEL / LLM_API_KEY`（任何 OpenAI 兼容接口均可，
-DeepSeek、本地 Ollama 等），重启服务即生效。删除或清空 `.env` 则自动退回纯聚合模式。
+DeepSeek、本地 Ollama 等），重启服务即生效。删除或清空模型配置则退回纯聚合模式。
+开发环境即使存在模型凭据，也要显式设置 `INFOHUB_ALLOW_NETWORK_TASKS=true` 才会调用。
 
 ## 防漏设计（股市频道重点）
 
@@ -155,7 +149,7 @@ config/watchlist.yaml # 关注公司清单
 GitHub Actions 在 push / PR 时执行检查（Python 3.11 / 3.12）。
 
 升级已有实例时，`cli.py init-db` 会先识别数据库版本。旧库需要变更时自动通过
-SQLite backup API 在 `data/backups/` 创建并校验一致性备份，再以显式事务迁移；失败会
+SQLite backup API 在配置的 `INFOHUB_BACKUP_PATH` 创建带环境标签的一致性备份，再以显式事务迁移；失败会
 完整回滚。未知的新版本、迁移记录被改动、完整性或外键检查失败时会停止启动，不继续写库。
 每条 `schema_migrations` 记录同时保存执行迁移的 `APP_VERSION`，用于把数据库变化追溯到
 具体发布版本；本地未注入构建版本时明确记录为 `unknown`。
@@ -167,6 +161,7 @@ python cli.py db-status                 # 只读检查；兼容尚未登记的�
 python cli.py db-backup                 # 手动创建一致性备份，不覆盖已有文件
 python cli.py db-migrate                # 仅迁移；需要变更的旧库会先备份
 python cli.py db-verify                 # 要求完整性通过且schema为当前版本
+python cli.py runtime-config            # 显示非敏感运行配置和实际数据路径
 ```
 
 命令输出中的 `file_sha256` 是指定 `.db` 文件的校验值；`db-backup` 生成的是单文件备份，

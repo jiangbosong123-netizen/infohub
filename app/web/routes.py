@@ -12,7 +12,16 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
 from ..ai.daily import EVENT_NAMES, render_markdown
-from ..config import APP_TZ, APP_VERSION, BASE_DIR, llm_enabled
+from ..config import (
+    APP_TZ,
+    APP_VERSION,
+    BASE_DIR,
+    ENVIRONMENT,
+    ENVIRONMENT_ID,
+    PROCESS_ROLE,
+    SCHEDULER_ENABLED,
+    llm_enabled,
+)
 from ..database import get_db
 from ..provenance import publisher, display_title
 from ..topics import GROUPS
@@ -86,6 +95,12 @@ def _system_snapshot() -> dict:
     return {
         "status": "degraded" if issues else "ok",
         "version": APP_VERSION,
+        "runtime": {
+            "environment": ENVIRONMENT,
+            "environment_id": ENVIRONMENT_ID,
+            "process_role": PROCESS_ROLE,
+            "scheduler_enabled": SCHEDULER_ENABLED,
+        },
         "started_at": STARTED_AT.isoformat(),
         "uptime_seconds": max(0, int((now - STARTED_AT).total_seconds())),
         "items": {

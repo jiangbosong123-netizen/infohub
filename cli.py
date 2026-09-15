@@ -13,7 +13,8 @@ from __future__ import annotations
   python cli.py db-backup [DEST]       # 创建并校验一致性备份
   python cli.py db-migrate             # 仅执行安全迁移（旧库会先备份）
   python cli.py db-verify [PATH]       # 严格验证当前版本数据库
-  python cli.py serve       # 启动网站 + 定时任务
+  python cli.py runtime-config         # 显示当前环境、角色与数据路径（不含密钥）
+  python cli.py serve                  # 启动网站；是否运行调度由环境配置决定
 """
 import json
 import logging
@@ -75,6 +76,7 @@ def cmd_db_verify(path: str | None = None) -> None:
 
 
 def cmd_crawl() -> None:
+    config.require_network_tasks("crawl")
     from app.crawler.runner import run_due_sources
     result = run_due_sources()
     print(f"本轮抓取 {result['ran']} 个源。")
@@ -86,6 +88,7 @@ def cmd_crawl() -> None:
 
 
 def cmd_reconcile() -> None:
+    config.require_network_tasks("reconcile")
     from app.crawler.googlenews import run_reconcile
     stats = run_reconcile()
     print("对账完成（fetched=命中新闻 inserted=补录条数 media_24h=常规源24h条数）：")
@@ -97,6 +100,7 @@ def cmd_reconcile() -> None:
 
 
 def cmd_ai() -> None:
+    config.require_network_tasks("ai")
     from app.ai.pipeline import backfill_titles, backfill_tmt, process_pending
     if not config.llm_enabled():
         print("未配置 LLM（.env 里的 LLM_BASE_URL / LLM_API_KEY / LLM_MODEL），跳过。")
@@ -118,6 +122,7 @@ def cmd_ai() -> None:
 
 
 def cmd_report(date: str | None) -> None:
+    config.require_network_tasks("report")
     from app.ai.daily import generate_daily
     d = generate_daily(date)
     print(f"日报已生成：{d}" if d else "当天没有数据，未生成。")
@@ -137,46 +142,55 @@ def _prune_logs() -> None:
 def cmd_serve() -> None:
     cmd_init_db()
     import uvicorn
-    from apscheduler.schedulers.background import BackgroundScheduler
-
-    from app.ai.daily import generate_daily
-    from app.ai.pipeline import process_pending
-    from app.crawler.googlenews import run_reconcile
-    from app.crawler.runner import run_due_sources
     from app.web.routes import app
 
-    sched = BackgroundScheduler(timezone=str(config.APP_TZ),
-                                job_defaults={"misfire_grace_time": 3600})  # Mac 睡醒后补跑错过的任务
-    from datetime import datetime as _dt
-    sched.add_job(run_due_sources, "interval", minutes=config.CRAWL_TICK_MINUTES,
-                  id="crawl", max_instances=1, coalesce=True,
-                  next_run_time=_dt.now(config.APP_TZ))  # 启动即抓一轮
-    def _ai_tick() -> None:
-        # 清空式处理：把积压全部清完再休息，避免抓取高峰时翻译/过滤跟不上
-        for _ in range(12):
-            if process_pending(limit=30) < 30:
-                break
-        from app.ai.pipeline import backfill_tmt
-        backfill_tmt(max_batches=12)   # 及时过滤掉非 TMT 噪声
-        from app.ai.pipeline import backfill_titles
-        backfill_titles(max_batches=12)
-        from app.stories import refresh_derived
-        refresh_derived()
+    sched = None
+    if config.SCHEDULER_ENABLED:
+        config.require_network_tasks("scheduler")
+        from apscheduler.schedulers.background import BackgroundScheduler
+        from app.ai.daily import generate_daily
+        from app.ai.pipeline import process_pending
+        from app.crawler.googlenews import run_reconcile
+        from app.crawler.runner import run_due_sources
 
-    sched.add_job(_ai_tick, "interval", minutes=15,
-                  id="ai", max_instances=1, coalesce=True)
-    sched.add_job(run_reconcile, "cron", hour=config.RECONCILE_HOUR, minute=config.RECONCILE_MINUTE,
-                  id="reconcile")
-    sched.add_job(generate_daily, "cron", hour=config.REPORT_HOUR, minute=config.REPORT_MINUTE,
-                  id="report")
-    sched.add_job(_prune_logs, "cron", hour=4, minute=5, id="prune")
-    sched.start()
-    print(f"定时任务已启动：抓取每 {config.CRAWL_TICK_MINUTES} 分钟 · AI 每 15 分钟 · "
-          f"对账 {config.RECONCILE_HOUR:02d}:{config.RECONCILE_MINUTE:02d} · 日报 {config.REPORT_HOUR:02d}:{config.REPORT_MINUTE:02d}")
+        sched = BackgroundScheduler(timezone=str(config.APP_TZ),
+                                    job_defaults={"misfire_grace_time": 3600})
+        from datetime import datetime as _dt
+        sched.add_job(run_due_sources, "interval", minutes=config.CRAWL_TICK_MINUTES,
+                      id="crawl", max_instances=1, coalesce=True,
+                      next_run_time=_dt.now(config.APP_TZ))
+
+        def _ai_tick() -> None:
+            for _ in range(12):
+                if process_pending(limit=30) < 30:
+                    break
+            from app.ai.pipeline import backfill_tmt
+            backfill_tmt(max_batches=12)
+            from app.ai.pipeline import backfill_titles
+            backfill_titles(max_batches=12)
+            from app.stories import refresh_derived
+            refresh_derived()
+
+        sched.add_job(_ai_tick, "interval", minutes=15,
+                      id="ai", max_instances=1, coalesce=True)
+        sched.add_job(run_reconcile, "cron", hour=config.RECONCILE_HOUR,
+                      minute=config.RECONCILE_MINUTE, id="reconcile")
+        sched.add_job(generate_daily, "cron", hour=config.REPORT_HOUR,
+                      minute=config.REPORT_MINUTE, id="report")
+        sched.add_job(_prune_logs, "cron", hour=4, minute=5, id="prune")
+        sched.start()
+        print(f"定时任务已启动：抓取每 {config.CRAWL_TICK_MINUTES} 分钟 · AI 每 15 分钟 · "
+              f"对账 {config.RECONCILE_HOUR:02d}:{config.RECONCILE_MINUTE:02d} · "
+              f"日报 {config.REPORT_HOUR:02d}:{config.REPORT_MINUTE:02d}")
+    else:
+        print("当前环境只启动网页，定时抓取与模型任务未启用。")
+    print(f"运行环境：{config.ENVIRONMENT_ID} ({config.ENVIRONMENT}) · "
+          f"角色：{config.PROCESS_ROLE} · 数据库：{config.DB_PATH}")
     try:
         uvicorn.run(app, host=config.WEB_HOST, port=config.WEB_PORT, log_level="info")
     finally:
-        sched.shutdown(wait=False)
+        if sched is not None:
+            sched.shutdown(wait=False)
 
 
 def main() -> None:
@@ -204,6 +218,8 @@ def main() -> None:
         cmd_db_migrate()
     elif cmd == "db-verify":
         cmd_db_verify(sys.argv[2] if len(sys.argv) > 2 else None)
+    elif cmd == "runtime-config":
+        print(json.dumps(config.RUNTIME.public_manifest(), ensure_ascii=False, indent=2))
     elif cmd == "serve":
         cmd_serve()
     else:
@@ -212,4 +228,8 @@ def main() -> None:
 
 
 if __name__ == "__main__":
-    main()
+    try:
+        main()
+    except config.RuntimeConfigurationError as exc:
+        print(f"运行配置错误：{exc}", file=sys.stderr)
+        sys.exit(2)

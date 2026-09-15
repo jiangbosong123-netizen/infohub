@@ -9,6 +9,13 @@ services:
     env_file:
       - .env
     environment:
+      INFOHUB_ENVIRONMENT: production
+      INFOHUB_ENVIRONMENT_ID: ${INFOHUB_ENVIRONMENT_ID:-windows-production}
+      INFOHUB_DB_PATH: /app/data/app.db
+      INFOHUB_BLOB_PATH: /app/data/blobs
+      INFOHUB_BACKUP_PATH: /app/data/backups
+      INFOHUB_ALLOW_NETWORK_TASKS: "true"
+      INFOHUB_ENABLE_SCHEDULER: "true"
       WEB_HOST: 0.0.0.0
       PORT: 8000
     ports:

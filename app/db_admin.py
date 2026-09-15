@@ -371,7 +371,10 @@ def backup_database(
     source = Path(source_path or database.DB_PATH).expanduser().resolve(strict=True)
     if destination is None:
         stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S.%fZ")
-        target = source.parent / "backups" / f"{source.stem}.{stamp}.db"
+        configured_database = config.DB_PATH.expanduser().resolve()
+        backup_root = config.BACKUP_PATH if source == configured_database else source.parent / "backups"
+        environment_label = config.ENVIRONMENT_ID if source == configured_database else "isolated-copy"
+        target = backup_root / f"{source.stem}.{environment_label}.{stamp}.db"
     else:
         target = Path(destination).expanduser().resolve()
     if target == source:
