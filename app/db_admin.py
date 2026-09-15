@@ -12,7 +12,7 @@ from pathlib import Path
 from typing import Callable, Iterable
 from uuid import uuid4
 
-from . import database
+from . import config, database
 
 
 class DatabaseSafetyError(RuntimeError):
@@ -75,7 +75,8 @@ CREATE TABLE schema_migrations (
     version INTEGER PRIMARY KEY,
     name TEXT NOT NULL,
     checksum TEXT NOT NULL,
-    applied_at TEXT NOT NULL
+    applied_at TEXT NOT NULL,
+    release_id TEXT NOT NULL
 )
 """
 
@@ -164,7 +165,9 @@ MIGRATIONS = (
     ),
 )
 CURRENT_SCHEMA_VERSION = MIGRATIONS[-1].version
-REQUIRED_MIGRATION_COLUMNS = {"version", "name", "checksum", "applied_at"}
+REQUIRED_MIGRATION_COLUMNS = {
+    "version", "name", "checksum", "applied_at", "release_id",
+}
 LEGACY_ANCHORS = {"companies", "sources", "items"}
 EXPECTED_TABLES = LEGACY_ANCHORS | {
     "clusters", "cluster_members", "daily_reports", "fetch_log", "item_companies", "item_discoveries",
@@ -217,7 +220,7 @@ def _read_history(
             "schema_migrations has an unsupported layout; restore a known backup or use a compatible release"
         )
     rows = db.execute(
-        "SELECT version,name,checksum,applied_at FROM schema_migrations ORDER BY version"
+        "SELECT version,name,checksum,applied_at,release_id FROM schema_migrations ORDER BY version"
     ).fetchall()
     if not rows:
         raise UnsupportedSchemaError("schema_migrations exists but contains no completed migration")
@@ -256,7 +259,9 @@ def database_state(
 
 
 def apply_migrations(
-    db: sqlite3.Connection, migrations: Iterable[Migration] = MIGRATIONS
+    db: sqlite3.Connection,
+    migrations: Iterable[Migration] = MIGRATIONS,
+    release_id: str | None = None,
 ) -> tuple[int, ...]:
     """Apply all pending migrations in one explicit, rollback-safe transaction."""
     ordered = tuple(migrations)
@@ -265,6 +270,7 @@ def apply_migrations(
     if state == "current":
         return ()
     pending = [known[number] for number in sorted(known) if number > version]
+    applied_release = (release_id or config.APP_VERSION).strip() or "unknown"
     try:
         db.execute("BEGIN IMMEDIATE")
         if "schema_migrations" not in _table_names(db):
@@ -272,8 +278,16 @@ def apply_migrations(
         for migration in pending:
             migration.operation(db)
             db.execute(
-                "INSERT INTO schema_migrations(version,name,checksum,applied_at) VALUES(?,?,?,?)",
-                (migration.version, migration.name, migration.checksum, _utc_now()),
+                """INSERT INTO schema_migrations(
+                       version,name,checksum,applied_at,release_id
+                   ) VALUES(?,?,?,?,?)""",
+                (
+                    migration.version,
+                    migration.name,
+                    migration.checksum,
+                    _utc_now(),
+                    applied_release,
+                ),
             )
         if ordered == MIGRATIONS:
             _assert_current_schema(db)

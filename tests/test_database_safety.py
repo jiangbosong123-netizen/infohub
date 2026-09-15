@@ -40,7 +40,8 @@ class DatabaseSafetyTests(unittest.TestCase):
 
     def test_legacy_upgrade_creates_verified_backup_and_preserves_rows(self):
         self._legacy_database()
-        report = db_admin.migrate_database(self.path)
+        with patch.object(db_admin.config, "APP_VERSION", "release-test-sha"):
+            report = db_admin.migrate_database(self.path)
         self.assertEqual(report.previous_state, "legacy_unversioned")
         self.assertTrue(report.backup_path)
         backup = Path(report.backup_path)
@@ -50,10 +51,10 @@ class DatabaseSafetyTests(unittest.TestCase):
             self.assertEqual(db.execute("SELECT title,summary FROM items").fetchone(),
                              ("legacy title", "legacy summary"))
             migration = db.execute(
-                "SELECT version,name,checksum FROM schema_migrations"
+                "SELECT version,name,checksum,release_id FROM schema_migrations"
             ).fetchone()
         self.assertEqual(migration, (1, db_admin.MIGRATIONS[0].name,
-                                     db_admin.MIGRATIONS[0].checksum))
+                                     db_admin.MIGRATIONS[0].checksum, "release-test-sha"))
         with sqlite3.connect(self.path) as db:
             self.assertTrue(db.execute(
                 "SELECT applied_at FROM schema_migrations"
@@ -90,8 +91,9 @@ class DatabaseSafetyTests(unittest.TestCase):
         db_admin.migrate_database(self.path)
         with sqlite3.connect(self.path) as db:
             db.execute(
-                """INSERT INTO schema_migrations(version,name,checksum,applied_at)
-                   VALUES(2,'future','unknown','2026-09-15T00:00:00.000000Z')"""
+                """INSERT INTO schema_migrations(
+                       version,name,checksum,applied_at,release_id
+                   ) VALUES(2,'future','unknown','2026-09-15T00:00:00.000000Z','future')"""
             )
         with self.assertRaisesRegex(db_admin.UnsupportedSchemaError, "newer or unknown"):
             db_admin.migrate_database(self.path)

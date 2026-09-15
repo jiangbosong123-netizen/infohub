@@ -157,6 +157,8 @@ GitHub Actions 在 push / PR 时执行检查（Python 3.11 / 3.12）。
 升级已有实例时，`cli.py init-db` 会先识别数据库版本。旧库需要变更时自动通过
 SQLite backup API 在 `data/backups/` 创建并校验一致性备份，再以显式事务迁移；失败会
 完整回滚。未知的新版本、迁移记录被改动、完整性或外键检查失败时会停止启动，不继续写库。
+每条 `schema_migrations` 记录同时保存执行迁移的 `APP_VERSION`，用于把数据库变化追溯到
+具体发布版本；本地未注入构建版本时明确记录为 `unknown`。
 
 也可以在部署门禁中单独执行：
 
