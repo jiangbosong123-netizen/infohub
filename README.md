@@ -25,8 +25,9 @@ python3 -m venv .venv
 .venv/bin/python cli.py serve
 # 浏览器打开 http://127.0.0.1:8000
 
-# 确实需要一次性抓取开发样本时，必须显式放行该次网络任务
-INFOHUB_ALLOW_NETWORK_TASKS=true .venv/bin/python cli.py crawl
+# 确实需要一次性抓取开发样本时，必须使用 maintenance 角色并显式放行网络
+INFOHUB_PROCESS_ROLE=maintenance INFOHUB_ALLOW_NETWORK_TASKS=true \
+  .venv/bin/python cli.py crawl
 ```
 
 ## 旧 Mac 常驻配置（迁移兼容）
@@ -42,26 +43,27 @@ INFOHUB_LEGACY_DATA_LAYOUT=true .venv/bin/python cli.py runtime-config
 ## Windows 服务器与 Tailscale 访问
 
 推荐在 Windows 的 Docker Desktop + WSL2 中常驻运行。首次部署时复制 `.env.example`
-为 `.env`，按需填写模型配置，然后执行 `docker compose up -d --build`。容器配置了
-`restart: unless-stopped`，Docker 恢复后会自动重新启动；SQLite 数据持久化在宿主机的
-`data/` 目录。Compose 显式设置 `windows-production` 环境、`/app/data/app.db`、blob、备份
-目录和调度开关，缺少生产标识或路径时应用会拒绝启动。
+为 `.env`，按需填写模型配置，然后执行 `docker compose up -d --build`。Compose 先运行一次性
+`migrate`，成功后分别启动只读门户 `infohub` 和唯一后台 `worker`；两个常驻容器均为
+`restart: unless-stopped`。SQLite、blob、备份和进程心跳持久化在宿主机 `data/` 目录。
+三个角色的权限和数据路径均由 Compose 显式注入，缺少生产标识、路径或角色时应用拒绝启动。
 
 同一 Tailscale 网络内的设备可通过 `http://<Windows 的 Tailscale IP>:8000` 访问。
 只需允许 Windows 防火墙的专用网络或 Tailscale 网络访问 8000 端口，不要在路由器上
 做公网端口映射。
 
-`/api/health` 提供机器可读的运行版本、信息源异常、AI 待处理量、主题/事件索引积压和
-日报状态，并标明 `environment_id`、环境类型、进程角色和调度状态；不会暴露数据库路径。
-网页 `/health` 展示相同的运维概览。通过 Windows Server Manager 部署时，构建版本会
-自动记录为当前 Git 提交号。
+`/api/live` 只证明 web 进程能响应；`/api/ready` 同时要求数据库身份正确且同版本 worker
+心跳新鲜；`/api/pipeline` 报告来源、任务、索引和日报新鲜度。兼容入口 `/api/health` 返回
+完整快照，并在发布未就绪时返回 503。网页 `/health` 即使 worker 停止仍可读取，且会明确显示
+后台延迟。接口不暴露数据库路径。Windows Server Manager 以构建 SHA 和 `/api/health` 验收
+web/worker 这一整组发布。
 
 ## 实时性设计
 
 - **财联社电报 / 华尔街见闻快讯 / 新浪 7x24** 三条分钟级中文快讯线，各每 10 分钟轮询；SEC / 港交所每 10 分钟
 - **Techmeme**（美国科技圈最强聚合）30 分钟；**每家公司专属 Google News 源**每 20 分钟一轮（中英别名严格匹配，防串公司）
 - 首页每 2 分钟自动刷新，顶部显示「数据更新于 X 分钟前」
-- Windows 生产 Compose 运行调度；Mac 开发环境默认关闭调度，避免两台机器重复采集
+- Windows 生产只有独立 worker 调度；web 永远不抓取，Mac 开发默认关闭网络任务
 
 > 财联社的接口签名算法与华尔街见闻快讯端点，分别借鉴了 GitHub 开源项目
 > [RSSHub](https://github.com/DIYgod/RSSHub) 与 [newsnow](https://github.com/ourongxing/newsnow)
@@ -120,10 +122,12 @@ app/
 │   ├── googlenews.py #   Google News 公司源 + 每日对账
 │   └── runner.py     #   调度 / 入库去重 / 源健康
 ├── ai/               # LLM 策展（摘要 / 评分 / 日报），无 Key 自动降级
+├── worker.py         # 持久计划、任务领取、租约续期与处理循环
+├── runtime_health.py # worker 原子心跳和版本/新鲜度判断
 ├── ranking.py        # 热度算法 + 热点聚类（标题相似度 + 多信源加成）
 ├── web/              # FastAPI + Jinja2 页面
 └── database.py       # SQLite（WAL）schema
-cli.py                # init-db / crawl / reconcile / ai / report / serve
+cli.py                # prepare-release / serve / worker / 运维与手动任务命令
 config/watchlist.yaml # 关注公司清单
 ```
 
@@ -171,9 +175,9 @@ python cli.py dataset-status            # 显示数据集身份、epoch 与变�
 整个实时数据集。
 
 初始化会自动把历史中文标题纳入 FTS 搜索索引；重复运行不会重复迁移或重复备份。
-新增 `nh3` 用于清洗日报 HTML。精选在 AI 已配置时按事件去重，只展示评分 ≥70、
-官方条目或至少两家发布方共同报道的事件，
-低分公司新闻仍可在「全部动态」查看；未配置 AI 时精选退回全量聚合。
+新增 `nh3` 用于清洗日报 HTML。`INFOHUB_CURATED_FEED_ENABLED=true` 时，精选按事件去重，
+只展示评分 ≥70、官方条目或至少两家发布方共同报道的事件；低分公司新闻仍可在「全部动态」
+查看。这个展示开关不代表 web 有权调用模型，LLM 凭据只注入 worker。
 
 健康页现在同时显示部分抓取失败和长期未更新；全部失败的源按基础间隔指数退避，部分公司失败时仍按原频率轮询，
 最长 6 小时（基础间隔本身超过 6 小时的源保持其基础间隔）。
@@ -181,9 +185,9 @@ python cli.py dataset-status            # 显示数据集身份、epoch 与变�
 当前数据库已包含持久任务、追加式任务尝试和持久定时计划的基础表。任务领取使用有期限的
 lease token；续租、完成、失败、阻塞和运行中取消都必须持有仍有效的 token，过期 worker
 不能回写结果。同一幂等键只能代表同一份输入；失败按上限重试，超过上限进入 dead letter；
-重启期间错过的相同定时计划合并为一个任务。`INFOHUB_DURABLE_JOBS_ENABLED` 是后续 worker
-切换的发布开关，目前 Compose 明确保持 `false`，现有 APScheduler 继续工作，不会出现两个
-调度器同时发任务。
+重启期间错过的相同定时计划合并为一个任务。生产 Compose 已开启持久任务，并且只有
+`worker` 角色可以登记计划和领取任务；`web` 角色同时禁止网络任务和调度，避免重复采集。
+运行与故障边界见 [web/worker 运维说明](docs/WORKER_OPERATIONS.md)。
 
 数据集身份、恢复 epoch、JCS 变化哈希、知识检查点和“内容版本 + change + job 完成”
 原子事务的使用与恢复边界见 [发布账本说明](docs/PUBLICATION_LEDGER.md)。恢复旧备份后只有在
@@ -199,6 +203,8 @@ worker 已停止且租约不再存活时，才可用当前 epoch 和明确原因
 .venv/bin/python cli.py reindex  # 本地增量更新，不抓取外网、不调用 LLM
 ```
 
-`serve` 启动时自动初始化数据库和索引。抓取、AI 定时处理结束也会更新主题与事件。
+`prepare-release` 在 web/worker 启动前安全迁移数据库、同步公司与来源并清除旧版本心跳；
+`serve` 只验证当前数据库后提供页面，不再初始化或运行任务。抓取和 AI worker 任务继续更新
+主题与事件。
 历史事件链接保留；未识别发布方的聚合入口不增加发布方数量。算法使用保守的标题、
 版本、时间与实体规则，仍可能漏合并大幅改写的报道，具体边界见对标说明。

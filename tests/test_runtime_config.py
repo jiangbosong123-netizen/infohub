@@ -67,29 +67,60 @@ class RuntimeConfigurationTests(unittest.TestCase):
                 "INFOHUB_DB_PATH": "/app/data/app.db",
                 "INFOHUB_BLOB_PATH": "/app/data/blobs",
                 "INFOHUB_BACKUP_PATH": "/app/data/backups",
-                "INFOHUB_ALLOW_NETWORK_TASKS": "true",
-                "INFOHUB_ENABLE_SCHEDULER": "true",
-                "INFOHUB_DURABLE_JOBS_ENABLED": "false",
+                "INFOHUB_RUNTIME_PATH": "/app/data/runtime",
+                "INFOHUB_ALLOW_NETWORK_TASKS": "false",
+                "INFOHUB_ENABLE_SCHEDULER": "false",
+                "INFOHUB_DURABLE_JOBS_ENABLED": "true",
+                "INFOHUB_PROCESS_ROLE": "web",
             },
             self.root,
         )
         self.assertEqual(settings.environment_id, "windows-production")
-        self.assertEqual(settings.process_role, "combined")
-        self.assertTrue(settings.allow_network_tasks)
-        self.assertTrue(settings.scheduler_enabled)
-        self.assertFalse(settings.durable_jobs_enabled)
+        self.assertEqual(settings.process_role, "web")
+        self.assertFalse(settings.allow_network_tasks)
+        self.assertFalse(settings.scheduler_enabled)
+        self.assertTrue(settings.durable_jobs_enabled)
 
     def test_compose_production_environment_passes_runtime_validation(self):
         compose = yaml.safe_load((config.BASE_DIR / "compose.yaml").read_text(encoding="utf-8"))
-        service = compose["services"]["infohub"]
-        values = {key: str(value) for key, value in service["environment"].items()}
-        values["INFOHUB_ENVIRONMENT_ID"] = "windows-production"
-        settings = config.load_runtime_settings(values, self.root)
-        self.assertEqual(settings.database_path, Path("/app/data/app.db"))
-        self.assertEqual(settings.backup_path, Path("/app/data/backups"))
-        self.assertEqual(settings.process_role, "combined")
-        self.assertFalse(settings.durable_jobs_enabled)
-        self.assertIn("./data:/app/data", service["volumes"])
+        expected_roles = {"migrate": "maintenance", "infohub": "web", "worker": "worker"}
+        self.assertEqual(set(compose["services"]), set(expected_roles))
+        for name, expected_role in expected_roles.items():
+            service = compose["services"][name]
+            values = {key: str(value) for key, value in service["environment"].items()}
+            values["INFOHUB_ENVIRONMENT_ID"] = "windows-production"
+            values["INFOHUB_CURATED_FEED_ENABLED"] = "true"
+            settings = config.load_runtime_settings(values, self.root)
+            self.assertEqual(settings.database_path, Path("/app/data/app.db"))
+            self.assertEqual(settings.backup_path, Path("/app/data/backups"))
+            self.assertEqual(settings.runtime_path, Path("/app/data/runtime"))
+            self.assertEqual(settings.process_role, expected_role)
+            self.assertTrue(settings.durable_jobs_enabled)
+            self.assertIn("./data:/app/data", service["volumes"])
+        web_values = {
+            key: str(value)
+            for key, value in compose["services"]["infohub"]["environment"].items()
+        }
+        worker_values = {
+            key: str(value)
+            for key, value in compose["services"]["worker"]["environment"].items()
+        }
+        web_values["INFOHUB_ENVIRONMENT_ID"] = "windows-production"
+        worker_values["INFOHUB_ENVIRONMENT_ID"] = "windows-production"
+        web_values["INFOHUB_CURATED_FEED_ENABLED"] = "true"
+        worker_values["INFOHUB_CURATED_FEED_ENABLED"] = "true"
+        self.assertFalse(config.load_runtime_settings(web_values, self.root).allow_network_tasks)
+        self.assertTrue(config.load_runtime_settings(worker_values, self.root).allow_network_tasks)
+        self.assertIn("/api/live", " ".join(compose["services"]["infohub"]["healthcheck"]["test"]))
+        self.assertEqual(compose["services"]["worker"]["command"][-1], "worker")
+        self.assertEqual(compose["services"]["migrate"]["command"][-1], "prepare-release")
+        self.assertEqual(
+            compose["services"]["infohub"]["depends_on"]["migrate"]["condition"],
+            "service_completed_successfully",
+        )
+        self.assertNotIn("env_file", compose["services"]["infohub"])
+        self.assertNotIn("env_file", compose["services"]["migrate"])
+        self.assertEqual(compose["services"]["worker"]["env_file"], [".env"])
 
     def test_invalid_environment_flags_and_overlapping_paths_fail(self):
         invalid_cases = (
@@ -97,6 +128,22 @@ class RuntimeConfigurationTests(unittest.TestCase):
             {"INFOHUB_ENVIRONMENT_ID": "Mac Production"},
             {"INFOHUB_ALLOW_NETWORK_TASKS": "sometimes"},
             {"INFOHUB_DURABLE_JOBS_ENABLED": "sometimes"},
+            {"INFOHUB_PROCESS_ROLE": "combined"},
+            {
+                "INFOHUB_PROCESS_ROLE": "web",
+                "INFOHUB_ALLOW_NETWORK_TASKS": "true",
+            },
+            {
+                "INFOHUB_PROCESS_ROLE": "worker",
+                "INFOHUB_ALLOW_NETWORK_TASKS": "true",
+                "INFOHUB_ENABLE_SCHEDULER": "true",
+                "INFOHUB_DURABLE_JOBS_ENABLED": "false",
+            },
+            {
+                "INFOHUB_PROCESS_ROLE": "maintenance",
+                "INFOHUB_ALLOW_NETWORK_TASKS": "true",
+                "INFOHUB_ENABLE_SCHEDULER": "true",
+            },
             {
                 "INFOHUB_BLOB_PATH": "runtime/shared",
                 "INFOHUB_BACKUP_PATH": "runtime/shared/backups",

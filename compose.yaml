@@ -1,26 +1,75 @@
+x-infohub-common: &infohub-common
+  build:
+    context: .
+    args:
+      APP_VERSION: ${APP_VERSION:-unknown}
+  volumes:
+    - ./data:/app/data
+
+x-infohub-environment: &infohub-environment
+  INFOHUB_ENVIRONMENT: production
+  INFOHUB_ENVIRONMENT_ID: ${INFOHUB_ENVIRONMENT_ID:-windows-production}
+  INFOHUB_DB_PATH: /app/data/app.db
+  INFOHUB_BLOB_PATH: /app/data/blobs
+  INFOHUB_BACKUP_PATH: /app/data/backups
+  INFOHUB_RUNTIME_PATH: /app/data/runtime
+  INFOHUB_DURABLE_JOBS_ENABLED: "true"
+  INFOHUB_CURATED_FEED_ENABLED: ${INFOHUB_CURATED_FEED_ENABLED:-true}
+  APP_TZ: ${APP_TZ:-Asia/Shanghai}
+
 services:
+  migrate:
+    <<: *infohub-common
+    restart: "no"
+    command: ["python", "cli.py", "prepare-release"]
+    environment:
+      <<: *infohub-environment
+      INFOHUB_PROCESS_ROLE: maintenance
+      INFOHUB_ALLOW_NETWORK_TASKS: "false"
+      INFOHUB_ENABLE_SCHEDULER: "false"
+
   infohub:
-    build:
-      context: .
-      args:
-        APP_VERSION: ${APP_VERSION:-unknown}
+    <<: *infohub-common
     container_name: infohub
     restart: unless-stopped
-    env_file:
-      - .env
+    command: ["python", "cli.py", "serve"]
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
     environment:
-      INFOHUB_ENVIRONMENT: production
-      INFOHUB_ENVIRONMENT_ID: ${INFOHUB_ENVIRONMENT_ID:-windows-production}
-      INFOHUB_DB_PATH: /app/data/app.db
-      INFOHUB_BLOB_PATH: /app/data/blobs
-      INFOHUB_BACKUP_PATH: /app/data/backups
-      INFOHUB_ALLOW_NETWORK_TASKS: "true"
-      INFOHUB_ENABLE_SCHEDULER: "true"
-      # Rollout gate only; P04a creates the durable foundation without switching workers.
-      INFOHUB_DURABLE_JOBS_ENABLED: "false"
+      <<: *infohub-environment
+      INFOHUB_PROCESS_ROLE: web
+      INFOHUB_ALLOW_NETWORK_TASKS: "false"
+      INFOHUB_ENABLE_SCHEDULER: "false"
       WEB_HOST: 0.0.0.0
       PORT: 8000
     ports:
       - "8000:8000"
-    volumes:
-      - ./data:/app/data
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/api/live', timeout=4)"]
+      interval: 30s
+      timeout: 5s
+      start_period: 20s
+      retries: 3
+
+  worker:
+    <<: *infohub-common
+    env_file:
+      - .env
+    container_name: infohub-worker
+    restart: unless-stopped
+    command: ["python", "cli.py", "worker"]
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+    environment:
+      <<: *infohub-environment
+      INFOHUB_PROCESS_ROLE: worker
+      INFOHUB_ALLOW_NETWORK_TASKS: "true"
+      INFOHUB_ENABLE_SCHEDULER: "true"
+    healthcheck:
+      test: ["CMD", "python", "cli.py", "worker-health"]
+      interval: 30s
+      timeout: 5s
+      start_period: 30s
+      retries: 3

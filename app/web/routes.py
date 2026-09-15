@@ -7,7 +7,7 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 from fastapi import FastAPI, Request, HTTPException, Query
-from fastapi.responses import HTMLResponse, RedirectResponse
+from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
@@ -16,15 +16,17 @@ from ..config import (
     APP_TZ,
     APP_VERSION,
     BASE_DIR,
+    CURATED_FEED_ENABLED,
     ENVIRONMENT,
     ENVIRONMENT_ID,
     DURABLE_JOBS_ENABLED,
+    PIPELINE_JOB_STALE_SECONDS,
     PROCESS_ROLE,
     SCHEDULER_ENABLED,
-    llm_enabled,
 )
 from ..database import get_db
 from ..provenance import publisher, display_title
+from ..runtime_health import read_worker_heartbeat
 from ..topics import GROUPS
 
 app = FastAPI(title="行业情报站")
@@ -45,7 +47,7 @@ def _selected_clause(alias: str = "i") -> str:
 
 
 def _fmt_dt(iso: str) -> datetime:
-    dt = datetime.fromisoformat(iso)
+    dt = datetime.fromisoformat(iso.replace("Z", "+00:00"))
     if dt.tzinfo is None:
         dt = dt.replace(tzinfo=timezone.utc)
     return dt.astimezone(APP_TZ)
@@ -127,13 +129,32 @@ def _system_snapshot() -> dict:
             (dataset_row["dataset_id"], dataset_row["current_epoch"]),
         ).fetchone()
     source_states = [_source_status(row, now) for row in source_rows]
-    issues = sum(state in {"bad", "partial", "stale"} for state in source_states)
+    issues = sum(state != "ok" for state in source_states)
+    oldest_ready_age = (
+        max(0, int((now - _fmt_dt(oldest_ready)).total_seconds()))
+        if oldest_ready else None
+    )
+    job_delayed = oldest_ready_age is not None and oldest_ready_age > PIPELINE_JOB_STALE_SECONDS
     job_issues = job_states["blocked"] + job_states["dead_letter"] + expired_running
     dataset_owner_matches = dataset_row["owner_environment_id"] == ENVIRONMENT_ID
+    worker = read_worker_heartbeat(expected_version=APP_VERSION)
+    worker_required = DURABLE_JOBS_ENABLED
+    readiness_issues = []
+    if not dataset_owner_matches:
+        readiness_issues.append("dataset_owner_mismatch")
+    if worker_required and not worker.healthy:
+        readiness_issues.append(f"worker_{worker.status}")
+    pipeline_issues = []
+    if issues:
+        pipeline_issues.append("source_failures_or_staleness")
+    if job_issues:
+        pipeline_issues.append("durable_job_failures")
+    if job_delayed:
+        pipeline_issues.append("durable_job_backlog_stale")
+    if worker_required and not worker.healthy:
+        pipeline_issues.append(f"worker_{worker.status}")
     return {
-        "status": "degraded" if (
-            issues or not dataset_owner_matches or (DURABLE_JOBS_ENABLED and job_issues)
-        ) else "ok",
+        "status": "degraded" if readiness_issues or pipeline_issues else "ok",
         "version": APP_VERSION,
         "runtime": {
             "environment": ENVIRONMENT,
@@ -141,7 +162,19 @@ def _system_snapshot() -> dict:
             "process_role": PROCESS_ROLE,
             "scheduler_enabled": SCHEDULER_ENABLED,
             "durable_jobs_enabled": DURABLE_JOBS_ENABLED,
+            "curated_feed_enabled": CURATED_FEED_ENABLED,
         },
+        "readiness": {
+            "status": "not_ready" if readiness_issues else "ready",
+            "ready": not readiness_issues,
+            "issues": readiness_issues,
+            "worker_required": worker_required,
+        },
+        "pipeline": {
+            "status": "degraded" if pipeline_issues else "ok",
+            "issues": pipeline_issues,
+        },
+        "worker": worker.to_dict(),
         "started_at": STARTED_AT.isoformat(),
         "uptime_seconds": max(0, int((now - STARTED_AT).total_seconds())),
         "items": {
@@ -158,6 +191,7 @@ def _system_snapshot() -> dict:
             "enabled": DURABLE_JOBS_ENABLED,
             "states": job_states,
             "oldest_ready_at": oldest_ready,
+            "oldest_ready_age_seconds": oldest_ready_age,
             "expired_running": expired_running,
         },
         "dataset": {
@@ -240,7 +274,7 @@ def _query_items(channel: str = "all", company: str = "", event: str = "", cat: 
     """Selected is a deduplicated event feed; all preserves every visible report."""
     where = " WHERE COALESCE(i.tmt, 1) != 0"
     params: list = []
-    if mode == "selected" and llm_enabled():
+    if mode == "selected" and CURATED_FEED_ENABLED:
         where += " AND " + _selected_clause()
     if channel and channel != "all":
         where += " AND i.channel=?"
@@ -439,8 +473,90 @@ def health(request: Request):
 
 @app.get("/api/health")
 def api_health():
-    """Machine-readable deployment and pipeline status for monitoring."""
-    return _system_snapshot()
+    """Compatibility endpoint: readiness status plus the full pipeline snapshot."""
+    try:
+        snapshot = _system_snapshot()
+    except (OSError, sqlite3.Error, KeyError, TypeError, ValueError) as exc:
+        snapshot = _unready_snapshot(exc)
+    status_code = 200 if snapshot["readiness"]["ready"] else 503
+    return JSONResponse(snapshot, status_code=status_code)
+
+
+def _unready_snapshot(exc: Exception) -> dict:
+    return {
+        "status": "unavailable",
+        "version": APP_VERSION,
+        "runtime": {
+            "environment": ENVIRONMENT,
+            "environment_id": ENVIRONMENT_ID,
+            "process_role": PROCESS_ROLE,
+            "scheduler_enabled": SCHEDULER_ENABLED,
+            "durable_jobs_enabled": DURABLE_JOBS_ENABLED,
+            "curated_feed_enabled": CURATED_FEED_ENABLED,
+        },
+        "readiness": {
+            "status": "not_ready",
+            "ready": False,
+            "issues": ["database_unavailable"],
+            "worker_required": DURABLE_JOBS_ENABLED,
+        },
+        "pipeline": {"status": "unavailable", "issues": ["database_unavailable"]},
+        "error": type(exc).__name__,
+        "checked_at": datetime.now(timezone.utc).isoformat(),
+    }
+
+
+@app.get("/api/live")
+def api_live():
+    """Process liveness only; it deliberately does not touch SQLite or the worker."""
+    now = datetime.now(timezone.utc)
+    return {
+        "status": "live",
+        "version": APP_VERSION,
+        "process_role": PROCESS_ROLE,
+        "started_at": STARTED_AT.isoformat(),
+        "uptime_seconds": max(0, int((now - STARTED_AT).total_seconds())),
+        "checked_at": now.isoformat(),
+    }
+
+
+@app.get("/api/ready")
+def api_ready():
+    """Release readiness: current database identity and current worker version."""
+    try:
+        snapshot = _system_snapshot()
+    except (OSError, sqlite3.Error, KeyError, TypeError, ValueError) as exc:
+        snapshot = _unready_snapshot(exc)
+    payload = {
+        "status": snapshot["readiness"]["status"],
+        "ready": snapshot["readiness"]["ready"],
+        "issues": snapshot["readiness"]["issues"],
+        "version": snapshot["version"],
+        "worker": snapshot.get("worker"),
+        "checked_at": snapshot["checked_at"],
+    }
+    return JSONResponse(payload, status_code=200 if payload["ready"] else 503)
+
+
+@app.get("/api/pipeline")
+def api_pipeline():
+    """Operational freshness and backlog; degraded data does not make web unreadable."""
+    try:
+        snapshot = _system_snapshot()
+    except (OSError, sqlite3.Error, KeyError, TypeError, ValueError) as exc:
+        snapshot = _unready_snapshot(exc)
+        return JSONResponse(snapshot, status_code=503)
+    return {
+        "status": snapshot["pipeline"]["status"],
+        "issues": snapshot["pipeline"]["issues"],
+        "version": snapshot["version"],
+        "worker": snapshot["worker"],
+        "sources": snapshot["sources"],
+        "jobs": snapshot["jobs"],
+        "items": snapshot["items"],
+        "reports": snapshot["reports"],
+        "checked_at": snapshot["checked_at"],
+    }
 
 
 @app.get("/about-heat", response_class=HTMLResponse)
@@ -449,7 +565,7 @@ def about_heat():
 
 
 def _topic_stats(db):
-    selected = _selected_clause() if llm_enabled() else "1=1"
+    selected = _selected_clause() if CURATED_FEED_ENABLED else "1=1"
     return [dict(r) for r in db.execute(f"""SELECT t.*,COUNT(i.id) AS total,
         COALESCE(SUM(CASE WHEN i.id IS NOT NULL AND {selected} THEN 1 ELSE 0 END),0) AS selected,
         MAX(i.published_at) AS last_at FROM topics t
@@ -470,7 +586,7 @@ def topics_index(request: Request):
 @app.get('/topics/{slug}',response_class=HTMLResponse)
 def topic_detail(request: Request,slug: str,mode: str='selected',page: int=Query(1,ge=1)):
     mode = mode if mode in ('all','selected') else 'selected'
-    selected = " AND " + _selected_clause() if mode=='selected' and llm_enabled() else ''
+    selected = " AND " + _selected_clause() if mode=='selected' and CURATED_FEED_ENABLED else ''
     with get_db() as db:
         topic = next((t for t in _topic_stats(db) if t['slug']==slug),None)
         if topic is None:

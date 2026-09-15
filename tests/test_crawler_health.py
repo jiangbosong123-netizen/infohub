@@ -14,6 +14,7 @@ class CrawlerHealthTests(unittest.TestCase):
     def setUp(self):
         folder=tempfile.TemporaryDirectory()
         self.addCleanup(folder.cleanup)
+        self.folder=Path(folder.name)
         patcher=patch.object(database,'DB_PATH',Path(folder.name)/'test.db')
         patcher.start();self.addCleanup(patcher.stop)
         database.init_schema()
@@ -90,9 +91,67 @@ class CrawlerHealthTests(unittest.TestCase):
         self.assertNotIn('database_path', body['runtime'])
         self.assertEqual(body['jobs']['states']['pending'], 0)
         self.assertEqual(body['jobs']['expired_running'], 0)
+        self.assertEqual(body['sources']['issues'], 1)
+        self.assertEqual(body['pipeline']['status'], 'degraded')
         self.assertTrue(body['dataset']['dataset_id'].startswith('dataset_'))
         self.assertTrue(body['dataset']['epoch'].startswith('epoch_'))
         self.assertEqual(body['dataset']['high_water'], 0)
         self.assertTrue(body['dataset']['owner_matches_environment'])
         self.assertIsNone(body['dataset']['latest_checkpoint'])
         self.assertIn(body['status'], {'ok','degraded'})
+
+    def test_liveness_does_not_require_database_but_readiness_does(self):
+        unavailable = self.folder / 'missing' / 'not-initialized.db'
+        with patch.object(database, 'DB_PATH', unavailable):
+            client = TestClient(app)
+            live = client.get('/api/live')
+            ready = client.get('/api/ready')
+        self.assertEqual(live.status_code, 200)
+        self.assertEqual(live.json()['status'], 'live')
+        self.assertEqual(ready.status_code, 503)
+        self.assertIn('database_unavailable', ready.json()['issues'])
+
+    def test_current_worker_is_required_for_release_readiness(self):
+        from datetime import datetime, timedelta, timezone
+        from app import runtime_health
+        from app.web import routes
+
+        runtime_path = self.folder / 'runtime'
+        now = datetime.now(timezone.utc)
+        with patch.object(config, 'RUNTIME_PATH', runtime_path), patch.object(
+            routes, 'DURABLE_JOBS_ENABLED', True
+        ):
+            runtime_health.write_worker_heartbeat(
+                worker_id='worker-test', started_at=now.isoformat(), heartbeat_at=now
+            )
+            ready = TestClient(app).get('/api/health')
+            self.assertEqual(ready.status_code, 200)
+            self.assertTrue(ready.json()['readiness']['ready'])
+
+            runtime_health.write_worker_heartbeat(
+                worker_id='worker-test', started_at=now.isoformat(),
+                heartbeat_at=now - timedelta(
+                    seconds=config.WORKER_HEARTBEAT_TTL_SECONDS + 1
+                ),
+            )
+            stale = TestClient(app).get('/api/health')
+            portal = TestClient(app).get('/')
+            self.assertEqual(stale.status_code, 503)
+            self.assertIn('worker_stale', stale.json()['readiness']['issues'])
+            self.assertEqual(portal.status_code, 200)
+
+    def test_old_ready_job_marks_pipeline_backlog_stale(self):
+        from datetime import datetime, timedelta, timezone
+        from app.jobs import enqueue_job
+
+        enqueue_job(
+            kind='crawl',
+            idempotency_key='stale-health-fixture',
+            scheduled_for=datetime.now(timezone.utc) - timedelta(
+                seconds=config.PIPELINE_JOB_STALE_SECONDS + 1
+            ),
+        )
+        response = TestClient(app).get('/api/pipeline')
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json()['status'], 'degraded')
+        self.assertIn('durable_job_backlog_stale', response.json()['issues'])

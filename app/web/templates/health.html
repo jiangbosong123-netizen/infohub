@@ -5,7 +5,9 @@
   <h1 class="pagetitle">信息源状态 <small>刷新于 {{ now }} · 库存：AI {{ counts.get('ai', 0) }} 条 / 机器人 {{ counts.get('robot', 0) }} 条 / 股市 {{ counts.get('stock', 0) }} 条</small></h1>
 </div>
 <section class="health-summary">
-  <div class="health-metric"><span>运行状态</span><strong class="{{ 'metric-ok' if system.status == 'ok' else 'metric-warn' }}">{{ '正常' if system.status == 'ok' else '需要关注' }}</strong><small>版本 {{ system.version }}</small></div>
+  <div class="health-metric"><span>网页就绪</span><strong class="{{ 'metric-ok' if system.readiness.ready else 'metric-warn' }}">{{ '正常' if system.readiness.ready else '未就绪' }}</strong><small>版本 {{ system.version }}</small></div>
+  <div class="health-metric"><span>后台 Worker</span><strong class="{{ 'metric-ok' if system.worker.healthy else 'metric-warn' }}">{{ '正常' if system.worker.healthy else '延迟/停止' }}</strong><small>{{ system.worker.status }}{% if system.worker.age_seconds is not none %} · {{ system.worker.age_seconds }} 秒前{% endif %}</small></div>
+  <div class="health-metric"><span>信息流水线</span><strong class="{{ 'metric-ok' if system.pipeline.status == 'ok' else 'metric-warn' }}">{{ '正常' if system.pipeline.status == 'ok' else '需要关注' }}</strong><small>{{ system.pipeline.issues | join('、') if system.pipeline.issues else '无异常' }}</small></div>
   <div class="health-metric"><span>全部信息</span><strong>{{ system['items'].total }}</strong><small>最近入库 {{ system['items'].last_item_relative }}</small></div>
   <div class="health-metric"><span>AI 待评分</span><strong class="{{ 'metric-warn' if system['items'].pending_score else '' }}">{{ system['items'].pending_score }}</strong><small>TMT 待判定 {{ system['items'].pending_tmt }}</small></div>
   <div class="health-metric"><span>索引队列</span><strong class="{{ 'metric-warn' if system['items'].derived_pending else '' }}">{{ system['items'].derived_pending }}</strong><small>等待主题与事件归并</small></div>

@@ -147,7 +147,7 @@ class StoryTests(unittest.TestCase):
             db.execute('UPDATE items SET score=70')
             db.execute('UPDATE items SET score=40 WHERE id=1')
         refresh_derived()
-        with patch('app.web.routes.llm_enabled',return_value=True):
+        with patch('app.web.routes.CURATED_FEED_ENABLED', True):
             response=self.client.get('/topics/openai')
             self.assertEqual(response.context['topic']['selected'],21)
             self.assertEqual(response.context['topic']['total'],22)

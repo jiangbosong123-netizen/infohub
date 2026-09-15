@@ -17,7 +17,10 @@ from __future__ import annotations
   python cli.py jobs-status            # 显示持久任务各状态数量
   python cli.py dataset-status         # 显示数据集、epoch 与变化高水位
   python cli.py dataset-new-epoch EXPECTED_EPOCH REASON  # 恢复后切换同步代际
-  python cli.py serve                  # 启动网站；是否运行调度由环境配置决定
+  python cli.py serve                  # 只启动网站，不建库、不迁移、不抓取
+  python cli.py worker                 # 启动持久任务调度与执行进程
+  python cli.py worker-health          # 检查当前版本 worker 心跳
+  python cli.py prepare-release        # 安全迁移、同步静态配置并清除旧心跳
 """
 import json
 import logging
@@ -154,7 +157,7 @@ def cmd_report(date: str | None) -> None:
     print(f"日报已生成：{d}" if d else "当天没有数据，未生成。")
 
 
-def _prune_logs() -> None:
+def prune_fetch_logs() -> int:
     """每日清理：fetch_log 只留 14 天（items 长期保留）。"""
     from datetime import datetime, timedelta, timezone
     from app.database import get_db
@@ -163,60 +166,40 @@ def _prune_logs() -> None:
         n = db.execute("DELETE FROM fetch_log WHERE ran_at < ?", (cutoff,)).rowcount
     if n:
         print(f"已清理 {n} 条过期抓取日志")
+    return n
 
 
 def cmd_serve() -> None:
-    cmd_init_db()
+    if config.PROCESS_ROLE != "web":
+        raise config.RuntimeConfigurationError(
+            "serve command requires INFOHUB_PROCESS_ROLE=web"
+        )
+    from app.db_admin import verify_database
+    verify_database(config.DB_PATH, require_current=True)
     import uvicorn
     from app.web.routes import app
-
-    sched = None
-    if config.SCHEDULER_ENABLED:
-        config.require_network_tasks("scheduler")
-        from apscheduler.schedulers.background import BackgroundScheduler
-        from app.ai.daily import generate_daily
-        from app.ai.pipeline import process_pending
-        from app.crawler.googlenews import run_reconcile
-        from app.crawler.runner import run_due_sources
-
-        sched = BackgroundScheduler(timezone=str(config.APP_TZ),
-                                    job_defaults={"misfire_grace_time": 3600})
-        from datetime import datetime as _dt
-        sched.add_job(run_due_sources, "interval", minutes=config.CRAWL_TICK_MINUTES,
-                      id="crawl", max_instances=1, coalesce=True,
-                      next_run_time=_dt.now(config.APP_TZ))
-
-        def _ai_tick() -> None:
-            for _ in range(12):
-                if process_pending(limit=30) < 30:
-                    break
-            from app.ai.pipeline import backfill_tmt
-            backfill_tmt(max_batches=12)
-            from app.ai.pipeline import backfill_titles
-            backfill_titles(max_batches=12)
-            from app.stories import refresh_derived
-            refresh_derived()
-
-        sched.add_job(_ai_tick, "interval", minutes=15,
-                      id="ai", max_instances=1, coalesce=True)
-        sched.add_job(run_reconcile, "cron", hour=config.RECONCILE_HOUR,
-                      minute=config.RECONCILE_MINUTE, id="reconcile")
-        sched.add_job(generate_daily, "cron", hour=config.REPORT_HOUR,
-                      minute=config.REPORT_MINUTE, id="report")
-        sched.add_job(_prune_logs, "cron", hour=4, minute=5, id="prune")
-        sched.start()
-        print(f"定时任务已启动：抓取每 {config.CRAWL_TICK_MINUTES} 分钟 · AI 每 15 分钟 · "
-              f"对账 {config.RECONCILE_HOUR:02d}:{config.RECONCILE_MINUTE:02d} · "
-              f"日报 {config.REPORT_HOUR:02d}:{config.REPORT_MINUTE:02d}")
-    else:
-        print("当前环境只启动网页，定时抓取与模型任务未启用。")
     print(f"运行环境：{config.ENVIRONMENT_ID} ({config.ENVIRONMENT}) · "
           f"角色：{config.PROCESS_ROLE} · 数据库：{config.DB_PATH}")
-    try:
-        uvicorn.run(app, host=config.WEB_HOST, port=config.WEB_PORT, log_level="info")
-    finally:
-        if sched is not None:
-            sched.shutdown(wait=False)
+    uvicorn.run(app, host=config.WEB_HOST, port=config.WEB_PORT, log_level="info")
+
+
+def cmd_worker_health() -> None:
+    from app.runtime_health import read_worker_heartbeat
+    status = read_worker_heartbeat()
+    print(json.dumps(status.to_dict(), ensure_ascii=False, indent=2))
+    if not status.healthy:
+        raise SystemExit(1)
+
+
+def cmd_prepare_release() -> None:
+    if config.PROCESS_ROLE != "maintenance":
+        raise config.RuntimeConfigurationError(
+            "prepare-release requires INFOHUB_PROCESS_ROLE=maintenance"
+        )
+    cmd_init_db()
+    from app.runtime_health import clear_worker_heartbeat
+    clear_worker_heartbeat()
+    print("发布准备完成：数据库已验证，旧 worker 心跳已清除。")
 
 
 def main() -> None:
@@ -254,6 +237,13 @@ def main() -> None:
         cmd_dataset_new_epoch(sys.argv[2], " ".join(sys.argv[3:]))
     elif cmd == "serve":
         cmd_serve()
+    elif cmd == "worker":
+        from app.worker import run_worker
+        run_worker()
+    elif cmd == "worker-health":
+        cmd_worker_health()
+    elif cmd == "prepare-release":
+        cmd_prepare_release()
     else:
         print(__doc__)
         sys.exit(1)

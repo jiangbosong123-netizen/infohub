@@ -21,6 +21,7 @@ load_dotenv(BASE_DIR / ".env")
 
 _ENVIRONMENT_ID = re.compile(r"^[a-z0-9][a-z0-9_-]{0,63}$")
 _ENVIRONMENTS = {"development", "test", "production"}
+_PROCESS_ROLES = {"web", "worker", "maintenance"}
 _TRUE_VALUES = {"1", "true", "yes", "on"}
 _FALSE_VALUES = {"0", "false", "no", "off"}
 
@@ -70,19 +71,18 @@ class RuntimeSettings:
     database_path: Path
     blob_path: Path
     backup_path: Path
+    runtime_path: Path
     allow_network_tasks: bool
     scheduler_enabled: bool
     durable_jobs_enabled: bool
+    curated_feed_enabled: bool
+    process_role: str
     legacy_data_layout: bool
-
-    @property
-    def process_role(self) -> str:
-        return "combined" if self.scheduler_enabled else "web"
 
     def public_manifest(self) -> dict:
         """Return non-secret labels safe for logs and local operator output."""
         value = asdict(self)
-        for key in ("database_path", "blob_path", "backup_path"):
+        for key in ("database_path", "blob_path", "backup_path", "runtime_path"):
             value[key] = str(value[key])
         value["process_role"] = self.process_role
         return value
@@ -114,14 +114,20 @@ def load_runtime_settings(
             "INFOHUB_LEGACY_DATA_LAYOUT is a temporary local compatibility option, not a production layout"
         )
 
-    path_names = ("INFOHUB_DB_PATH", "INFOHUB_BLOB_PATH", "INFOHUB_BACKUP_PATH")
+    path_names = (
+        "INFOHUB_DB_PATH", "INFOHUB_BLOB_PATH", "INFOHUB_BACKUP_PATH",
+        "INFOHUB_RUNTIME_PATH",
+    )
     if environment == "production":
         missing = [name for name in path_names if not values.get(name, "").strip()]
         if missing:
             raise RuntimeConfigurationError(
                 "production requires explicit data paths: " + ", ".join(missing)
             )
-        required_flags = ("INFOHUB_ALLOW_NETWORK_TASKS", "INFOHUB_ENABLE_SCHEDULER")
+        required_flags = (
+            "INFOHUB_ALLOW_NETWORK_TASKS", "INFOHUB_ENABLE_SCHEDULER",
+            "INFOHUB_DURABLE_JOBS_ENABLED", "INFOHUB_PROCESS_ROLE",
+        )
         missing_flags = [name for name in required_flags if not values.get(name, "").strip()]
         if missing_flags:
             raise RuntimeConfigurationError(
@@ -151,6 +157,12 @@ def load_runtime_settings(
         "INFOHUB_BACKUP_PATH",
         environment == "production",
     )
+    runtime_path = _path(
+        values.get("INFOHUB_RUNTIME_PATH", str(default_root / "runtime")),
+        base_dir,
+        "INFOHUB_RUNTIME_PATH",
+        environment == "production",
+    )
 
     legacy_database = (base_dir / "data" / "app.db").resolve()
     if environment != "production" and database_path == legacy_database and not legacy_data_layout:
@@ -158,20 +170,50 @@ def load_runtime_settings(
             "the legacy data/app.db path requires INFOHUB_LEGACY_DATA_LAYOUT=true"
         )
 
-    if database_path in {blob_path, backup_path}:
-        raise RuntimeConfigurationError("the database path cannot also be a blob or backup directory")
-    if blob_path == backup_path or blob_path in backup_path.parents or backup_path in blob_path.parents:
-        raise RuntimeConfigurationError("blob and backup directories must not contain one another")
-    if blob_path in database_path.parents or backup_path in database_path.parents:
-        raise RuntimeConfigurationError("the database file cannot be stored inside blob or backup directories")
+    data_directories = {
+        "INFOHUB_BLOB_PATH": blob_path,
+        "INFOHUB_BACKUP_PATH": backup_path,
+        "INFOHUB_RUNTIME_PATH": runtime_path,
+    }
+    if database_path in set(data_directories.values()):
+        raise RuntimeConfigurationError("the database path cannot also be a data directory")
+    directory_items = list(data_directories.items())
+    for index, (first_name, first_path) in enumerate(directory_items):
+        if first_path in database_path.parents:
+            raise RuntimeConfigurationError(
+                f"the database file cannot be stored inside {first_name}"
+            )
+        for second_name, second_path in directory_items[index + 1:]:
+            if first_path == second_path or first_path in second_path.parents or second_path in first_path.parents:
+                raise RuntimeConfigurationError(
+                    f"{first_name} and {second_name} must not contain one another"
+                )
 
     allow_network_tasks = _boolean(values, "INFOHUB_ALLOW_NETWORK_TASKS", False)
     scheduler_enabled = _boolean(values, "INFOHUB_ENABLE_SCHEDULER", False)
     durable_jobs_enabled = _boolean(values, "INFOHUB_DURABLE_JOBS_ENABLED", False)
+    curated_feed_enabled = _boolean(values, "INFOHUB_CURATED_FEED_ENABLED", False)
+    process_role = values.get("INFOHUB_PROCESS_ROLE", "web").strip().lower() or "web"
+    if process_role not in _PROCESS_ROLES:
+        raise RuntimeConfigurationError(
+            f"INFOHUB_PROCESS_ROLE must be one of {sorted(_PROCESS_ROLES)}, got {process_role!r}"
+        )
     if scheduler_enabled and not allow_network_tasks:
         raise RuntimeConfigurationError(
             "INFOHUB_ENABLE_SCHEDULER=true requires INFOHUB_ALLOW_NETWORK_TASKS=true"
         )
+    if process_role == "web" and (allow_network_tasks or scheduler_enabled):
+        raise RuntimeConfigurationError(
+            "the web role must keep network tasks and the scheduler disabled"
+        )
+    if process_role == "worker" and not (
+        allow_network_tasks and scheduler_enabled and durable_jobs_enabled
+    ):
+        raise RuntimeConfigurationError(
+            "the worker role requires network tasks, scheduler and durable jobs"
+        )
+    if process_role == "maintenance" and scheduler_enabled:
+        raise RuntimeConfigurationError("the maintenance role cannot run the scheduler")
 
     return RuntimeSettings(
         environment=environment,
@@ -179,9 +221,12 @@ def load_runtime_settings(
         database_path=database_path,
         blob_path=blob_path,
         backup_path=backup_path,
+        runtime_path=runtime_path,
         allow_network_tasks=allow_network_tasks,
         scheduler_enabled=scheduler_enabled,
         durable_jobs_enabled=durable_jobs_enabled,
+        curated_feed_enabled=curated_feed_enabled,
+        process_role=process_role,
         legacy_data_layout=legacy_data_layout,
     )
 
@@ -192,9 +237,11 @@ ENVIRONMENT_ID = RUNTIME.environment_id
 DB_PATH = RUNTIME.database_path
 BLOB_PATH = RUNTIME.blob_path
 BACKUP_PATH = RUNTIME.backup_path
+RUNTIME_PATH = RUNTIME.runtime_path
 ALLOW_NETWORK_TASKS = RUNTIME.allow_network_tasks
 SCHEDULER_ENABLED = RUNTIME.scheduler_enabled
 DURABLE_JOBS_ENABLED = RUNTIME.durable_jobs_enabled
+CURATED_FEED_ENABLED = RUNTIME.curated_feed_enabled
 PROCESS_ROLE = RUNTIME.process_role
 
 WATCHLIST_PATH = BASE_DIR / "config" / "watchlist.yaml"
@@ -214,6 +261,19 @@ RECONCILE_HOUR = _integer(os.environ, "RECONCILE_HOUR", 6, 0, 23)
 RECONCILE_MINUTE = _integer(os.environ, "RECONCILE_MINUTE", 30, 0, 59)
 REPORT_HOUR = _integer(os.environ, "REPORT_HOUR", 8, 0, 23)
 REPORT_MINUTE = _integer(os.environ, "REPORT_MINUTE", 0, 0, 59)
+AI_TICK_MINUTES = _integer(os.environ, "AI_TICK_MINUTES", 15, 1, 1440)
+WORKER_POLL_SECONDS = _integer(os.environ, "WORKER_POLL_SECONDS", 2, 1, 60)
+WORKER_HEARTBEAT_SECONDS = _integer(os.environ, "WORKER_HEARTBEAT_SECONDS", 10, 2, 60)
+WORKER_HEARTBEAT_TTL_SECONDS = _integer(
+    os.environ, "WORKER_HEARTBEAT_TTL_SECONDS", 45, 10, 600
+)
+WORKER_HEARTBEAT_FUTURE_TOLERANCE_SECONDS = _integer(
+    os.environ, "WORKER_HEARTBEAT_FUTURE_TOLERANCE_SECONDS", 5, 0, 60
+)
+WORKER_LEASE_SECONDS = _integer(os.environ, "WORKER_LEASE_SECONDS", 300, 30, 3600)
+PIPELINE_JOB_STALE_SECONDS = _integer(
+    os.environ, "PIPELINE_JOB_STALE_SECONDS", 900, 60, 86_400
+)
 
 SEC_USER_AGENT = os.getenv(
     "SEC_USER_AGENT", "personal-news-aggregator admin@example.com"
