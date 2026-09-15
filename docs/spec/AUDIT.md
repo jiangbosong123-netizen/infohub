@@ -122,10 +122,15 @@ flowchart TD
 | A28 / P2 | topic selected 数按条目统计、展示按事件去重；两篇同事件显示精选 2、列表 1 | 用户无法理解数字；搜索最多 100 条无分页 | 定义统计粒度、查询状态与分页；事件入口优先 |
 | A29 / P2 | 收藏 localStorage 按 origin 隔离，最多保留 200；`.save-button/.is-read` 无专用样式；只在点外链标已读 | Mac/Win、localhost/IP 看到的状态不同；已读可能没有明显反馈 | 明确存储边界；先修交互样式，再按需求加入账户同步 |
 | A30 / P2 | README 描述自动刷新、Mac 推荐常驻、滚动更新、模型已启用等与当前机制不符 | 运维与用户形成错误模型 | 本 SPEC 替代旧基线；README 只描述已验证能力 |
+| A31 / P0 历史分析前 | SEC `_parse_ts`对naive输入调用astimezone；RSS `_to_iso`用updated回退published；HKEX源时间依赖APP_TZ | 同一SEC输入随宿主时区不同；RSS更新被标成发布；跨机重放不可比 | 保存时间原值/角色，来源独立时区和规则版本；缺值不填now；DST固定案例 |
+| A32 / P1 美股语义前 | US13关注公司；单market；SEC只取recent[:40]且只保留form/cik，部分6-K/20-F/修订类型描述通用 | 已有美股消息但无全市场覆盖保证；接受/申报日/公开时间与报告期难追溯 | 发行人/证券/上市关系分开；保留SEC原record、accession、各时间；明确覆盖和回补上限 |
+| A33 / P0 严格历史前 | 现有库无可信可见检查点/时钟证据，旧fetched_at在批量插入时生成；SPEC初稿available_at描述也过强 | 应用写入时间不能单独证明物理提交与消费者收到的时间 | available_at定义为事务记录时间，严格PIT另需已提交H检查点/时钟证据；消费者自行记录接收 |
 
 ### 4.1 证据可重复性与限制
 
 [probes.py](evidence/probes.py) 使用临时库复现 A03/A11/A15/A16/A17/A21/A22/A25/A28。输出见 [probes.json](evidence/probes.json)。例如连续保存 `model-a:10` 和 `model-b:90`，表里只剩后一条；故障迁移留下表但没有版本记录。
+
+本轮补查美股与时间：本地另一采样时点有4,913个不同item关联13家US公司（未逐条核实）；已含6-K/20-F。SEC合成naive输入在UTC/上海/纽约分别得到16:05/08:05/20:05 UTC，显式Z输入则相同；仅updated的RSS被返回为publication。见[补查脚本](evidence/us_time_review.py)与[结果](evidence/us-time-review.json)。这证明解析分支缺陷，不证明全部生产输入均无时区或全部SEC数据错时。
 
 A23 是依据管理器控制流推导的确定性缺陷，本轮没有在 Windows 上故意制造失败。A09 的语义准确率/A10 的独立来源数还没有人工真值；本轮不把这些风险表述成已测误差率。A26 不表示已经发生资源耗尽或权限事故。
 

@@ -9,6 +9,8 @@ import re
 import unicodedata
 from pathlib import Path
 from urllib.parse import unquote
+from datetime import datetime, timedelta, timezone
+from zoneinfo import ZoneInfo
 
 import yaml
 from jsonschema import Draft202012Validator, FormatChecker
@@ -41,6 +43,36 @@ assert not horizon.is_valid({'bucket':'quarter','min_days':1,'max_days':90})
 assert horizon.is_valid({'bucket':'quarter','min_days':8,'max_days':90})
 assert not Draft202012Validator(schemas['Confidence']).is_valid({
     'raw_confidence':0.7,'calibrated_confidence':0.7,'calibration_version':None,'uncertainty_reason':None})
+cutoff_validator=Draft202012Validator({'$ref':'#/components/schemas/KnowledgeCutoff',
+    'components':contract['components']},format_checker=FormatChecker())
+checkpoint=dict(schemas['KnowledgeCutoff']['examples'][1])
+checkpoint['checkpoint_id']=None
+assert not cutoff_validator.is_valid(checkpoint), 'Observed checkpoint requires its ID'
+window_validator=Draft202012Validator({'$ref':'#/components/schemas/Window','components':contract['components']})
+assert not window_validator.is_valid({'start':'2026-09-14T00:00:00Z','end':'2026-09-15T00:00:00Z',
+    'basis':'first_seen','timezone':'UTC','calendar_id':'fixture-market','calendar_version':None})
+
+# Verify frozen acceptance inputs and UTC arithmetic, not the unimplemented product behavior.
+cases=json.loads((DOCS/'evidence/time-contract-cases.json').read_text())
+assert cases['status']=='specification_only_not_implemented'
+assert len({c['id'] for c in cases['cases']})==len(cases['cases'])
+arithmetic_count=0
+for case in cases['cases']:
+    assert case['input'] and case['expected'] and case['category']
+    if case['category']=='utc_conversion':
+        value=datetime.fromisoformat(case['input']['value'].replace('Z','+00:00'))
+        if value.tzinfo is None:
+            value=value.replace(tzinfo=ZoneInfo(case['input']['source_timezone']))
+        assert value.astimezone(timezone.utc)==datetime.fromisoformat(case['expected']['utc'].replace('Z','+00:00'))
+        arithmetic_count+=1
+    if case['category']=='date_range':
+        local=datetime.fromisoformat(case['input']['date']).replace(tzinfo=ZoneInfo(case['input']['source_timezone']))
+        start=local.astimezone(timezone.utc)
+        end=(local+timedelta(days=1)).astimezone(timezone.utc)
+        assert start==datetime.fromisoformat(case['expected']['start'].replace('Z','+00:00'))
+        assert end==datetime.fromisoformat(case['expected']['end'].replace('Z','+00:00'))
+        assert (end-start).total_seconds()/3600==case['expected']['hours']
+        arithmetic_count+=1
 for path, operations in contract['paths'].items():
     for method, op in operations.items():
         assert op['security'] and op['x-required-scopes'], path
@@ -77,4 +109,6 @@ for file in (DOCS/'evidence').glob('*.py'): ast.parse(file.read_text(), filename
 print(json.dumps({'openapi':'3.1.0 valid','paths':len(contract['paths']), 'schemas':len(schemas),
     'complete_openapi_examples':example_count,'prose_examples':'4 valid',
     'negative_horizon_example':'correctly rejected','local_links_checked':links_checked,
+    'invalid_checkpoint_and_calendar_examples':'correctly rejected',
+    'frozen_time_acceptance_cases':len(cases['cases']),'time_arithmetic_examples_checked':arithmetic_count,
     'json_and_python_evidence':'parseable','runtime_implementation_tested':False},indent=2))

@@ -27,6 +27,7 @@
 
 - ID 是不透明字符串；旧 item 整数通过 `legacy_item_id` 返回。消费者使用新 `id` 持久引用。
 - 响应带 `api_version`、`schema_version`、`dataset_id`、`dataset_epoch`、`request_id`、`generated_at`。
+- 时间与字段溯源按[时间契约](TIME_CONTRACT.md)。available_at是应用事务时间；严格历史查询另传knowledge_checkpoint_id，普通as_of不能单独证明精确可见时间。Item.time_provenance返回源字段/解析规则/采集处理时间及质量；不会只输出一个不明含义的timestamp。
 - UTC 时间包含时区；输入无时区/非法日期返回 422。日期窗口采用 `[from,to)`；分页排序包含唯一 ID 作为平局键。
 - NULL 是未知/未有值，空数组是确认没有成员。`summary_original:null` 代表历史未保留，`""` 代表收到的摘要为空；二者不能合并成空串。
 - `importance_score` 范围 0..100；tone/impact 的 confidence 范围 0..1 或 NULL；热度是排序指标，不是概率。负分不在内容协议中出现。
@@ -65,11 +66,13 @@
 
 兼容 `/stories` 若保留，只作为 `/events` 的文档化别名，不形成第二套事实实体。现有 `/story/{uuid}` 页面和旧主题 slug 必须继续解析。新 v1 发布前无第三方用户，因此可以重新设计 PR #1 的未发布接口；若发现实际消费者，则先登记并提供过渡期。
 
+实体查询可用identifier_namespace+identifier_value做精确标识检索，exchange_ticker必须同时提供exchange；只给其中一个标识参数返回422。ticker多义返回候选列表，不能默默取第一个。有效期按as_of/检查点视图解析；最新实体列表不代替历史证券主数据。
+
 ## 5. DTO 字段契约
 
 ### 5.1 Item
 
-必需：`id,version_id,kind,status,title_original,title_display,content_quality,published_at,published_precision,time_status,first_seen_at,available_at,publisher,source_refs,entity_mentions,topic_refs,event_refs,analysis_refs,processing_state,point_in_time_eligible`。
+必需：`id,version_id,kind,status,title_original,title_display,content_quality,published_at,published_precision,time_status,time_provenance,first_seen_at,available_at,publisher,source_refs,entity_mentions,topic_refs,event_refs,analysis_refs,processing_state,point_in_time_eligible`。
 
 可选/可空：legacy_item_id、summary_original、summary_display、canonical_url、importance_score、selection。`title_display` 标 `source_language/translation/edited` 来源；每个生成字段有 analysis_id。`event_refs` 是数组，不能继续用单 `story_id` 限制多事件。
 
@@ -99,6 +102,28 @@ Example：
     "extent": "title_only",
     "truncated": false,
     "extraction_status": "legacy_unverified"
+  },
+  "time_provenance": {
+    "source_time_values": [
+      {
+        "field_path": "legacy.items.published_at",
+        "raw_value": "2026-09-10T09:00:00+00:00",
+        "role": "published",
+        "timezone": null,
+        "utc": "2026-09-10T09:00:00.000000Z",
+        "precision": "minute",
+        "interpretation": "unknown",
+        "status": "legacy_unverified"
+      }
+    ],
+    "published_range": null,
+    "normalizer_version": null,
+    "time_rule_version": null,
+    "tzdb_version": null,
+    "ingested_at": null,
+    "normalized_at": null,
+    "availability_basis": "legacy_unknown",
+    "clock_status": "unknown"
   },
   "published_at": "2026-09-10T09:00:00.000000Z",
   "published_precision": "minute",
@@ -146,7 +171,9 @@ Example：
 
 input_manifest_ref在同一信号版本的`/signals/{id}/inputs?version_id=...`解析，不能是只有服务器能打开的路径。该接口按固定InputRef清单分页；普通文档/事件/分析引用分别通过对应详情与version_id/as_of读取，证据用/evidence/{id}。目录的历史version_id也有详情读取路径，不要求消费者预先缓存所有旧目录。
 
-报告包含：date/timezone/as_of/version、mode=llm/structured_fallback/legacy_unknown、markdown、citations、input_manifest、coverage、supersedes。晚到数据补充报告形成新版本。
+报告/信号的窗口含start/end/basis/timezone/calendar_id/calendar_version；已发布实例与manifest字段必须一致。实体目录提供security类型、交易所标识和有证据的issuer/证券关系，支持美股关注对象解析但不提供行情。
+
+报告包含：report_type=calendar_daily/us_market_daily/other、date/timezone/as_of/version、mode=llm/structured_fallback/legacy_unknown、markdown、citations、input_manifest、coverage、supersedes。晚到数据补充报告形成新版本。
 
 ## 6. 列表分页与历史读取
 
@@ -157,6 +184,7 @@ input_manifest_ref在同一信号版本的`/signals/{id}/inputs?version_id=...`�
   "api_version":"v1", "schema_version":"1.0.0",
   "dataset_id":"dataset-demo", "dataset_epoch":"epoch-demo",
   "request_id":"request-demo", "generated_at":"2026-09-14T12:00:00.000000Z",
+  "knowledge_cutoff":null,
   "data":[],
   "pagination":{"limit":50,"next_cursor":null,"consistency":"live"}
 }
@@ -168,11 +196,17 @@ input_manifest_ref在同一信号版本的`/signals/{id}/inputs?version_id=...`�
 
 需要完整无漂移导出时使用 snapshot，不能把倒序 published_at 遍历说成“零遗漏增量”。`as_of` 必须选最后一个 `available_at<=as_of` 的版本，并按当时有效关系解析，而非只给当前表加日期过滤。无法支持历史的 legacy 字段返回 point_in_time_eligible=false，不伪造。
 
+历史详情与领域列表另支持`knowledge_checkpoint_id`：限定seq<=H，且与as_of同传时检查observed_at<=as_of；与version_id互斥。检查点epoch冲突409、时钟未核验/晚于截止422。不可变版本/证据详情仍按精确ID读取，由输入manifest和检查点范围确认是否属于当时知识；不能用当前证据重新拼历史。所有参数在OpenAPI逐端点声明，不接受未知参数。
+
+响应外层Meta及Snapshot.ready返回`knowledge_cutoff`，包括basis、as_of、checkpoint_id、dataset_epoch、high_water、observed_at、clock_status。普通当前浏览Meta该字段为NULL；普通as_of为logical_as_of且checkpoint相关字段NULL；observed_checkpoint必须有完整非空检查点证据。Report/Signal载荷中的knowledge_cutoff是固定的选材上下文，Meta中是本次读取上下文，两者可以不同；选择的知识截止可以早于分析完成和版本发布。
+
+point_in_time_eligible是随版本保存的数据质量资格，取得时钟/溯源缺失或legacy为false；不因读取方式改变同一版本payload/hash。严格使用还须合格检查点范围及所有依赖均通过，不能仅凭该布尔值。数据质量修正产生新版本/change。已核验仍不证明消费者当时已收到，消费者自行记录接收时间。
+
 ## 7. 快照与变化流：接入大系统的唯一可靠同步路径
 
 1. 创建快照，指定资源与 research/selected scope。服务返回 202 和 ID；同一幂等请求键在 24h 内重用任务，不重复导出。
 2. worker 通过 SQLite backup API 建一致性副本。**从已完成的副本读取 epoch 和 change high-water H**，不能从线上先取 H 再随意导出当前数据。
-3. 基于副本生成按 ID 排序的稳定页。manifest 记录内容 hash、记录总数、H、权限版本、scope 和到期时间；只有完整校验后标 ready。
+3. 读取副本H后记录观察时间与时钟证据，创建该epoch/H的知识检查点；状态未核验时可完成同步但不可作为严格历史合格数据。基于副本生成按 ID 排序的稳定页。manifest 记录内容 hash、记录总数、H、权限版本、scope 和到期时间；只有完整校验后标 ready。
 4. 消费者下载全部资源页，校验 manifest/hash，原子记录本地 snapshot_id、epoch、H。
 5. 从 manifest 的 `resume_cursor` 开始拉 `/changes`，应用 seq>H 的变更。每批将对象变化和游标在消费者本地同一事务提交。
 6. 网络失败从最后确认 cursor 重试。按 `(epoch,seq)` 去重，允许重复交付；不要把序列空号视为漏包。

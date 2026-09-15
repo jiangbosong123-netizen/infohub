@@ -18,7 +18,7 @@
 
 | 字段 | 定义与约束 |
 |---|---|
-| `source_published_raw` | 来源提供的原始值，字符串/原字段路径；不可覆盖 |
+| `source_time_values[].raw_value` | 来源提供的原始值，字符串/原字段路径；不可覆盖 |
 | `published_at` | 解析成功的发布时间，可 NULL；不能用抓取时间冒充 |
 | `published_precision` | instant/minute/day/month/unknown |
 | `source_timezone` | 来源规则，如 HKEX 使用 Asia/Hong_Kong；与用户展示时区无关 |
@@ -26,13 +26,15 @@
 | `observed_at` | 系统取得该原始记录的时间，服务端记录 |
 | `first_seen_at` | 文档/事件第一次进入本数据集的时间，后续补录不提前 |
 | `event_time_start/end` | 事实发生/生效区间；与报道发布时间不同；未知可空 |
-| `available_at` | 当前版本在本系统提交并可供消费的时间；历史可知性依据 |
+| `available_at` | 应用发布事务记录时间，提交成功才可读；不是精确物理COMMIT时刻，严格历史还需知识检查点 |
 | `analyzed_at` | 模型/规则完成时间，不等于事件发生时间 |
 | `as_of` | 报告/信号选材的系统知识截止时间 |
 
 未来时间超前超过来源容差（默认 10 分钟）记 `future_suspect`，保留原值；展示排序暂用 first_seen_at 并说明，不改原发布时间。时钟错误属于运维告警。获取事件起止/有效期时保留来源时区和精度。
 
-历史回测读取必须满足：输入文档版本、事件关系版本、分析结果的 `available_at <= as_of`。今天重新分析去年新闻，得到的是“今天回看”，不能写入去年的可交易信号序列。当前 legacy 没有这些完整时间，默认 `point_in_time_eligible=false`。
+完整字段、源差异、DST、SEC接受/公开区别、日历、合成验收案例由[时间契约](TIME_CONTRACT.md)定义。每版保存`source_time_values`、`time_provenance`；不以RSS updated冒充published，不按宿主时区解析naive。
+
+逻辑历史读取必须满足：输入文档版本、事件关系版本、分析结果的 `available_at <= as_of`。今天重新分析去年新闻，得到的是“今天回看”，不能写入去年的可交易信号序列。严格历史读取还必须限定`knowledge_checkpoint_id`的已提交高水位、epoch和时钟健康；无检查点仅提供逻辑历史视图，不承诺实际当时可读。当前 legacy 没有这些完整时间，默认 `point_in_time_eligible=false`。
 
 ### 1.3 版本及不可变内容
 
@@ -86,7 +88,7 @@ erDiagram
 
 ### 3.3 raw_records 与原始对象
 
-一条 raw_record 表示一次内容观察中的去重载荷：`id,ingest_run_id,source_id,external_id,observed_at,request_url,final_url,http_status,selected_headers,media_type,encoding,payload_sha256,payload_ref,payload_kind,truncated,size_bytes,retention_class`。
+一条 raw_record 表示一次内容观察中的去重载荷：`id,ingest_run_id,source_id,external_id,observed_at,ingested_at,request_url,final_url,http_status,selected_headers,media_type,encoding,payload_sha256,payload_ref,payload_kind,truncated,size_bytes,retention_class`。
 
 - `payload_kind`: feed_entry / api_record / html / pdf / legacy_excerpt / generated_metadata。
 - 保存被解析的原始 entry/record；若只留全响应，必须记录 entry 的 JSONPath/XML selector/byte offset，确保可重放。
@@ -122,9 +124,11 @@ erDiagram
 
 ### 4.1 entities / entity_identifiers / entity_aliases / entity_relations
 
-实体字段：`id,type,canonical_name,status,created_at,current_version`；type 包含 organization/person/product/model/industry/region/macro_concept。实体名称与类型修正有版本快照和 available_at。
+实体字段：`id,type,canonical_name,status,created_at,current_version`；type 包含 organization/security/person/product/model/industry/region/macro_concept。security只承载证券身份，不承载行情或交易账户。实体名称与类型修正有版本快照和 available_at。
 
 标识字段：`entity_id,namespace,value,valid_from,valid_to,evidence_id`。namespace 示例 cik/lei/exchange_ticker/hk_stock_code/external_system。ticker 必须有交易所与有效区间；一个公司可多证券、多市场，不能用现有 `market` 单值表示全部上市身份。
+
+`security_listings(id,security_entity_id,issuer_entity_id,exchange,ticker,listing_type,valid_from,valid_to,evidence_id,available_at,publication_seq)`保存普通股/ADR/股类与上市关系；缺失值明确未知，不能把CIK当每个股类的唯一证券ID。同一ticker必须按交易场所与有效区间解析。组织到证券通过`issues`关系；目录API的Entity.relations返回稳定对象引用及关系证据，标识带exchange；当前公司market值只作legacy线索。美股筛选使用有效上市关系和版本，不凭注册国或stock频道推断。
 
 别名：`entity_id,alias,language,match_mode,ambiguity,status,evidence_id,valid_from/to`。人名、产品名不存为公司的确定性别名；用 `entity_relations(from_entity,to_entity,relation,valid_from/to,evidence_id,available_at)` 表示任职/隶属。歧义别名只能生成候选。
 
@@ -228,6 +232,12 @@ erDiagram
 - 权限过滤后序列可能有间隙，消费者不得假设每个整数都可见；cursor 绑定身份权限版本，权限变化时重做 snapshot。
 - 保留 changes ≥90 天；过期返回 410 + snapshot_required。首期 snapshot 保留 24 小时，明确 expires_at。
 - 日常恢复同一最新一致性备份且不导致对外序列倒退时可保 epoch；其他恢复必须重新生成 epoch，不能假装无损续传。
+
+### 6.1 知识检查点与历史索引
+
+按[时间契约](TIME_CONTRACT.md)建立不可变`knowledge_checkpoints(id,dataset_id,epoch,high_water,observed_at,clock_status,clock_check_id)`；读取已提交快照后才记录观察时间。发布版本、关系、人工决定保存`publication_seq`与原发布epoch，change_log清理后仍可按水位重建历史。检查点不产生领域change，避免递归。恢复旧库按新epoch发布的视图需显式基线映射，不将旧epoch的序列直接当新检查点。
+
+Report/Signal的`knowledge_cutoff`绑定具体检查点或明确logical_as_of模式；`window`固定start/end/basis/timezone/calendar_id/calendar_version。新输出时间不继承旧选材时间。
 
 ## 7. 持久任务（R1）
 

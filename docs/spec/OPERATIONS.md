@@ -147,6 +147,14 @@ stateDiagram-v2
 - 响应合法且真实空列表 → success_empty；结构变化/被拦截 HTML → schema_error；部分公司失败 → partial；所有子任务失败 → failed。记录 discovered/new/changed/duplicate/rejected 和字段缺失比率。
 - 任务恢复验收必须杀进程、超时和断网测试；不能只 mock 一次成功调用。
 
+### 5.1 时间运行要求
+
+遵守[TIME_CONTRACT](TIME_CONTRACT.md)：记录原始观察/落库/处理/分析/应用发布各阶段；发布后再观察已提交高水位生成知识检查点。时钟同步证据缺失或偏移估计>1秒，检查点标unknown/suspect，不允许正式PIT合格输出。证据超过5分钟需重测；不宣称已测得Windows偏移。
+
+时钟后跳或异常大幅前跳：暂停新任务抢占和verified检查点，保留raw与已有状态；核实单worker/fencing后恢复，避免依赖错误wall-clock将仍在执行的lease判过期。网络调用耗时以monotonic计量。长事务、原始观察至落库延迟、first_seen至分析延迟、检查点延迟独立监控；不能仅看published_at判断worker健康。检查点重启丢失不回填过去时间，恢复epoch后拒绝旧检查点作为新流。
+
+迁移旧时间必须保留原字符串与legacy状态；禁止批量用now或按当前机器时区补齐。上线时间解析变更先shadow对照；UTC字符串规范与输入精度分开。未来美国交易日窗口按带生效日期的场所日历验证，不能在APP_TZ切换时重写历史日报。
+
 ## 6. 安全与身份
 
 首期网络为 Tailscale 私网，HTTP 历史入口逐步迁到 HTTPS 私网域名。仅允许授权设备/消费者到所需端口，不能把 8000 端口对公网开放。Tailscale 不替代 API 鉴权、内容权限和用户审计。

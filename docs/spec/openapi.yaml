@@ -1,8 +1,9 @@
 # Target contract only. See API_CONTRACT.md; not an implemented service.
 openapi: 3.1.0
 info: {title: InfoHub Intelligence API — Proposed Contract, version: 1.0.0-draft, description: 'Design baseline
-    dated 2026-09-14 UTC. Not deployed and not approval of PR #1. API_CONTRACT.md defines synchronization, time
-    and authorization semantics. IDs are opaque. No raw database or provider credentials are exposed.'}
+    dated 2026-09-14 UTC. Not deployed and not approval of PR #1. API_CONTRACT.md and TIME_CONTRACT.md define synchronization,
+    timestamp provenance, committed knowledge checkpoints and authorization semantics. IDs are opaque. No raw database
+    or provider credentials are exposed.'}
 jsonSchemaDialect: https://json-schema.org/draft/2020-12/schema
 x-implementation-status: proposed
 servers:
@@ -98,6 +99,17 @@ paths:
         in: query
         required: false
         schema: {type: string, format: date-time, pattern: '(Z|[+-]\d{2}:\d{2})$'}
+      - name: as_of
+        in: query
+        required: false
+        schema: {type: string, format: date-time, pattern: '(Z|[+-]\d{2}:\d{2})$'}
+      - name: knowledge_checkpoint_id
+        in: query
+        required: false
+        schema: {type: string, minLength: 1, maxLength: 128}
+        description: Bound all versions and relations to this committed checkpoint; cannot combine with version_id.
+          If as_of is supplied, checkpoint observed_at must not exceed it. Strict history requires verified clock;
+          see TIME_CONTRACT.md.
   /api/v1/items/{id}:
     get:
       operationId: getItem
@@ -135,6 +147,13 @@ paths:
         in: path
         required: true
         schema: {type: string, minLength: 1, maxLength: 128}
+      - name: knowledge_checkpoint_id
+        in: query
+        required: false
+        schema: {type: string, minLength: 1, maxLength: 128}
+        description: Bound all versions and relations to this committed checkpoint; cannot combine with version_id.
+          If as_of is supplied, checkpoint observed_at must not exceed it. Strict history requires verified clock;
+          see TIME_CONTRACT.md.
       - name: version_id
         in: query
         required: false
@@ -144,7 +163,8 @@ paths:
         in: query
         required: false
         schema: {type: string, format: date-time, pattern: '(Z|[+-]\d{2}:\d{2})$'}
-        description: 'Knowledge cutoff: only versions available by this instant; mutually exclusive with version_id.'
+        description: Logical application-history cutoff; strict history also requires knowledge_checkpoint_id. Mutually
+          exclusive with version_id.
       - name: If-None-Match
         in: header
         required: false
@@ -335,6 +355,17 @@ paths:
         in: query
         required: false
         schema: {type: string, format: date-time, pattern: '(Z|[+-]\d{2}:\d{2})$'}
+      - name: as_of
+        in: query
+        required: false
+        schema: {type: string, format: date-time, pattern: '(Z|[+-]\d{2}:\d{2})$'}
+      - name: knowledge_checkpoint_id
+        in: query
+        required: false
+        schema: {type: string, minLength: 1, maxLength: 128}
+        description: Bound all versions and relations to this committed checkpoint; cannot combine with version_id.
+          If as_of is supplied, checkpoint observed_at must not exceed it. Strict history requires verified clock;
+          see TIME_CONTRACT.md.
   /api/v1/events/{id}:
     get:
       operationId: getEvent
@@ -372,6 +403,13 @@ paths:
         in: path
         required: true
         schema: {type: string, minLength: 1, maxLength: 128}
+      - name: knowledge_checkpoint_id
+        in: query
+        required: false
+        schema: {type: string, minLength: 1, maxLength: 128}
+        description: Bound all versions and relations to this committed checkpoint; cannot combine with version_id.
+          If as_of is supplied, checkpoint observed_at must not exceed it. Strict history requires verified clock;
+          see TIME_CONTRACT.md.
       - name: version_id
         in: query
         required: false
@@ -381,7 +419,8 @@ paths:
         in: query
         required: false
         schema: {type: string, format: date-time, pattern: '(Z|[+-]\d{2}:\d{2})$'}
-        description: 'Knowledge cutoff: only versions available by this instant; mutually exclusive with version_id.'
+        description: Logical application-history cutoff; strict history also requires knowledge_checkpoint_id. Mutually
+          exclusive with version_id.
       - name: If-None-Match
         in: header
         required: false
@@ -485,6 +524,13 @@ paths:
         in: header
         required: false
         schema: {type: string}
+      - name: knowledge_checkpoint_id
+        in: query
+        required: false
+        schema: {type: string, minLength: 1, maxLength: 128}
+        description: Bound all versions and relations to this committed checkpoint; cannot combine with version_id.
+          If as_of is supplied, checkpoint observed_at must not exceed it. Strict history requires verified clock;
+          see TIME_CONTRACT.md.
   /api/v1/entities:
     get:
       operationId: listEntities
@@ -532,12 +578,36 @@ paths:
           type: string
           enum:
           - organization
+          - security
           - person
           - product
           - model
           - industry
           - region
           - macro_concept
+      - name: identifier_namespace
+        in: query
+        required: false
+        schema: {type: string}
+      - name: identifier_value
+        in: query
+        required: false
+        schema: {type: string}
+      - name: exchange
+        in: query
+        required: false
+        schema: {type: string}
+      - name: as_of
+        in: query
+        required: false
+        schema: {type: string, format: date-time, pattern: '(Z|[+-]\d{2}:\d{2})$'}
+      - name: knowledge_checkpoint_id
+        in: query
+        required: false
+        schema: {type: string, minLength: 1, maxLength: 128}
+        description: Bound all versions and relations to this committed checkpoint; cannot combine with version_id.
+          If as_of is supplied, checkpoint observed_at must not exceed it. Strict history requires verified clock;
+          see TIME_CONTRACT.md.
   /api/v1/entities/{id}:
     get:
       operationId: getEntity
@@ -575,6 +645,13 @@ paths:
         in: path
         required: true
         schema: {type: string, minLength: 1, maxLength: 128}
+      - name: knowledge_checkpoint_id
+        in: query
+        required: false
+        schema: {type: string, minLength: 1, maxLength: 128}
+        description: Bound all versions and relations to this committed checkpoint; cannot combine with version_id.
+          If as_of is supplied, checkpoint observed_at must not exceed it. Strict history requires verified clock;
+          see TIME_CONTRACT.md.
       - name: version_id
         in: query
         required: false
@@ -584,7 +661,8 @@ paths:
         in: query
         required: false
         schema: {type: string, format: date-time, pattern: '(Z|[+-]\d{2}:\d{2})$'}
-        description: 'Knowledge cutoff: only versions available by this instant; mutually exclusive with version_id.'
+        description: Logical application-history cutoff; strict history also requires knowledge_checkpoint_id. Mutually
+          exclusive with version_id.
       - name: If-None-Match
         in: header
         required: false
@@ -636,6 +714,17 @@ paths:
           - format
           - macro
           - research
+      - name: as_of
+        in: query
+        required: false
+        schema: {type: string, format: date-time, pattern: '(Z|[+-]\d{2}:\d{2})$'}
+      - name: knowledge_checkpoint_id
+        in: query
+        required: false
+        schema: {type: string, minLength: 1, maxLength: 128}
+        description: Bound all versions and relations to this committed checkpoint; cannot combine with version_id.
+          If as_of is supplied, checkpoint observed_at must not exceed it. Strict history requires verified clock;
+          see TIME_CONTRACT.md.
   /api/v1/topics/{id}:
     get:
       operationId: getTopic
@@ -673,6 +762,13 @@ paths:
         in: path
         required: true
         schema: {type: string, minLength: 1, maxLength: 128}
+      - name: knowledge_checkpoint_id
+        in: query
+        required: false
+        schema: {type: string, minLength: 1, maxLength: 128}
+        description: Bound all versions and relations to this committed checkpoint; cannot combine with version_id.
+          If as_of is supplied, checkpoint observed_at must not exceed it. Strict history requires verified clock;
+          see TIME_CONTRACT.md.
       - name: version_id
         in: query
         required: false
@@ -682,7 +778,8 @@ paths:
         in: query
         required: false
         schema: {type: string, format: date-time, pattern: '(Z|[+-]\d{2}:\d{2})$'}
-        description: 'Knowledge cutoff: only versions available by this instant; mutually exclusive with version_id.'
+        description: Logical application-history cutoff; strict history also requires knowledge_checkpoint_id. Mutually
+          exclusive with version_id.
       - name: If-None-Match
         in: header
         required: false
@@ -723,6 +820,17 @@ paths:
         in: query
         required: false
         schema: {type: string, minLength: 1}
+      - name: as_of
+        in: query
+        required: false
+        schema: {type: string, format: date-time, pattern: '(Z|[+-]\d{2}:\d{2})$'}
+      - name: knowledge_checkpoint_id
+        in: query
+        required: false
+        schema: {type: string, minLength: 1, maxLength: 128}
+        description: Bound all versions and relations to this committed checkpoint; cannot combine with version_id.
+          If as_of is supplied, checkpoint observed_at must not exceed it. Strict history requires verified clock;
+          see TIME_CONTRACT.md.
   /api/v1/sources/{id}:
     get:
       operationId: getSource
@@ -760,6 +868,13 @@ paths:
         in: path
         required: true
         schema: {type: string, minLength: 1, maxLength: 128}
+      - name: knowledge_checkpoint_id
+        in: query
+        required: false
+        schema: {type: string, minLength: 1, maxLength: 128}
+        description: Bound all versions and relations to this committed checkpoint; cannot combine with version_id.
+          If as_of is supplied, checkpoint observed_at must not exceed it. Strict history requires verified clock;
+          see TIME_CONTRACT.md.
       - name: version_id
         in: query
         required: false
@@ -769,7 +884,8 @@ paths:
         in: query
         required: false
         schema: {type: string, format: date-time, pattern: '(Z|[+-]\d{2}:\d{2})$'}
-        description: 'Knowledge cutoff: only versions available by this instant; mutually exclusive with version_id.'
+        description: Logical application-history cutoff; strict history also requires knowledge_checkpoint_id. Mutually
+          exclusive with version_id.
       - name: If-None-Match
         in: header
         required: false
@@ -838,6 +954,13 @@ paths:
         in: query
         required: false
         schema: {type: string, minLength: 1, maxLength: 128}
+      - name: knowledge_checkpoint_id
+        in: query
+        required: false
+        schema: {type: string, minLength: 1, maxLength: 128}
+        description: Bound all versions and relations to this committed checkpoint; cannot combine with version_id.
+          If as_of is supplied, checkpoint observed_at must not exceed it. Strict history requires verified clock;
+          see TIME_CONTRACT.md.
   /api/v1/signals/{id}:
     get:
       operationId: getSignal
@@ -875,6 +998,13 @@ paths:
         in: path
         required: true
         schema: {type: string, minLength: 1, maxLength: 128}
+      - name: knowledge_checkpoint_id
+        in: query
+        required: false
+        schema: {type: string, minLength: 1, maxLength: 128}
+        description: Bound all versions and relations to this committed checkpoint; cannot combine with version_id.
+          If as_of is supplied, checkpoint observed_at must not exceed it. Strict history requires verified clock;
+          see TIME_CONTRACT.md.
       - name: version_id
         in: query
         required: false
@@ -884,7 +1014,8 @@ paths:
         in: query
         required: false
         schema: {type: string, format: date-time, pattern: '(Z|[+-]\d{2}:\d{2})$'}
-        description: 'Knowledge cutoff: only versions available by this instant; mutually exclusive with version_id.'
+        description: Logical application-history cutoff; strict history also requires knowledge_checkpoint_id. Mutually
+          exclusive with version_id.
       - name: If-None-Match
         in: header
         required: false
@@ -977,6 +1108,26 @@ paths:
         in: query
         required: false
         schema: {type: string, format: date}
+      - name: report_type
+        in: query
+        required: false
+        schema:
+          type: string
+          enum:
+          - calendar_daily
+          - us_market_daily
+          - other
+      - name: as_of
+        in: query
+        required: false
+        schema: {type: string, format: date-time, pattern: '(Z|[+-]\d{2}:\d{2})$'}
+      - name: knowledge_checkpoint_id
+        in: query
+        required: false
+        schema: {type: string, minLength: 1, maxLength: 128}
+        description: Bound all versions and relations to this committed checkpoint; cannot combine with version_id.
+          If as_of is supplied, checkpoint observed_at must not exceed it. Strict history requires verified clock;
+          see TIME_CONTRACT.md.
   /api/v1/reports/{id}:
     get:
       operationId: getReport
@@ -1014,6 +1165,13 @@ paths:
         in: path
         required: true
         schema: {type: string, minLength: 1, maxLength: 128}
+      - name: knowledge_checkpoint_id
+        in: query
+        required: false
+        schema: {type: string, minLength: 1, maxLength: 128}
+        description: Bound all versions and relations to this committed checkpoint; cannot combine with version_id.
+          If as_of is supplied, checkpoint observed_at must not exceed it. Strict history requires verified clock;
+          see TIME_CONTRACT.md.
       - name: version_id
         in: query
         required: false
@@ -1023,7 +1181,8 @@ paths:
         in: query
         required: false
         schema: {type: string, format: date-time, pattern: '(Z|[+-]\d{2}:\d{2})$'}
-        description: 'Knowledge cutoff: only versions available by this instant; mutually exclusive with version_id.'
+        description: Logical application-history cutoff; strict history also requires knowledge_checkpoint_id. Mutually
+          exclusive with version_id.
       - name: If-None-Match
         in: header
         required: false
@@ -1285,6 +1444,251 @@ components:
       - raw_record_id
       - observed_at
       additionalProperties: false
+    SourceTimeValue:
+      type: object
+      properties:
+        field_path: {type: string}
+        raw_value:
+          anyOf:
+          - {type: string}
+          - {type: 'null'}
+        role:
+          type: string
+          enum:
+          - published
+          - updated
+          - accepted
+          - filing_date
+          - report_period
+          - other
+        timezone:
+          anyOf:
+          - {type: string}
+          - {type: 'null'}
+        utc:
+          anyOf:
+          - {type: string, format: date-time, pattern: '(Z|[+-]\d{2}:\d{2})$'}
+          - {type: 'null'}
+        precision:
+          type: string
+          enum:
+          - instant
+          - minute
+          - day
+          - month
+          - quarter
+          - year
+          - unknown
+        interpretation:
+          type: string
+          enum:
+          - explicit_offset
+          - source_rule
+          - date_or_period
+          - unknown
+        status:
+          type: string
+          enum:
+          - parsed
+          - missing
+          - invalid
+          - missing_timezone
+          - ambiguous_local_time
+          - nonexistent_local_time
+          - future_suspect
+          - source_conflict
+          - legacy_unverified
+      required:
+      - field_path
+      - raw_value
+      - role
+      - timezone
+      - utc
+      - precision
+      - interpretation
+      - status
+      additionalProperties: false
+    TimeProvenance:
+      type: object
+      properties:
+        source_time_values:
+          type: array
+          items: {$ref: '#/components/schemas/SourceTimeValue'}
+        published_range:
+          anyOf:
+          - {$ref: '#/components/schemas/TimeRange'}
+          - {type: 'null'}
+        normalizer_version:
+          anyOf:
+          - {type: string}
+          - {type: 'null'}
+        time_rule_version:
+          anyOf:
+          - {type: string}
+          - {type: 'null'}
+        tzdb_version:
+          anyOf:
+          - {type: string}
+          - {type: 'null'}
+        ingested_at:
+          anyOf:
+          - {type: string, format: date-time, pattern: '(Z|[+-]\d{2}:\d{2})$'}
+          - {type: 'null'}
+        normalized_at:
+          anyOf:
+          - {type: string, format: date-time, pattern: '(Z|[+-]\d{2}:\d{2})$'}
+          - {type: 'null'}
+        availability_basis:
+          type: string
+          enum:
+          - transaction_recorded
+          - legacy_unknown
+        clock_status:
+          type: string
+          enum:
+          - verified
+          - unknown
+          - suspect
+      required:
+      - source_time_values
+      - published_range
+      - normalizer_version
+      - time_rule_version
+      - tzdb_version
+      - ingested_at
+      - normalized_at
+      - availability_basis
+      - clock_status
+      additionalProperties: false
+      description: Source times retain separate roles; available_at on the resource is a transaction timestamp,
+        not exact physical commit time. See TIME_CONTRACT.md.
+      examples:
+      - source_time_values:
+        - field_path: legacy.items.published_at
+          raw_value: '2026-09-10T09:00:00+00:00'
+          role: published
+          timezone: null
+          utc: '2026-09-10T09:00:00.000000Z'
+          precision: minute
+          interpretation: unknown
+          status: legacy_unverified
+        published_range: null
+        normalizer_version: null
+        time_rule_version: null
+        tzdb_version: null
+        ingested_at: null
+        normalized_at: null
+        availability_basis: legacy_unknown
+        clock_status: unknown
+    KnowledgeCutoff:
+      type: object
+      properties:
+        basis:
+          type: string
+          enum:
+          - logical_as_of
+          - observed_checkpoint
+        as_of: {type: string, format: date-time, pattern: '(Z|[+-]\d{2}:\d{2})$'}
+        checkpoint_id:
+          anyOf:
+          - {type: string, minLength: 1, maxLength: 128}
+          - {type: 'null'}
+        dataset_epoch: {type: string, minLength: 1, maxLength: 128}
+        high_water:
+          anyOf:
+          - {type: integer, minimum: 0}
+          - {type: 'null'}
+        observed_at:
+          anyOf:
+          - {type: string, format: date-time, pattern: '(Z|[+-]\d{2}:\d{2})$'}
+          - {type: 'null'}
+        clock_status:
+          type: string
+          enum:
+          - verified
+          - unknown
+          - suspect
+      required:
+      - basis
+      - as_of
+      - checkpoint_id
+      - dataset_epoch
+      - high_water
+      - observed_at
+      - clock_status
+      additionalProperties: false
+      description: Strict history requires a recorded committed checkpoint at or before as_of and verified clock
+        evidence; it does not prove consumer receipt.
+      allOf:
+      - if:
+          properties:
+            basis: {const: observed_checkpoint}
+        then:
+          properties:
+            checkpoint_id: {type: string, minLength: 1, maxLength: 128}
+            high_water: {type: integer, minimum: 0}
+            observed_at: {type: string, format: date-time, pattern: '(Z|[+-]\d{2}:\d{2})$'}
+        else:
+          properties:
+            checkpoint_id: {type: 'null'}
+            high_water: {type: 'null'}
+            observed_at: {type: 'null'}
+      examples:
+      - basis: logical_as_of
+        as_of: '2026-09-14T12:00:00.000000Z'
+        checkpoint_id: null
+        dataset_epoch: epoch-demo
+        high_water: null
+        observed_at: null
+        clock_status: unknown
+      - basis: observed_checkpoint
+        as_of: '2026-09-14T12:00:00.000000Z'
+        checkpoint_id: checkpoint-demo
+        dataset_epoch: epoch-demo
+        high_water: 1205
+        observed_at: '2026-09-14T12:00:00.000000Z'
+        clock_status: verified
+    Window:
+      type: object
+      properties:
+        start: {type: string, format: date-time, pattern: '(Z|[+-]\d{2}:\d{2})$'}
+        end: {type: string, format: date-time, pattern: '(Z|[+-]\d{2}:\d{2})$'}
+        basis:
+          type: string
+          enum:
+          - published
+          - event
+          - first_seen
+          - fact_change
+        timezone: {type: string}
+        calendar_id:
+          anyOf:
+          - {type: string, minLength: 1, maxLength: 128}
+          - {type: 'null'}
+        calendar_version:
+          anyOf:
+          - {type: string}
+          - {type: 'null'}
+      required:
+      - start
+      - end
+      - basis
+      - timezone
+      - calendar_id
+      - calendar_version
+      additionalProperties: false
+      description: Half-open [start,end); calendar identifiers must be supplied together for market-session windows
+        and both null for natural-day windows.
+      allOf:
+      - if:
+          properties:
+            calendar_id: {type: 'null'}
+        then:
+          properties:
+            calendar_version: {type: 'null'}
+        else:
+          properties:
+            calendar_version: {type: string, minLength: 1}
     ContentQuality:
       type: object
       properties:
@@ -1513,6 +1917,11 @@ components:
           - invalid
           - future_suspect
           - legacy_unverified
+          - missing_timezone
+          - ambiguous_local_time
+          - nonexistent_local_time
+          - source_conflict
+        time_provenance: {$ref: '#/components/schemas/TimeProvenance'}
         first_seen_at: {type: string, format: date-time, pattern: '(Z|[+-]\d{2}:\d{2})$'}
         available_at: {type: string, format: date-time, pattern: '(Z|[+-]\d{2}:\d{2})$'}
         publisher: {$ref: '#/components/schemas/PublisherRef'}
@@ -1568,6 +1977,7 @@ components:
       - published_at
       - published_precision
       - time_status
+      - time_provenance
       - first_seen_at
       - available_at
       - publisher
@@ -1598,6 +2008,24 @@ components:
         language: en
         display_provenance: {title_method: source_language, title_analysis_id: null, summary_analysis_id: null}
         content_quality: {origin: legacy_unknown, extent: title_only, truncated: false, extraction_status: legacy_unverified}
+        time_provenance:
+          source_time_values:
+          - field_path: legacy.items.published_at
+            raw_value: '2026-09-10T09:00:00+00:00'
+            role: published
+            timezone: null
+            utc: '2026-09-10T09:00:00.000000Z'
+            precision: minute
+            interpretation: unknown
+            status: legacy_unverified
+          published_range: null
+          normalizer_version: null
+          time_rule_version: null
+          tzdb_version: null
+          ingested_at: null
+          normalized_at: null
+          availability_basis: legacy_unknown
+          clock_status: unknown
         published_at: '2026-09-10T09:00:00.000000Z'
         published_precision: minute
         time_status: legacy_unverified
@@ -2018,6 +2446,29 @@ components:
       - valid_to
       - evidence_id
       additionalProperties: false
+    EntityRelation:
+      type: object
+      properties:
+        relation: {type: string}
+        target: {$ref: '#/components/schemas/ObjectRef'}
+        valid_from:
+          anyOf:
+          - {type: string, format: date-time, pattern: '(Z|[+-]\d{2}:\d{2})$'}
+          - {type: 'null'}
+        valid_to:
+          anyOf:
+          - {type: string, format: date-time, pattern: '(Z|[+-]\d{2}:\d{2})$'}
+          - {type: 'null'}
+        evidence_ids:
+          type: array
+          items: {type: string, minLength: 1, maxLength: 128}
+      required:
+      - relation
+      - target
+      - valid_from
+      - valid_to
+      - evidence_ids
+      additionalProperties: false
     Entity:
       type: object
       properties:
@@ -2027,6 +2478,7 @@ components:
           type: string
           enum:
           - organization
+          - security
           - person
           - product
           - model
@@ -2050,6 +2502,9 @@ components:
         identifiers:
           type: array
           items: {$ref: '#/components/schemas/Identifier'}
+        relations:
+          type: array
+          items: {$ref: '#/components/schemas/EntityRelation'}
         available_at: {type: string, format: date-time, pattern: '(Z|[+-]\d{2}:\d{2})$'}
       required:
       - id
@@ -2060,6 +2515,7 @@ components:
       - canonical_id
       - aliases
       - identifiers
+      - relations
       - available_at
       additionalProperties: true
     Topic:
@@ -2373,6 +2829,7 @@ components:
           type: string
           enum:
           - organization
+          - security
           - person
           - product
           - model
@@ -2718,6 +3175,7 @@ components:
         parameters_hash: {type: string, pattern: '^[a-f0-9]{64}$'}
         analyzed_at: {type: string, format: date-time, pattern: '(Z|[+-]\d{2}:\d{2})$'}
         available_at: {type: string, format: date-time, pattern: '(Z|[+-]\d{2}:\d{2})$'}
+        knowledge_cutoff: {$ref: '#/components/schemas/KnowledgeCutoff'}
         validation_status:
           type: string
           enum:
@@ -2764,6 +3222,7 @@ components:
       - parameters_hash
       - analyzed_at
       - available_at
+      - knowledge_cutoff
       - validation_status
       - review_status
       - stale
@@ -2902,6 +3361,8 @@ components:
         window_end: {type: string, format: date-time, pattern: '(Z|[+-]\d{2}:\d{2})$'}
         as_of: {type: string, format: date-time, pattern: '(Z|[+-]\d{2}:\d{2})$'}
         available_at: {type: string, format: date-time, pattern: '(Z|[+-]\d{2}:\d{2})$'}
+        knowledge_cutoff: {$ref: '#/components/schemas/KnowledgeCutoff'}
+        window: {$ref: '#/components/schemas/Window'}
         formula_version: {type: string}
         analysis_version_group: {type: string}
         score:
@@ -2943,6 +3404,8 @@ components:
       - window_end
       - as_of
       - available_at
+      - knowledge_cutoff
+      - window
       - formula_version
       - analysis_version_group
       - score
@@ -2989,9 +3452,17 @@ components:
         id: {type: string, minLength: 1, maxLength: 128}
         version_id: {type: string, minLength: 1, maxLength: 128}
         date: {type: string, format: date}
+        report_type:
+          type: string
+          enum:
+          - calendar_daily
+          - us_market_daily
+          - other
         timezone: {type: string}
         as_of: {type: string, format: date-time, pattern: '(Z|[+-]\d{2}:\d{2})$'}
         available_at: {type: string, format: date-time, pattern: '(Z|[+-]\d{2}:\d{2})$'}
+        knowledge_cutoff: {$ref: '#/components/schemas/KnowledgeCutoff'}
+        window: {$ref: '#/components/schemas/Window'}
         mode:
           type: string
           enum:
@@ -3018,9 +3489,12 @@ components:
       - id
       - version_id
       - date
+      - report_type
       - timezone
       - as_of
       - available_at
+      - knowledge_cutoff
+      - window
       - mode
       - markdown
       - citations
@@ -3054,6 +3528,10 @@ components:
         dataset_epoch: {type: string, minLength: 1, maxLength: 128}
         request_id: {type: string, minLength: 1, maxLength: 128}
         generated_at: {type: string, format: date-time, pattern: '(Z|[+-]\d{2}:\d{2})$'}
+        knowledge_cutoff:
+          anyOf:
+          - {$ref: '#/components/schemas/KnowledgeCutoff'}
+          - {type: 'null'}
       required:
       - api_version
       - schema_version
@@ -3061,6 +3539,7 @@ components:
       - dataset_epoch
       - request_id
       - generated_at
+      - knowledge_cutoff
       additionalProperties: true
     Pagination:
       type: object
@@ -3166,6 +3645,10 @@ components:
           anyOf:
           - {type: integer, minimum: 0}
           - {type: 'null'}
+        knowledge_cutoff:
+          anyOf:
+          - {$ref: '#/components/schemas/KnowledgeCutoff'}
+          - {type: 'null'}
         expires_at:
           anyOf:
           - {type: string, format: date-time, pattern: '(Z|[+-]\d{2}:\d{2})$'}
@@ -3190,6 +3673,7 @@ components:
       - scope
       - dataset_epoch
       - high_water
+      - knowledge_cutoff
       - expires_at
       - resume_cursor
       - manifest
@@ -3507,6 +3991,7 @@ components:
         dataset_epoch: epoch-demo
         request_id: request-demo
         generated_at: '2026-09-14T12:00:00.000000Z'
+        knowledge_cutoff: null
         data: []
         next_cursor: opaque-example-not-usable
         high_water: 1205
@@ -3563,6 +4048,7 @@ components:
         dataset_epoch: epoch-demo
         request_id: request-demo
         generated_at: '2026-09-14T12:00:00.000000Z'
+        knowledge_cutoff: null
         data:
         - id: doc-demo-001
           version_id: drev-demo-002
@@ -3578,6 +4064,24 @@ components:
           language: en
           display_provenance: {title_method: source_language, title_analysis_id: null, summary_analysis_id: null}
           content_quality: {origin: legacy_unknown, extent: title_only, truncated: false, extraction_status: legacy_unverified}
+          time_provenance:
+            source_time_values:
+            - field_path: legacy.items.published_at
+              raw_value: '2026-09-10T09:00:00+00:00'
+              role: published
+              timezone: null
+              utc: '2026-09-10T09:00:00.000000Z'
+              precision: minute
+              interpretation: unknown
+              status: legacy_unverified
+            published_range: null
+            normalizer_version: null
+            time_rule_version: null
+            tzdb_version: null
+            ingested_at: null
+            normalized_at: null
+            availability_basis: legacy_unknown
+            clock_status: unknown
           published_at: '2026-09-10T09:00:00.000000Z'
           published_precision: minute
           time_status: legacy_unverified
@@ -3610,6 +4114,7 @@ components:
         dataset_epoch: epoch-demo
         request_id: request-demo
         generated_at: '2026-09-14T12:00:00.000000Z'
+        knowledge_cutoff: null
         data:
           id: doc-demo-001
           version_id: drev-demo-002
@@ -3625,6 +4130,24 @@ components:
           language: en
           display_provenance: {title_method: source_language, title_analysis_id: null, summary_analysis_id: null}
           content_quality: {origin: legacy_unknown, extent: title_only, truncated: false, extraction_status: legacy_unverified}
+          time_provenance:
+            source_time_values:
+            - field_path: legacy.items.published_at
+              raw_value: '2026-09-10T09:00:00+00:00'
+              role: published
+              timezone: null
+              utc: '2026-09-10T09:00:00.000000Z'
+              precision: minute
+              interpretation: unknown
+              status: legacy_unverified
+            published_range: null
+            normalizer_version: null
+            time_rule_version: null
+            tzdb_version: null
+            ingested_at: null
+            normalized_at: null
+            availability_basis: legacy_unknown
+            clock_status: unknown
           published_at: '2026-09-10T09:00:00.000000Z'
           published_precision: minute
           time_status: legacy_unverified

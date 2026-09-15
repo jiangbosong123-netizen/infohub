@@ -1,0 +1,551 @@
+{
+  "captured_at": "2026-09-14T23:29:31.262165+00:00",
+  "scope": "Local database snapshot; company links are existing classifier outputs, not verified relevance or full US-market coverage",
+  "source_file": "app.db",
+  "queries": {
+    "companies_by_market": "SELECT market,COUNT(*) count FROM companies GROUP BY market",
+    "us_company_items": "SELECT c.slug,c.ticker,c.name_zh,COUNT(DISTINCT ic.item_id) linked_items\n        FROM companies c LEFT JOIN item_companies ic ON ic.company_id=c.id\n        WHERE c.market='US' GROUP BY c.id ORDER BY c.slug",
+    "us_linked_unique_items": "SELECT COUNT(DISTINCT ic.item_id) count FROM item_companies ic\n        JOIN companies c ON c.id=ic.company_id WHERE c.market='US' ",
+    "us_enabled_company_sources": "SELECT s.key,s.company_slug,s.interval_minutes\n        FROM sources s JOIN companies c ON c.slug=s.company_slug\n        WHERE c.market='US' AND s.enabled=1 ORDER BY s.key",
+    "sec_forms": "SELECT json_extract(i.extra,'$.form') form,COUNT(*) count\n        FROM items i JOIN sources s ON s.id=i.source_id WHERE s.key='sec-edgar'\n        GROUP BY json_extract(i.extra,'$.form') ORDER BY count DESC",
+    "stock_sources": "SELECT s.key,s.enabled,COUNT(i.id) stored_items FROM sources s\n        LEFT JOIN items i ON i.source_id=s.id WHERE s.channel='stock'\n        GROUP BY s.id ORDER BY s.key"
+  },
+  "results": {
+    "companies_by_market": [
+      {
+        "market": "HK",
+        "count": 8
+      },
+      {
+        "market": "PRIVATE",
+        "count": 2
+      },
+      {
+        "market": "US",
+        "count": 13
+      }
+    ],
+    "us_company_items": [
+      {
+        "slug": "amazon",
+        "ticker": "AMZN",
+        "name_zh": "亚马逊",
+        "linked_items": 668
+      },
+      {
+        "slug": "amd",
+        "ticker": "AMD",
+        "name_zh": "超威",
+        "linked_items": 288
+      },
+      {
+        "slug": "apple",
+        "ticker": "AAPL",
+        "name_zh": "苹果",
+        "linked_items": 697
+      },
+      {
+        "slug": "arm",
+        "ticker": "ARM",
+        "name_zh": "安谋",
+        "linked_items": 81
+      },
+      {
+        "slug": "broadcom",
+        "ticker": "AVGO",
+        "name_zh": "博通",
+        "linked_items": 252
+      },
+      {
+        "slug": "google",
+        "ticker": "GOOGL",
+        "name_zh": "谷歌",
+        "linked_items": 495
+      },
+      {
+        "slug": "meta",
+        "ticker": "META",
+        "name_zh": "Meta",
+        "linked_items": 439
+      },
+      {
+        "slug": "microsoft",
+        "ticker": "MSFT",
+        "name_zh": "微软",
+        "linked_items": 454
+      },
+      {
+        "slug": "nvidia",
+        "ticker": "NVDA",
+        "name_zh": "英伟达",
+        "linked_items": 652
+      },
+      {
+        "slug": "oracle",
+        "ticker": "ORCL",
+        "name_zh": "甲骨文",
+        "linked_items": 399
+      },
+      {
+        "slug": "palantir",
+        "ticker": "PLTR",
+        "name_zh": "Palantir",
+        "linked_items": 264
+      },
+      {
+        "slug": "tesla",
+        "ticker": "TSLA",
+        "name_zh": "特斯拉",
+        "linked_items": 547
+      },
+      {
+        "slug": "tsmc",
+        "ticker": "TSM",
+        "name_zh": "台积电",
+        "linked_items": 199
+      }
+    ],
+    "us_linked_unique_items": [
+      {
+        "count": 4913
+      }
+    ],
+    "us_enabled_company_sources": [
+      {
+        "key": "googlenews-amazon",
+        "company_slug": "amazon",
+        "interval_minutes": 20
+      },
+      {
+        "key": "googlenews-amd",
+        "company_slug": "amd",
+        "interval_minutes": 20
+      },
+      {
+        "key": "googlenews-apple",
+        "company_slug": "apple",
+        "interval_minutes": 20
+      },
+      {
+        "key": "googlenews-arm",
+        "company_slug": "arm",
+        "interval_minutes": 20
+      },
+      {
+        "key": "googlenews-broadcom",
+        "company_slug": "broadcom",
+        "interval_minutes": 20
+      },
+      {
+        "key": "googlenews-google",
+        "company_slug": "google",
+        "interval_minutes": 20
+      },
+      {
+        "key": "googlenews-meta",
+        "company_slug": "meta",
+        "interval_minutes": 20
+      },
+      {
+        "key": "googlenews-microsoft",
+        "company_slug": "microsoft",
+        "interval_minutes": 20
+      },
+      {
+        "key": "googlenews-nvidia",
+        "company_slug": "nvidia",
+        "interval_minutes": 20
+      },
+      {
+        "key": "googlenews-oracle",
+        "company_slug": "oracle",
+        "interval_minutes": 20
+      },
+      {
+        "key": "googlenews-palantir",
+        "company_slug": "palantir",
+        "interval_minutes": 20
+      },
+      {
+        "key": "googlenews-tesla",
+        "company_slug": "tesla",
+        "interval_minutes": 20
+      },
+      {
+        "key": "googlenews-tsmc",
+        "company_slug": "tsmc",
+        "interval_minutes": 20
+      }
+    ],
+    "sec_forms": [
+      {
+        "form": "4",
+        "count": 303
+      },
+      {
+        "form": "144",
+        "count": 96
+      },
+      {
+        "form": "8-K",
+        "count": 39
+      },
+      {
+        "form": "10-Q",
+        "count": 12
+      },
+      {
+        "form": "424B5",
+        "count": 10
+      },
+      {
+        "form": "3",
+        "count": 9
+      },
+      {
+        "form": "SCHEDULE 13G/A",
+        "count": 6
+      },
+      {
+        "form": "SCHEDULE 13G",
+        "count": 5
+      },
+      {
+        "form": "6-K",
+        "count": 5
+      },
+      {
+        "form": "144/A",
+        "count": 5
+      },
+      {
+        "form": "SD",
+        "count": 4
+      },
+      {
+        "form": "S-4",
+        "count": 4
+      },
+      {
+        "form": "FWP",
+        "count": 4
+      },
+      {
+        "form": "13F-HR",
+        "count": 4
+      },
+      {
+        "form": "S-8",
+        "count": 3
+      },
+      {
+        "form": "PX14A6G",
+        "count": 3
+      },
+      {
+        "form": "N-PX",
+        "count": 3
+      },
+      {
+        "form": "EFFECT",
+        "count": 3
+      },
+      {
+        "form": "424B3",
+        "count": 3
+      },
+      {
+        "form": "11-K",
+        "count": 3
+      },
+      {
+        "form": "10-K",
+        "count": 3
+      },
+      {
+        "form": "S-4/A",
+        "count": 1
+      },
+      {
+        "form": "S-3ASR",
+        "count": 1
+      },
+      {
+        "form": "IRANNOTICE",
+        "count": 1
+      },
+      {
+        "form": "CERT",
+        "count": 1
+      },
+      {
+        "form": "8-K/A",
+        "count": 1
+      },
+      {
+        "form": "8-A12B",
+        "count": 1
+      },
+      {
+        "form": "424B2",
+        "count": 1
+      },
+      {
+        "form": "20-F",
+        "count": 1
+      },
+      {
+        "form": "10-K/A",
+        "count": 1
+      }
+    ],
+    "stock_sources": [
+      {
+        "key": "cls-telegraph",
+        "enabled": 1,
+        "stored_items": 784
+      },
+      {
+        "key": "cnbc-tech",
+        "enabled": 1,
+        "stored_items": 52
+      },
+      {
+        "key": "google-news",
+        "enabled": 1,
+        "stored_items": 121
+      },
+      {
+        "key": "googlenews-alibaba",
+        "enabled": 1,
+        "stored_items": 128
+      },
+      {
+        "key": "googlenews-amazon",
+        "enabled": 1,
+        "stored_items": 540
+      },
+      {
+        "key": "googlenews-amd",
+        "enabled": 1,
+        "stored_items": 190
+      },
+      {
+        "key": "googlenews-anthropic",
+        "enabled": 1,
+        "stored_items": 331
+      },
+      {
+        "key": "googlenews-apple",
+        "enabled": 1,
+        "stored_items": 421
+      },
+      {
+        "key": "googlenews-arm",
+        "enabled": 1,
+        "stored_items": 72
+      },
+      {
+        "key": "googlenews-baidu",
+        "enabled": 1,
+        "stored_items": 26
+      },
+      {
+        "key": "googlenews-broadcom",
+        "enabled": 1,
+        "stored_items": 177
+      },
+      {
+        "key": "googlenews-google",
+        "enabled": 1,
+        "stored_items": 312
+      },
+      {
+        "key": "googlenews-lixiang",
+        "enabled": 1,
+        "stored_items": 27
+      },
+      {
+        "key": "googlenews-meituan",
+        "enabled": 1,
+        "stored_items": 14
+      },
+      {
+        "key": "googlenews-meta",
+        "enabled": 1,
+        "stored_items": 340
+      },
+      {
+        "key": "googlenews-microsoft",
+        "enabled": 1,
+        "stored_items": 321
+      },
+      {
+        "key": "googlenews-nvidia",
+        "enabled": 1,
+        "stored_items": 398
+      },
+      {
+        "key": "googlenews-openai",
+        "enabled": 1,
+        "stored_items": 400
+      },
+      {
+        "key": "googlenews-oracle",
+        "enabled": 1,
+        "stored_items": 288
+      },
+      {
+        "key": "googlenews-palantir",
+        "enabled": 1,
+        "stored_items": 197
+      },
+      {
+        "key": "googlenews-smic",
+        "enabled": 1,
+        "stored_items": 8
+      },
+      {
+        "key": "googlenews-tencent",
+        "enabled": 1,
+        "stored_items": 100
+      },
+      {
+        "key": "googlenews-tesla",
+        "enabled": 1,
+        "stored_items": 380
+      },
+      {
+        "key": "googlenews-tsmc",
+        "enabled": 1,
+        "stored_items": 136
+      },
+      {
+        "key": "googlenews-xiaomi",
+        "enabled": 1,
+        "stored_items": 166
+      },
+      {
+        "key": "googlenews-xpeng",
+        "enabled": 1,
+        "stored_items": 71
+      },
+      {
+        "key": "hkex",
+        "enabled": 1,
+        "stored_items": 10
+      },
+      {
+        "key": "openai-news",
+        "enabled": 1,
+        "stored_items": 63
+      },
+      {
+        "key": "sec-edgar",
+        "enabled": 1,
+        "stored_items": 536
+      },
+      {
+        "key": "sina-7x24",
+        "enabled": 1,
+        "stored_items": 2597
+      },
+      {
+        "key": "wallstreetcn",
+        "enabled": 1,
+        "stored_items": 137
+      },
+      {
+        "key": "wallstreetcn-live",
+        "enabled": 1,
+        "stored_items": 692
+      },
+      {
+        "key": "yahoo-amazon",
+        "enabled": 0,
+        "stored_items": 0
+      },
+      {
+        "key": "yahoo-amd",
+        "enabled": 0,
+        "stored_items": 0
+      },
+      {
+        "key": "yahoo-apple",
+        "enabled": 0,
+        "stored_items": 0
+      },
+      {
+        "key": "yahoo-arm",
+        "enabled": 0,
+        "stored_items": 0
+      },
+      {
+        "key": "yahoo-broadcom",
+        "enabled": 0,
+        "stored_items": 0
+      },
+      {
+        "key": "yahoo-google",
+        "enabled": 0,
+        "stored_items": 0
+      },
+      {
+        "key": "yahoo-meta",
+        "enabled": 0,
+        "stored_items": 0
+      },
+      {
+        "key": "yahoo-microsoft",
+        "enabled": 0,
+        "stored_items": 0
+      },
+      {
+        "key": "yahoo-nvidia",
+        "enabled": 0,
+        "stored_items": 0
+      },
+      {
+        "key": "yahoo-oracle",
+        "enabled": 0,
+        "stored_items": 0
+      },
+      {
+        "key": "yahoo-palantir",
+        "enabled": 0,
+        "stored_items": 0
+      },
+      {
+        "key": "yahoo-tesla",
+        "enabled": 0,
+        "stored_items": 0
+      },
+      {
+        "key": "yahoo-tsmc",
+        "enabled": 0,
+        "stored_items": 0
+      }
+    ]
+  },
+  "timestamp_probes": {
+    "sec_same_input_by_host_timezone": {
+      "UTC": {
+        "2026-09-14T16:05:00": "2026-09-14T16:05:00+00:00",
+        "2026-09-14T16:05:00Z": "2026-09-14T16:05:00+00:00"
+      },
+      "Asia/Shanghai": {
+        "2026-09-14T16:05:00": "2026-09-14T08:05:00+00:00",
+        "2026-09-14T16:05:00Z": "2026-09-14T16:05:00+00:00"
+      },
+      "America/New_York": {
+        "2026-09-14T16:05:00": "2026-09-14T20:05:00+00:00",
+        "2026-09-14T16:05:00Z": "2026-09-14T16:05:00+00:00"
+      }
+    },
+    "rss_updated_only_returned_as_publication": "2026-09-14T16:05:00+00:00",
+    "us_0930_winter_and_summer_utc": {
+      "2026-01-15T09:30:00": "2026-01-15T14:30:00+00:00",
+      "2026-07-15T09:30:00": "2026-07-15T13:30:00+00:00"
+    }
+  }
+}

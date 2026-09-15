@@ -71,7 +71,13 @@ python docs/spec/evidence/validate_docs.py
 - 全部页面200不保证所有点击/移动布局正确；本轮没有进行生产写操作或视觉回归。
 - 最新目标架构的迁移尚未实现；既有PR1正常路径通过不能用于批准它，更不能批准未来迁移。
 
-## 6. 外部设计依据
+## 6. 美股与时间补查
+
+[us_time_review.py](us_time_review.py)以只读SQLite backup生成内存副本，输出关注公司/关联item/源/SEC表单计数；AST隔离现有时间解析函数，仅在本进程改变TZ，未更改电脑设置或启动采集。结果[us-time-review.json](us-time-review.json)采样于2026-09-14T23:29:31.262165Z，与更早画像计数不得强行对齐。
+
+[time-contract-cases.json](time-contract-cases.json)是目标规范的合成验收预期；其中UTC转换仅检查时间算术，其余行为仍待业务实现。文档校验通过不代表目标时间逻辑或生产迁移已通过。
+
+## 7. 外部设计依据
 
 - [AIHOT主题页](https://aihot.news/topics)：本轮可见主题分组与浏览形态；未取得其后端源码或数据模型，产品参考不构成架构正确性证据。
 - [SQLite backup](https://sqlite.org/backup.html)、[WAL](https://sqlite.org/wal.html)：一致性副本与同主机WAL边界。

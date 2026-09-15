@@ -1,0 +1,323 @@
+{
+  "version": "time-contract/1.0",
+  "status": "specification_only_not_implemented",
+  "content": "synthetic_no_production_articles",
+  "cases": [
+    {
+      "id": "TZ01",
+      "category": "utc_conversion",
+      "input": {
+        "value": "2026-01-15T09:30:00",
+        "source_timezone": "America/New_York"
+      },
+      "expected": {
+        "utc": "2026-01-15T14:30:00Z"
+      }
+    },
+    {
+      "id": "TZ02",
+      "category": "utc_conversion",
+      "input": {
+        "value": "2026-07-15T09:30:00",
+        "source_timezone": "America/New_York"
+      },
+      "expected": {
+        "utc": "2026-07-15T13:30:00Z"
+      }
+    },
+    {
+      "id": "TZ03",
+      "category": "utc_conversion",
+      "input": {
+        "value": "2026-09-14T17:00:00",
+        "source_timezone": "Asia/Hong_Kong"
+      },
+      "expected": {
+        "utc": "2026-09-14T09:00:00Z"
+      }
+    },
+    {
+      "id": "TZ04",
+      "category": "utc_conversion",
+      "input": {
+        "value": "2026-09-14T17:00:00+08:00",
+        "source_timezone": null
+      },
+      "expected": {
+        "utc": "2026-09-14T09:00:00Z"
+      }
+    },
+    {
+      "id": "TZ05",
+      "category": "utc_conversion",
+      "input": {
+        "value": "2026-09-14T09:00:00Z",
+        "source_timezone": null
+      },
+      "expected": {
+        "utc": "2026-09-14T09:00:00Z"
+      }
+    },
+    {
+      "id": "TZ06",
+      "category": "missing_timezone",
+      "input": {
+        "value": "2026-09-14T16:05:00",
+        "source_timezone": null
+      },
+      "expected": {
+        "utc": null,
+        "status": "missing_timezone",
+        "host_timezone_must_not_affect": true
+      }
+    },
+    {
+      "id": "TZ07",
+      "category": "dst_ambiguous",
+      "input": {
+        "value": "2026-11-01T01:30:00",
+        "source_timezone": "America/New_York"
+      },
+      "expected": {
+        "utc": null,
+        "status": "ambiguous_local_time"
+      }
+    },
+    {
+      "id": "TZ08",
+      "category": "dst_nonexistent",
+      "input": {
+        "value": "2026-03-08T02:30:00",
+        "source_timezone": "America/New_York"
+      },
+      "expected": {
+        "utc": null,
+        "status": "nonexistent_local_time"
+      }
+    },
+    {
+      "id": "TZ09",
+      "category": "date_range",
+      "input": {
+        "date": "2026-03-08",
+        "source_timezone": "America/New_York"
+      },
+      "expected": {
+        "published_at": null,
+        "start": "2026-03-08T05:00:00Z",
+        "end": "2026-03-09T04:00:00Z",
+        "hours": 23
+      }
+    },
+    {
+      "id": "TZ10",
+      "category": "date_range",
+      "input": {
+        "date": "2026-11-01",
+        "source_timezone": "America/New_York"
+      },
+      "expected": {
+        "published_at": null,
+        "start": "2026-11-01T04:00:00Z",
+        "end": "2026-11-02T05:00:00Z",
+        "hours": 25
+      }
+    },
+    {
+      "id": "SRC01",
+      "category": "rss_updated_only",
+      "input": {
+        "updated": "2026-09-14T09:00:00Z"
+      },
+      "expected": {
+        "published_at": null,
+        "updated_at": "2026-09-14T09:00:00Z"
+      }
+    },
+    {
+      "id": "SRC02",
+      "category": "sec_time_roles",
+      "input": {
+        "acceptanceDateTime": "2026-09-14T21:40:00Z",
+        "filingDate": "2026-09-15",
+        "reportDate": "2026-06-30"
+      },
+      "expected": {
+        "published_at": null,
+        "accepted_at": "2026-09-14T21:40:00Z",
+        "filing_date": "2026-09-15",
+        "report_period_raw": "2026-06-30"
+      }
+    },
+    {
+      "id": "SRC03",
+      "category": "invalid_time",
+      "input": {
+        "published": "not-a-date"
+      },
+      "expected": {
+        "published_at": null,
+        "status": "invalid",
+        "must_not_substitute_now": true
+      }
+    },
+    {
+      "id": "SRC04",
+      "category": "future_publication",
+      "input": {
+        "observed_at": "2026-09-14T09:00:00Z",
+        "published": "2026-09-15T09:00:00Z"
+      },
+      "expected": {
+        "status": "future_suspect",
+        "preserve_source_value": true
+      }
+    },
+    {
+      "id": "SRC05",
+      "category": "future_event_plan",
+      "input": {
+        "observed_at": "2026-09-14T09:00:00Z",
+        "planned_event": "2026-09-15T09:00:00Z"
+      },
+      "expected": {
+        "event_modality": "planned",
+        "publication_error": false
+      }
+    },
+    {
+      "id": "PIT01",
+      "category": "late_arrival",
+      "input": {
+        "published_at": "2026-09-14T09:00:00Z",
+        "first_seen_at": "2026-09-14T09:07:00Z",
+        "as_of": "2026-09-14T09:05:00Z"
+      },
+      "expected": {
+        "visible": false
+      }
+    },
+    {
+      "id": "PIT02",
+      "category": "late_analysis",
+      "input": {
+        "first_seen_at": "2026-09-14T09:07:00Z",
+        "analyzed_at": "2026-09-14T09:09:00Z",
+        "as_of": "2026-09-14T09:08:00Z"
+      },
+      "expected": {
+        "analysis_visible": false
+      }
+    },
+    {
+      "id": "PIT03",
+      "category": "long_transaction",
+      "input": {
+        "available_at": "2026-09-14T09:00:00Z",
+        "physical_commit": "2026-09-14T09:01:00Z",
+        "as_of": "2026-09-14T09:00:30Z"
+      },
+      "expected": {
+        "strict_pit_eligible": false,
+        "must_not_create_precommit_checkpoint": true
+      }
+    },
+    {
+      "id": "PIT04",
+      "category": "checkpoint_bound",
+      "input": {
+        "checkpoint_high_water": 100,
+        "new_version_seq": 101
+      },
+      "expected": {
+        "new_version_visible": false,
+        "all_relations_bounded": true
+      }
+    },
+    {
+      "id": "PIT05",
+      "category": "reanalysis_and_manual_correction",
+      "input": {
+        "input_available": "2025-09-14T09:00:00Z",
+        "new_decision_available": "2026-09-14T09:00:00Z",
+        "as_of": "2025-09-14T12:00:00Z"
+      },
+      "expected": {
+        "new_decision_visible": false,
+        "old_decision_preserved": true
+      }
+    },
+    {
+      "id": "PIT06",
+      "category": "clock_rollback",
+      "input": {
+        "clock_status": "suspect",
+        "previous_high_water": 100
+      },
+      "expected": {
+        "verified_checkpoint_allowed": false,
+        "sequence_must_not_rewind": true
+      }
+    },
+    {
+      "id": "PIT07",
+      "category": "legacy_unknown",
+      "input": {
+        "legacy_published": "2026-09-14T09:00:00+00:00"
+      },
+      "expected": {
+        "time_status": "legacy_unverified",
+        "availability_basis": "legacy_unknown",
+        "point_in_time_eligible": false
+      }
+    },
+    {
+      "id": "PIT08",
+      "category": "consumer_delay",
+      "input": {
+        "checkpoint_observed_at": "2026-09-14T09:10:00Z",
+        "consumer_received_at": "2026-09-14T09:15:00Z"
+      },
+      "expected": {
+        "consumer_earliest_known": "2026-09-14T09:15:00Z"
+      }
+    },
+    {
+      "id": "CAL01",
+      "category": "calendar_version",
+      "input": {
+        "event_date": "2026-09-14",
+        "new_rule_effective": "2026-12-06"
+      },
+      "expected": {
+        "new_rule_applies": false
+      }
+    },
+    {
+      "id": "CAL02",
+      "category": "synthetic_early_close",
+      "input": {
+        "calendar_id": "fixture-market",
+        "calendar_version": "fixture-1",
+        "session_end": "2026-11-27T18:00:00Z",
+        "observed_at": "2026-11-27T18:30:00Z"
+      },
+      "expected": {
+        "session": "after_regular",
+        "must_not_assume_1600_local_close": true
+      }
+    },
+    {
+      "id": "CAL03",
+      "category": "report_restatement",
+      "input": {
+        "old_report_as_of": "2026-09-14T12:00:00Z",
+        "late_input_available": "2026-09-15T12:00:00Z"
+      },
+      "expected": {
+        "old_report_unchanged": true,
+        "new_revision_required": true
+      }
+    }
+  ]
+}
