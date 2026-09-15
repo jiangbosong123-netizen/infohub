@@ -14,6 +14,7 @@ from __future__ import annotations
   python cli.py db-migrate             # 仅执行安全迁移（旧库会先备份）
   python cli.py db-verify [PATH]       # 严格验证当前版本数据库
   python cli.py runtime-config         # 显示当前环境、角色与数据路径（不含密钥）
+  python cli.py jobs-status            # 显示持久任务各状态数量
   python cli.py serve                  # 启动网站；是否运行调度由环境配置决定
 """
 import json
@@ -73,6 +74,16 @@ def cmd_db_migrate() -> None:
 def cmd_db_verify(path: str | None = None) -> None:
     from app.db_admin import report_json, verify_database
     print(report_json(verify_database(path or config.DB_PATH, require_current=True)))
+
+
+def cmd_jobs_status() -> None:
+    from app.db_admin import verify_database
+    from app.jobs import job_counts
+    verify_database(config.DB_PATH, require_current=True)
+    print(json.dumps({
+        "enabled": config.DURABLE_JOBS_ENABLED,
+        "states": job_counts(),
+    }, ensure_ascii=False, indent=2))
 
 
 def cmd_crawl() -> None:
@@ -220,6 +231,8 @@ def main() -> None:
         cmd_db_verify(sys.argv[2] if len(sys.argv) > 2 else None)
     elif cmd == "runtime-config":
         print(json.dumps(config.RUNTIME.public_manifest(), ensure_ascii=False, indent=2))
+    elif cmd == "jobs-status":
+        cmd_jobs_status()
     elif cmd == "serve":
         cmd_serve()
     else:

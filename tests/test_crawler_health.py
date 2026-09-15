@@ -86,5 +86,8 @@ class CrawlerHealthTests(unittest.TestCase):
         self.assertEqual(body['items']['derived_pending'], 1)
         self.assertEqual(body['runtime']['environment_id'], config.ENVIRONMENT_ID)
         self.assertEqual(body['runtime']['process_role'], config.PROCESS_ROLE)
+        self.assertFalse(body['runtime']['durable_jobs_enabled'])
         self.assertNotIn('database_path', body['runtime'])
+        self.assertEqual(body['jobs']['states']['pending'], 0)
+        self.assertEqual(body['jobs']['expired_running'], 0)
         self.assertIn(body['status'], {'ok','degraded'})

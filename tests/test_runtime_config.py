@@ -1,5 +1,8 @@
+import json
 import tempfile
 import unittest
+from contextlib import redirect_stdout
+from io import StringIO
 from pathlib import Path
 from unittest.mock import patch
 
@@ -25,6 +28,7 @@ class RuntimeConfigurationTests(unittest.TestCase):
         self.assertEqual(settings.backup_path, expected_root / "backups")
         self.assertFalse(settings.allow_network_tasks)
         self.assertFalse(settings.scheduler_enabled)
+        self.assertFalse(settings.durable_jobs_enabled)
         self.assertEqual(settings.process_role, "web")
 
     def test_legacy_local_layout_requires_explicit_compatibility_flag(self):
@@ -65,6 +69,7 @@ class RuntimeConfigurationTests(unittest.TestCase):
                 "INFOHUB_BACKUP_PATH": "/app/data/backups",
                 "INFOHUB_ALLOW_NETWORK_TASKS": "true",
                 "INFOHUB_ENABLE_SCHEDULER": "true",
+                "INFOHUB_DURABLE_JOBS_ENABLED": "false",
             },
             self.root,
         )
@@ -72,6 +77,7 @@ class RuntimeConfigurationTests(unittest.TestCase):
         self.assertEqual(settings.process_role, "combined")
         self.assertTrue(settings.allow_network_tasks)
         self.assertTrue(settings.scheduler_enabled)
+        self.assertFalse(settings.durable_jobs_enabled)
 
     def test_compose_production_environment_passes_runtime_validation(self):
         compose = yaml.safe_load((config.BASE_DIR / "compose.yaml").read_text(encoding="utf-8"))
@@ -82,6 +88,7 @@ class RuntimeConfigurationTests(unittest.TestCase):
         self.assertEqual(settings.database_path, Path("/app/data/app.db"))
         self.assertEqual(settings.backup_path, Path("/app/data/backups"))
         self.assertEqual(settings.process_role, "combined")
+        self.assertFalse(settings.durable_jobs_enabled)
         self.assertIn("./data:/app/data", service["volumes"])
 
     def test_invalid_environment_flags_and_overlapping_paths_fail(self):
@@ -89,6 +96,7 @@ class RuntimeConfigurationTests(unittest.TestCase):
             {"INFOHUB_ENVIRONMENT": "prod"},
             {"INFOHUB_ENVIRONMENT_ID": "Mac Production"},
             {"INFOHUB_ALLOW_NETWORK_TASKS": "sometimes"},
+            {"INFOHUB_DURABLE_JOBS_ENABLED": "sometimes"},
             {
                 "INFOHUB_BLOB_PATH": "runtime/shared",
                 "INFOHUB_BACKUP_PATH": "runtime/shared/backups",
@@ -146,6 +154,18 @@ class RuntimeConfigurationTests(unittest.TestCase):
         self.assertEqual(backup.parent, backup_path.resolve())
         self.assertIn("windows-production", backup.name)
         self.assertEqual(db_admin.verify_database(backup, require_current=True).integrity, "ok")
+
+    def test_jobs_status_is_read_only_and_reports_rollout_gate(self):
+        database_path = self.root / "status" / "app.db"
+        db_admin.migrate_database(database_path)
+        output = StringIO()
+        with patch.object(config, "DB_PATH", database_path), patch.object(
+            database, "DB_PATH", database_path
+        ), redirect_stdout(output):
+            cli.cmd_jobs_status()
+        status = json.loads(output.getvalue())
+        self.assertFalse(status["enabled"])
+        self.assertEqual(status["states"]["pending"], 0)
 
 
 if __name__ == "__main__":

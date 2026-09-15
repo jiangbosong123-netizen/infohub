@@ -162,6 +162,7 @@ python cli.py db-backup                 # 手动创建一致性备份，不覆�
 python cli.py db-migrate                # 仅迁移；需要变更的旧库会先备份
 python cli.py db-verify                 # 要求完整性通过且schema为当前版本
 python cli.py runtime-config            # 显示非敏感运行配置和实际数据路径
+python cli.py jobs-status               # 显示持久任务开关与各状态数量
 ```
 
 命令输出中的 `file_sha256` 是指定 `.db` 文件的校验值；`db-backup` 生成的是单文件备份，
@@ -175,6 +176,13 @@ python cli.py runtime-config            # 显示非敏感运行配置和实际�
 
 健康页现在同时显示部分抓取失败和长期未更新；全部失败的源按基础间隔指数退避，部分公司失败时仍按原频率轮询，
 最长 6 小时（基础间隔本身超过 6 小时的源保持其基础间隔）。
+
+当前数据库已包含持久任务、追加式任务尝试和持久定时计划的基础表。任务领取使用有期限的
+lease token；续租、完成、失败、阻塞和运行中取消都必须持有仍有效的 token，过期 worker
+不能回写结果。同一幂等键只能代表同一份输入；失败按上限重试，超过上限进入 dead letter；
+重启期间错过的相同定时计划合并为一个任务。`INFOHUB_DURABLE_JOBS_ENABLED` 是后续 worker
+切换的发布开关，目前 Compose 明确保持 `false`，现有 APScheduler 继续工作，不会出现两个
+调度器同时发任务。
 
 
 ## 主题与事件维护

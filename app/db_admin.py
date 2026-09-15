@@ -13,6 +13,7 @@ from typing import Callable, Iterable
 from uuid import uuid4
 
 from . import config, database
+from .timeutil import utc_now
 
 
 class DatabaseSafetyError(RuntimeError):
@@ -113,6 +114,85 @@ AFTER UPDATE OF title,title_zh,summary,raw_summary,companies,score,tmt,event_typ
 END;
 """
 
+JOB_SCHEMA_SQL = """
+CREATE TABLE jobs (
+    id TEXT PRIMARY KEY,
+    kind TEXT NOT NULL,
+    subject_id TEXT,
+    input_version TEXT,
+    payload_json TEXT NOT NULL DEFAULT '{}',
+    request_hash TEXT NOT NULL,
+    idempotency_key TEXT NOT NULL UNIQUE,
+    state TEXT NOT NULL CHECK(state IN (
+        'pending','running','succeeded','retry_wait','blocked','dead_letter','cancelled'
+    )),
+    priority INTEGER NOT NULL DEFAULT 0,
+    scheduled_for TEXT NOT NULL,
+    next_attempt_at TEXT NOT NULL,
+    lease_owner TEXT,
+    lease_token TEXT,
+    lease_generation INTEGER NOT NULL DEFAULT 0 CHECK(lease_generation >= 0),
+    lease_expires_at TEXT,
+    heartbeat_at TEXT,
+    attempt_count INTEGER NOT NULL DEFAULT 0 CHECK(attempt_count >= 0),
+    max_attempts INTEGER NOT NULL DEFAULT 3 CHECK(max_attempts > 0),
+    error_code TEXT,
+    error_detail TEXT,
+    result_ref TEXT,
+    completed_lease_token TEXT,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    finished_at TEXT,
+    CHECK (attempt_count <= max_attempts),
+    CHECK (
+        (state = 'running' AND lease_owner IS NOT NULL AND lease_token IS NOT NULL
+         AND lease_expires_at IS NOT NULL)
+        OR (state != 'running' AND lease_owner IS NULL AND lease_token IS NULL
+            AND lease_expires_at IS NULL)
+    ),
+    CHECK (completed_lease_token IS NULL OR state = 'succeeded')
+);
+CREATE INDEX idx_jobs_claim
+    ON jobs(state, next_attempt_at, priority DESC, scheduled_for, created_at);
+CREATE INDEX idx_jobs_lease ON jobs(state, lease_expires_at);
+
+CREATE TABLE job_attempts (
+    id TEXT PRIMARY KEY,
+    job_id TEXT NOT NULL REFERENCES jobs(id) ON DELETE CASCADE,
+    attempt_number INTEGER NOT NULL CHECK(attempt_number > 0),
+    worker_id TEXT NOT NULL,
+    lease_token TEXT NOT NULL UNIQUE,
+    started_at TEXT NOT NULL,
+    finished_at TEXT,
+    status TEXT NOT NULL CHECK(status IN (
+        'running','succeeded','failed','lease_expired','blocked','cancelled'
+    )),
+    error_code TEXT,
+    error_detail TEXT,
+    result_ref TEXT,
+    UNIQUE(job_id, attempt_number)
+);
+CREATE INDEX idx_job_attempts_job ON job_attempts(job_id, attempt_number);
+
+CREATE TABLE schedules (
+    id TEXT PRIMARY KEY,
+    kind TEXT NOT NULL,
+    subject_id TEXT,
+    payload_json TEXT NOT NULL DEFAULT '{}',
+    config_hash TEXT NOT NULL,
+    interval_seconds INTEGER NOT NULL CHECK(interval_seconds > 0),
+    priority INTEGER NOT NULL DEFAULT 0,
+    max_attempts INTEGER NOT NULL DEFAULT 3 CHECK(max_attempts > 0),
+    enabled INTEGER NOT NULL DEFAULT 1 CHECK(enabled IN (0,1)),
+    next_due_at TEXT NOT NULL,
+    last_enqueued_at TEXT,
+    last_success_at TEXT,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+);
+CREATE INDEX idx_schedules_due ON schedules(enabled, next_due_at);
+"""
+
 
 def _execute_script(db: sqlite3.Connection, script: str) -> None:
     """Execute a SQL script without sqlite3.executescript's implicit COMMIT."""
@@ -153,6 +233,10 @@ def _legacy_baseline(db: sqlite3.Connection) -> None:
                   WHERE id NOT IN (SELECT item_id FROM indexed_items)""")
 
 
+def _durable_job_foundation(db: sqlite3.Connection) -> None:
+    _execute_script(db, JOB_SCHEMA_SQL)
+
+
 # Migration 1 freezes the exact legacy schema at main@88a2a1e. Future schema
 # changes must append a new Migration instead of editing this definition.
 MIGRATIONS = (
@@ -163,6 +247,12 @@ MIGRATIONS = (
         + "\nconditional-columns:title_zh,tmt,reason,ai_cat,raw_summary",
         _legacy_baseline,
     ),
+    Migration(
+        2,
+        "durable job foundation",
+        JOB_SCHEMA_SQL,
+        _durable_job_foundation,
+    ),
 )
 CURRENT_SCHEMA_VERSION = MIGRATIONS[-1].version
 REQUIRED_MIGRATION_COLUMNS = {
@@ -172,16 +262,33 @@ LEGACY_ANCHORS = {"companies", "sources", "items"}
 EXPECTED_TABLES = LEGACY_ANCHORS | {
     "clusters", "cluster_members", "daily_reports", "fetch_log", "item_companies", "item_discoveries",
     "topics", "item_topics", "stories", "story_items", "derived_dirty",
-    "indexed_items", "schema_migrations",
+    "indexed_items", "schema_migrations", "jobs", "job_attempts", "schedules",
 }
 EXPECTED_ITEM_COLUMNS = {
     "id", "source_id", "url", "title", "title_zh", "summary", "raw_summary",
     "channel", "tmt", "reason", "ai_cat", "published_at", "fetched_at",
 }
+EXPECTED_JOB_COLUMNS = {
+    "id", "kind", "subject_id", "input_version", "payload_json", "request_hash",
+    "idempotency_key", "state", "priority", "scheduled_for", "next_attempt_at",
+    "lease_owner", "lease_token",
+    "lease_generation", "lease_expires_at", "heartbeat_at", "attempt_count", "max_attempts",
+    "error_code", "error_detail", "result_ref", "completed_lease_token", "created_at",
+    "updated_at", "finished_at",
+}
+EXPECTED_JOB_ATTEMPT_COLUMNS = {
+    "id", "job_id", "attempt_number", "worker_id", "lease_token", "started_at",
+    "finished_at", "status", "error_code", "error_detail", "result_ref",
+}
+EXPECTED_SCHEDULE_COLUMNS = {
+    "id", "kind", "subject_id", "payload_json", "config_hash", "interval_seconds",
+    "priority", "max_attempts", "enabled", "next_due_at", "last_enqueued_at",
+    "last_success_at", "created_at", "updated_at",
+}
 
 
 def _utc_now() -> str:
-    return datetime.now(timezone.utc).isoformat(timespec="microseconds").replace("+00:00", "Z")
+    return utc_now()
 
 
 def _connect_readonly(path: Path) -> sqlite3.Connection:
@@ -244,12 +351,14 @@ def _read_history(
 def database_state(
     db: sqlite3.Connection, migrations: Iterable[Migration] = MIGRATIONS
 ) -> tuple[str, int]:
+    ordered = tuple(migrations)
     tables = _table_names(db)
     if not tables:
         return "empty", 0
     if "schema_migrations" in tables:
-        rows = _read_history(db, migrations)
-        return ("current" if rows[-1]["version"] == CURRENT_SCHEMA_VERSION else "versioned"), rows[-1]["version"]
+        rows = _read_history(db, ordered)
+        latest = max(_migration_map(ordered), default=0)
+        return ("current" if rows[-1]["version"] == latest else "versioned"), rows[-1]["version"]
     if LEGACY_ANCHORS.issubset(tables):
         return "legacy_unversioned", 0
     visible = ", ".join(sorted(tables)[:8]) or "none"
@@ -312,10 +421,30 @@ def _assert_current_schema(db: sqlite3.Connection) -> None:
     item_columns = {row["name"] for row in db.execute("PRAGMA table_info(items)")}
     missing_columns = EXPECTED_ITEM_COLUMNS - item_columns
     fts_columns = {row["name"] for row in db.execute("PRAGMA table_info(items_fts)")}
-    if missing_tables or missing_columns or "title_zh" not in fts_columns:
+    job_columns = {row["name"] for row in db.execute("PRAGMA table_info(jobs)")}
+    missing_job_columns = EXPECTED_JOB_COLUMNS - job_columns
+    attempt_columns = {
+        row["name"] for row in db.execute("PRAGMA table_info(job_attempts)")
+    }
+    missing_attempt_columns = EXPECTED_JOB_ATTEMPT_COLUMNS - attempt_columns
+    schedule_columns = {
+        row["name"] for row in db.execute("PRAGMA table_info(schedules)")
+    }
+    missing_schedule_columns = EXPECTED_SCHEDULE_COLUMNS - schedule_columns
+    if (
+        missing_tables
+        or missing_columns
+        or missing_job_columns
+        or missing_attempt_columns
+        or missing_schedule_columns
+        or "title_zh" not in fts_columns
+    ):
         raise DatabaseVerificationError(
             "current schema is incomplete: "
             f"missing tables={sorted(missing_tables)}, columns={sorted(missing_columns)}, "
+            f"job_columns={sorted(missing_job_columns)}, "
+            f"attempt_columns={sorted(missing_attempt_columns)}, "
+            f"schedule_columns={sorted(missing_schedule_columns)}, "
             f"fts_title_zh={'title_zh' in fts_columns}"
         )
     integrity_rows = [row[0] for row in db.execute("PRAGMA integrity_check")]

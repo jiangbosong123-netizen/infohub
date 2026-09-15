@@ -72,6 +72,7 @@ class RuntimeSettings:
     backup_path: Path
     allow_network_tasks: bool
     scheduler_enabled: bool
+    durable_jobs_enabled: bool
     legacy_data_layout: bool
 
     @property
@@ -166,6 +167,7 @@ def load_runtime_settings(
 
     allow_network_tasks = _boolean(values, "INFOHUB_ALLOW_NETWORK_TASKS", False)
     scheduler_enabled = _boolean(values, "INFOHUB_ENABLE_SCHEDULER", False)
+    durable_jobs_enabled = _boolean(values, "INFOHUB_DURABLE_JOBS_ENABLED", False)
     if scheduler_enabled and not allow_network_tasks:
         raise RuntimeConfigurationError(
             "INFOHUB_ENABLE_SCHEDULER=true requires INFOHUB_ALLOW_NETWORK_TASKS=true"
@@ -179,6 +181,7 @@ def load_runtime_settings(
         backup_path=backup_path,
         allow_network_tasks=allow_network_tasks,
         scheduler_enabled=scheduler_enabled,
+        durable_jobs_enabled=durable_jobs_enabled,
         legacy_data_layout=legacy_data_layout,
     )
 
@@ -191,6 +194,7 @@ BLOB_PATH = RUNTIME.blob_path
 BACKUP_PATH = RUNTIME.backup_path
 ALLOW_NETWORK_TASKS = RUNTIME.allow_network_tasks
 SCHEDULER_ENABLED = RUNTIME.scheduler_enabled
+DURABLE_JOBS_ENABLED = RUNTIME.durable_jobs_enabled
 PROCESS_ROLE = RUNTIME.process_role
 
 WATCHLIST_PATH = BASE_DIR / "config" / "watchlist.yaml"

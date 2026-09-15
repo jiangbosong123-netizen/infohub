@@ -32,7 +32,7 @@ class DatabaseSafetyTests(unittest.TestCase):
         first = db_admin.migrate_database(self.path)
         second = db_admin.migrate_database(self.path)
         self.assertEqual(first.previous_state, "empty")
-        self.assertEqual(first.applied_versions, (1,))
+        self.assertEqual(first.applied_versions, (1, 2))
         self.assertIsNone(first.backup_path)
         self.assertEqual(second.applied_versions, ())
         self.assertEqual(second.verification.state, "current")
@@ -50,11 +50,16 @@ class DatabaseSafetyTests(unittest.TestCase):
         with sqlite3.connect(self.path) as db:
             self.assertEqual(db.execute("SELECT title,summary FROM items").fetchone(),
                              ("legacy title", "legacy summary"))
-            migration = db.execute(
-                "SELECT version,name,checksum,release_id FROM schema_migrations"
-            ).fetchone()
-        self.assertEqual(migration, (1, db_admin.MIGRATIONS[0].name,
-                                     db_admin.MIGRATIONS[0].checksum, "release-test-sha"))
+            migrations = db.execute(
+                "SELECT version,name,checksum,release_id FROM schema_migrations ORDER BY version"
+            ).fetchall()
+        self.assertEqual(
+            migrations,
+            [
+                (migration.version, migration.name, migration.checksum, "release-test-sha")
+                for migration in db_admin.MIGRATIONS
+            ],
+        )
         with sqlite3.connect(self.path) as db:
             self.assertTrue(db.execute(
                 "SELECT applied_at FROM schema_migrations"
@@ -93,7 +98,7 @@ class DatabaseSafetyTests(unittest.TestCase):
             db.execute(
                 """INSERT INTO schema_migrations(
                        version,name,checksum,applied_at,release_id
-                   ) VALUES(2,'future','unknown','2026-09-15T00:00:00.000000Z','future')"""
+                   ) VALUES(3,'future','unknown','2026-09-15T00:00:00.000000Z','future')"""
             )
         with self.assertRaisesRegex(db_admin.UnsupportedSchemaError, "newer or unknown"):
             db_admin.migrate_database(self.path)
@@ -135,7 +140,32 @@ class DatabaseSafetyTests(unittest.TestCase):
     def test_init_schema_uses_patched_database_path(self):
         with patch.object(database, "DB_PATH", self.path):
             database.init_schema()
-        self.assertEqual(db_admin.verify_database(self.path, require_current=True).schema_version, 1)
+        self.assertEqual(
+            db_admin.verify_database(self.path, require_current=True).schema_version,
+            db_admin.CURRENT_SCHEMA_VERSION,
+        )
+
+    def test_version_one_database_is_backed_up_then_extended(self):
+        with database.get_db(self.path) as db:
+            applied = db_admin.apply_migrations(
+                db, db_admin.MIGRATIONS[:1], release_id="old-release"
+            )
+        self.assertEqual(applied, (1,))
+        with sqlite3.connect(self.path) as db:
+            self.assertNotIn(
+                "jobs",
+                {row[0] for row in db.execute(
+                    "SELECT name FROM sqlite_master WHERE type='table'"
+                )},
+            )
+
+        report = db_admin.migrate_database(self.path)
+        self.assertEqual(report.previous_state, "versioned")
+        self.assertEqual(report.previous_version, 1)
+        self.assertEqual(report.applied_versions, (2,))
+        self.assertTrue(report.backup_path)
+        self.assertEqual(db_admin.verify_database(report.backup_path).schema_version, 1)
+        self.assertEqual(report.verification.schema_version, 2)
 
 
 if __name__ == "__main__":

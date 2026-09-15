@@ -16,6 +16,8 @@ services:
       INFOHUB_BACKUP_PATH: /app/data/backups
       INFOHUB_ALLOW_NETWORK_TASKS: "true"
       INFOHUB_ENABLE_SCHEDULER: "true"
+      # Rollout gate only; P04a creates the durable foundation without switching workers.
+      INFOHUB_DURABLE_JOBS_ENABLED: "false"
       WEB_HOST: 0.0.0.0
       PORT: 8000
     ports:

@@ -18,6 +18,7 @@ from ..config import (
     BASE_DIR,
     ENVIRONMENT,
     ENVIRONMENT_ID,
+    DURABLE_JOBS_ENABLED,
     PROCESS_ROLE,
     SCHEDULER_ENABLED,
     llm_enabled,
@@ -90,16 +91,37 @@ def _system_snapshot() -> dict:
         source_rows = db.execute("""SELECT fail_count,last_success_at,last_error,interval_minutes
             FROM sources WHERE enabled=1""").fetchall()
         last_fetch = db.execute("SELECT MAX(ran_at) FROM fetch_log").fetchone()[0]
+        job_states = {
+            state: 0
+            for state in (
+                "pending", "running", "succeeded", "retry_wait", "blocked",
+                "dead_letter", "cancelled",
+            )
+        }
+        for row in db.execute("SELECT state,COUNT(*) AS n FROM jobs GROUP BY state"):
+            job_states[row["state"]] = row["n"]
+        oldest_ready = db.execute(
+            """SELECT MIN(next_attempt_at) FROM jobs
+               WHERE state IN ('pending','retry_wait') AND next_attempt_at<=?""",
+            (now.isoformat(timespec="microseconds").replace("+00:00", "Z"),),
+        ).fetchone()[0]
+        expired_running = db.execute(
+            """SELECT COUNT(*) FROM jobs
+               WHERE state='running' AND lease_expires_at<=?""",
+            (now.isoformat(timespec="microseconds").replace("+00:00", "Z"),),
+        ).fetchone()[0]
     source_states = [_source_status(row, now) for row in source_rows]
     issues = sum(state in {"bad", "partial", "stale"} for state in source_states)
+    job_issues = job_states["blocked"] + job_states["dead_letter"] + expired_running
     return {
-        "status": "degraded" if issues else "ok",
+        "status": "degraded" if issues or (DURABLE_JOBS_ENABLED and job_issues) else "ok",
         "version": APP_VERSION,
         "runtime": {
             "environment": ENVIRONMENT,
             "environment_id": ENVIRONMENT_ID,
             "process_role": PROCESS_ROLE,
             "scheduler_enabled": SCHEDULER_ENABLED,
+            "durable_jobs_enabled": DURABLE_JOBS_ENABLED,
         },
         "started_at": STARTED_AT.isoformat(),
         "uptime_seconds": max(0, int((now - STARTED_AT).total_seconds())),
@@ -113,6 +135,12 @@ def _system_snapshot() -> dict:
             "enabled": len(source_rows), "issues": issues, "last_run_at": last_fetch,
         },
         "reports": {"total": reports["total"], "latest": reports["latest"]},
+        "jobs": {
+            "enabled": DURABLE_JOBS_ENABLED,
+            "states": job_states,
+            "oldest_ready_at": oldest_ready,
+            "expired_running": expired_running,
+        },
         "checked_at": now.isoformat(),
     }
 
