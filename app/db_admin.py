@@ -50,6 +50,9 @@ class VerificationReport:
     foreign_key_violations: int
     size_bytes: int
     file_sha256: str
+    dataset_id: str | None
+    dataset_epoch: str | None
+    change_high_water: int | None
 
     def to_dict(self) -> dict:
         return asdict(self)
@@ -193,6 +196,101 @@ CREATE TABLE schedules (
 CREATE INDEX idx_schedules_due ON schedules(enabled, next_due_at);
 """
 
+PUBLICATION_SCHEMA_SQL = """
+ALTER TABLE jobs ADD COLUMN dataset_epoch TEXT;
+ALTER TABLE jobs ADD COLUMN idempotency_scope TEXT;
+ALTER TABLE jobs ADD COLUMN logical_idempotency_key TEXT;
+UPDATE jobs SET idempotency_scope='legacy',logical_idempotency_key=idempotency_key
+WHERE idempotency_scope IS NULL;
+CREATE UNIQUE INDEX idx_jobs_epoch_idempotency
+    ON jobs(dataset_epoch, logical_idempotency_key);
+CREATE INDEX idx_jobs_epoch_claim
+    ON jobs(dataset_epoch, state, next_attempt_at, priority DESC, scheduled_for, created_at);
+
+CREATE TABLE dataset_epochs (
+    dataset_id TEXT NOT NULL,
+    epoch TEXT NOT NULL,
+    previous_epoch TEXT,
+    reason TEXT NOT NULL,
+    owner_environment_id TEXT NOT NULL,
+    started_at TEXT NOT NULL,
+    release_id TEXT NOT NULL,
+    PRIMARY KEY(dataset_id, epoch),
+    UNIQUE(epoch),
+    UNIQUE(dataset_id, previous_epoch),
+    FOREIGN KEY(dataset_id, previous_epoch)
+        REFERENCES dataset_epochs(dataset_id, epoch)
+);
+
+CREATE TABLE dataset_state (
+    singleton INTEGER PRIMARY KEY CHECK(singleton = 1),
+    dataset_id TEXT NOT NULL,
+    current_epoch TEXT NOT NULL,
+    owner_environment_id TEXT NOT NULL,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    FOREIGN KEY(dataset_id, current_epoch)
+        REFERENCES dataset_epochs(dataset_id, epoch)
+);
+
+CREATE TABLE change_log (
+    seq INTEGER PRIMARY KEY AUTOINCREMENT,
+    dataset_id TEXT NOT NULL,
+    epoch TEXT NOT NULL,
+    idempotency_key TEXT NOT NULL,
+    resource_type TEXT NOT NULL CHECK(resource_type IN (
+        'item','event','entity','topic','source','analysis','signal','report','evidence'
+    )),
+    resource_id TEXT NOT NULL,
+    version_id TEXT NOT NULL,
+    operation TEXT NOT NULL CHECK(operation IN (
+        'create','update','withdraw','merge','split','delete'
+    )),
+    available_at TEXT NOT NULL,
+    payload_json TEXT NOT NULL,
+    payload_sha256 TEXT NOT NULL CHECK(length(payload_sha256) = 64),
+    hash_algorithm TEXT NOT NULL CHECK(hash_algorithm = 'jcs-sha256-v1'),
+    job_id TEXT REFERENCES jobs(id),
+    lease_token TEXT REFERENCES job_attempts(lease_token),
+    UNIQUE(dataset_id, epoch, idempotency_key),
+    CHECK((job_id IS NULL AND lease_token IS NULL)
+       OR (job_id IS NOT NULL AND lease_token IS NOT NULL)),
+    FOREIGN KEY(dataset_id, epoch)
+        REFERENCES dataset_epochs(dataset_id, epoch)
+);
+CREATE INDEX idx_change_log_epoch_seq ON change_log(dataset_id, epoch, seq);
+CREATE INDEX idx_change_log_resource
+    ON change_log(dataset_id, epoch, resource_type, resource_id, seq);
+CREATE INDEX idx_change_log_job ON change_log(job_id, seq);
+
+CREATE TABLE clock_checks (
+    id TEXT PRIMARY KEY,
+    environment_id TEXT NOT NULL,
+    measured_at TEXT NOT NULL,
+    recorded_at TEXT NOT NULL,
+    source TEXT,
+    offset_ms REAL,
+    status TEXT NOT NULL CHECK(status IN ('verified','suspect','unknown')),
+    detail_json TEXT NOT NULL DEFAULT '{}'
+);
+
+CREATE TABLE knowledge_checkpoints (
+    id TEXT PRIMARY KEY,
+    dataset_id TEXT NOT NULL,
+    epoch TEXT NOT NULL,
+    high_water INTEGER NOT NULL CHECK(high_water >= 0),
+    observed_at TEXT NOT NULL,
+    clock_status TEXT NOT NULL CHECK(clock_status IN ('verified','suspect','unknown')),
+    clock_check_id TEXT REFERENCES clock_checks(id),
+    FOREIGN KEY(dataset_id, epoch)
+        REFERENCES dataset_epochs(dataset_id, epoch)
+);
+CREATE INDEX idx_knowledge_checkpoints_water
+    ON knowledge_checkpoints(dataset_id, epoch, high_water, observed_at);
+CREATE INDEX idx_knowledge_checkpoints_latest
+    ON knowledge_checkpoints(dataset_id, epoch, observed_at DESC, id DESC);
+"""
+
 
 def _execute_script(db: sqlite3.Connection, script: str) -> None:
     """Execute a SQL script without sqlite3.executescript's implicit COMMIT."""
@@ -237,6 +335,37 @@ def _durable_job_foundation(db: sqlite3.Connection) -> None:
     _execute_script(db, JOB_SCHEMA_SQL)
 
 
+def _publication_ledger_foundation(db: sqlite3.Connection) -> None:
+    _execute_script(db, PUBLICATION_SCHEMA_SQL)
+    now = _utc_now()
+    dataset_id = f"dataset_{uuid4().hex}"
+    epoch = f"epoch_{uuid4().hex}"
+    release_id = config.APP_VERSION.strip() or "unknown"
+    db.execute(
+        """INSERT INTO dataset_epochs(
+               dataset_id,epoch,previous_epoch,reason,owner_environment_id,
+               started_at,release_id
+           ) VALUES(?,?,NULL,'initialization',?,?,?)""",
+        (dataset_id, epoch, config.ENVIRONMENT_ID, now, release_id),
+    )
+    db.execute(
+        """INSERT INTO dataset_state(
+               singleton,dataset_id,current_epoch,owner_environment_id,created_at,updated_at
+           ) VALUES(1,?,?,?,?,?)""",
+        (dataset_id, epoch, config.ENVIRONMENT_ID, now, now),
+    )
+    # Version 2 jobs used a global idempotency namespace. Adopt them into the
+    # initial epoch without rewriting their physical key or request hash, so
+    # queued and leased work remains claimable and same-request retries still
+    # resolve to the original row after migration.
+    db.execute(
+        """UPDATE jobs SET dataset_epoch=?,idempotency_scope=?,
+                  logical_idempotency_key=COALESCE(logical_idempotency_key,idempotency_key)
+           WHERE dataset_epoch IS NULL""",
+        (epoch, epoch),
+    )
+
+
 # Migration 1 freezes the exact legacy schema at main@88a2a1e. Future schema
 # changes must append a new Migration instead of editing this definition.
 MIGRATIONS = (
@@ -253,6 +382,14 @@ MIGRATIONS = (
         JOB_SCHEMA_SQL,
         _durable_job_foundation,
     ),
+    Migration(
+        3,
+        "atomic publication ledger",
+        PUBLICATION_SCHEMA_SQL
+        + "\ninitialize:dataset-and-epoch-uuid-v1"
+        + "\nadopt-version-2-jobs-into-initial-epoch-v1",
+        _publication_ledger_foundation,
+    ),
 )
 CURRENT_SCHEMA_VERSION = MIGRATIONS[-1].version
 REQUIRED_MIGRATION_COLUMNS = {
@@ -263,6 +400,8 @@ EXPECTED_TABLES = LEGACY_ANCHORS | {
     "clusters", "cluster_members", "daily_reports", "fetch_log", "item_companies", "item_discoveries",
     "topics", "item_topics", "stories", "story_items", "derived_dirty",
     "indexed_items", "schema_migrations", "jobs", "job_attempts", "schedules",
+    "dataset_epochs", "dataset_state", "change_log", "clock_checks",
+    "knowledge_checkpoints",
 }
 EXPECTED_ITEM_COLUMNS = {
     "id", "source_id", "url", "title", "title_zh", "summary", "raw_summary",
@@ -270,7 +409,8 @@ EXPECTED_ITEM_COLUMNS = {
 }
 EXPECTED_JOB_COLUMNS = {
     "id", "kind", "subject_id", "input_version", "payload_json", "request_hash",
-    "idempotency_key", "state", "priority", "scheduled_for", "next_attempt_at",
+    "idempotency_key", "dataset_epoch", "state", "priority", "scheduled_for", "next_attempt_at",
+    "idempotency_scope", "logical_idempotency_key",
     "lease_owner", "lease_token",
     "lease_generation", "lease_expires_at", "heartbeat_at", "attempt_count", "max_attempts",
     "error_code", "error_detail", "result_ref", "completed_lease_token", "created_at",
@@ -284,6 +424,27 @@ EXPECTED_SCHEDULE_COLUMNS = {
     "id", "kind", "subject_id", "payload_json", "config_hash", "interval_seconds",
     "priority", "max_attempts", "enabled", "next_due_at", "last_enqueued_at",
     "last_success_at", "created_at", "updated_at",
+}
+EXPECTED_DATASET_STATE_COLUMNS = {
+    "singleton", "dataset_id", "current_epoch", "owner_environment_id", "created_at",
+    "updated_at",
+}
+EXPECTED_DATASET_EPOCH_COLUMNS = {
+    "dataset_id", "epoch", "previous_epoch", "reason", "owner_environment_id",
+    "started_at", "release_id",
+}
+EXPECTED_CHANGE_COLUMNS = {
+    "seq", "dataset_id", "epoch", "idempotency_key", "resource_type", "resource_id",
+    "version_id", "operation", "available_at", "payload_json", "payload_sha256",
+    "hash_algorithm", "job_id", "lease_token",
+}
+EXPECTED_CHECKPOINT_COLUMNS = {
+    "id", "dataset_id", "epoch", "high_water", "observed_at", "clock_status",
+    "clock_check_id",
+}
+EXPECTED_CLOCK_CHECK_COLUMNS = {
+    "id", "environment_id", "measured_at", "recorded_at", "source", "offset_ms",
+    "status", "detail_json",
 }
 
 
@@ -431,12 +592,37 @@ def _assert_current_schema(db: sqlite3.Connection) -> None:
         row["name"] for row in db.execute("PRAGMA table_info(schedules)")
     }
     missing_schedule_columns = EXPECTED_SCHEDULE_COLUMNS - schedule_columns
+    dataset_columns = {
+        row["name"] for row in db.execute("PRAGMA table_info(dataset_state)")
+    }
+    missing_dataset_columns = EXPECTED_DATASET_STATE_COLUMNS - dataset_columns
+    epoch_columns = {
+        row["name"] for row in db.execute("PRAGMA table_info(dataset_epochs)")
+    }
+    missing_epoch_columns = EXPECTED_DATASET_EPOCH_COLUMNS - epoch_columns
+    change_columns = {
+        row["name"] for row in db.execute("PRAGMA table_info(change_log)")
+    }
+    missing_change_columns = EXPECTED_CHANGE_COLUMNS - change_columns
+    checkpoint_columns = {
+        row["name"] for row in db.execute("PRAGMA table_info(knowledge_checkpoints)")
+    }
+    missing_checkpoint_columns = EXPECTED_CHECKPOINT_COLUMNS - checkpoint_columns
+    clock_columns = {
+        row["name"] for row in db.execute("PRAGMA table_info(clock_checks)")
+    }
+    missing_clock_columns = EXPECTED_CLOCK_CHECK_COLUMNS - clock_columns
     if (
         missing_tables
         or missing_columns
         or missing_job_columns
         or missing_attempt_columns
         or missing_schedule_columns
+        or missing_dataset_columns
+        or missing_epoch_columns
+        or missing_change_columns
+        or missing_checkpoint_columns
+        or missing_clock_columns
         or "title_zh" not in fts_columns
     ):
         raise DatabaseVerificationError(
@@ -445,7 +631,37 @@ def _assert_current_schema(db: sqlite3.Connection) -> None:
             f"job_columns={sorted(missing_job_columns)}, "
             f"attempt_columns={sorted(missing_attempt_columns)}, "
             f"schedule_columns={sorted(missing_schedule_columns)}, "
+            f"dataset_columns={sorted(missing_dataset_columns)}, "
+            f"epoch_columns={sorted(missing_epoch_columns)}, "
+            f"change_columns={sorted(missing_change_columns)}, "
+            f"checkpoint_columns={sorted(missing_checkpoint_columns)}, "
+            f"clock_columns={sorted(missing_clock_columns)}, "
             f"fts_title_zh={'title_zh' in fts_columns}"
+        )
+    identity_rows = db.execute(
+        """SELECT state.dataset_id,state.current_epoch,state.owner_environment_id,
+                  epoch.owner_environment_id AS epoch_owner
+           FROM dataset_state AS state
+           JOIN dataset_epochs AS epoch
+             ON epoch.dataset_id=state.dataset_id AND epoch.epoch=state.current_epoch"""
+    ).fetchall()
+    if len(identity_rows) != 1:
+        raise DatabaseVerificationError(
+            "current schema must contain exactly one valid dataset identity"
+        )
+    if identity_rows[0]["owner_environment_id"] != identity_rows[0]["epoch_owner"]:
+        raise DatabaseVerificationError(
+            "dataset state and current epoch have different environment owners"
+        )
+    invalid_jobs = db.execute(
+        """SELECT COUNT(*) FROM jobs AS job
+           LEFT JOIN dataset_epochs AS epoch ON epoch.epoch=job.dataset_epoch
+           WHERE job.dataset_epoch IS NULL OR job.idempotency_scope IS NULL
+              OR job.logical_idempotency_key IS NULL OR epoch.epoch IS NULL"""
+    ).fetchone()[0]
+    if invalid_jobs:
+        raise DatabaseVerificationError(
+            f"{invalid_jobs} durable job(s) are outside a valid dataset epoch"
         )
     integrity_rows = [row[0] for row in db.execute("PRAGMA integrity_check")]
     if integrity_rows != ["ok"]:
@@ -459,6 +675,9 @@ def _assert_current_schema(db: sqlite3.Connection) -> None:
 
 def verify_database(path: Path | str, require_current: bool = False) -> VerificationReport:
     target = Path(path).expanduser().resolve(strict=True)
+    dataset_id = None
+    dataset_epoch = None
+    change_high_water = None
     with _connect_readonly(target) as db:
         state, version = database_state(db)
         if require_current and state != "current":
@@ -478,6 +697,18 @@ def verify_database(path: Path | str, require_current: bool = False) -> Verifica
                 raise DatabaseVerificationError(
                     f"foreign_key_check found {foreign_key_violations} violation(s)"
                 )
+        if "dataset_state" in _table_names(db):
+            identity = db.execute(
+                "SELECT dataset_id,current_epoch FROM dataset_state WHERE singleton=1"
+            ).fetchone()
+            if identity:
+                dataset_id = identity["dataset_id"]
+                dataset_epoch = identity["current_epoch"]
+                change_high_water = db.execute(
+                    """SELECT COALESCE(MAX(seq),0) FROM change_log
+                       WHERE dataset_id=? AND epoch=?""",
+                    (dataset_id, dataset_epoch),
+                ).fetchone()[0]
     return VerificationReport(
         path=str(target),
         state=state,
@@ -490,6 +721,9 @@ def verify_database(path: Path | str, require_current: bool = False) -> Verifica
         # have committed bytes in -wal, so callers must not use this as a
         # logical live-dataset fingerprint.
         file_sha256=_sha256(target),
+        dataset_id=dataset_id,
+        dataset_epoch=dataset_epoch,
+        change_high_water=change_high_water,
     )
 
 

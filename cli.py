@@ -15,6 +15,8 @@ from __future__ import annotations
   python cli.py db-verify [PATH]       # 严格验证当前版本数据库
   python cli.py runtime-config         # 显示当前环境、角色与数据路径（不含密钥）
   python cli.py jobs-status            # 显示持久任务各状态数量
+  python cli.py dataset-status         # 显示数据集、epoch 与变化高水位
+  python cli.py dataset-new-epoch EXPECTED_EPOCH REASON  # 恢复后切换同步代际
   python cli.py serve                  # 启动网站；是否运行调度由环境配置决定
 """
 import json
@@ -84,6 +86,19 @@ def cmd_jobs_status() -> None:
         "enabled": config.DURABLE_JOBS_ENABLED,
         "states": job_counts(),
     }, ensure_ascii=False, indent=2))
+
+
+def cmd_dataset_status() -> None:
+    from app.db_admin import verify_database
+    from app.publication import get_dataset_identity
+    verify_database(config.DB_PATH, require_current=True)
+    print(json.dumps(get_dataset_identity().to_dict(), ensure_ascii=False, indent=2))
+
+
+def cmd_dataset_new_epoch(expected_epoch: str, reason: str) -> None:
+    from app.publication import rotate_dataset_epoch
+    result = rotate_dataset_epoch(expected_epoch=expected_epoch, reason=reason)
+    print(json.dumps(result.to_dict(), ensure_ascii=False, indent=2))
 
 
 def cmd_crawl() -> None:
@@ -233,6 +248,10 @@ def main() -> None:
         print(json.dumps(config.RUNTIME.public_manifest(), ensure_ascii=False, indent=2))
     elif cmd == "jobs-status":
         cmd_jobs_status()
+    elif cmd == "dataset-status":
+        cmd_dataset_status()
+    elif cmd == "dataset-new-epoch" and len(sys.argv) >= 4:
+        cmd_dataset_new_epoch(sys.argv[2], " ".join(sys.argv[3:]))
     elif cmd == "serve":
         cmd_serve()
     else:

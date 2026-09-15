@@ -11,3 +11,4 @@ openai>=1.30
 python-dotenv>=1.0
 markdown>=3.5
 nh3>=0.2.18,<0.4
+rfc8785>=0.1.4,<0.2

@@ -6,6 +6,7 @@ from unittest.mock import patch
 
 from app import database
 from app import db_admin
+from app.jobs import claim_job, enqueue_job
 
 
 class DatabaseSafetyTests(unittest.TestCase):
@@ -32,7 +33,7 @@ class DatabaseSafetyTests(unittest.TestCase):
         first = db_admin.migrate_database(self.path)
         second = db_admin.migrate_database(self.path)
         self.assertEqual(first.previous_state, "empty")
-        self.assertEqual(first.applied_versions, (1, 2))
+        self.assertEqual(first.applied_versions, (1, 2, 3))
         self.assertIsNone(first.backup_path)
         self.assertEqual(second.applied_versions, ())
         self.assertEqual(second.verification.state, "current")
@@ -98,7 +99,7 @@ class DatabaseSafetyTests(unittest.TestCase):
             db.execute(
                 """INSERT INTO schema_migrations(
                        version,name,checksum,applied_at,release_id
-                   ) VALUES(3,'future','unknown','2026-09-15T00:00:00.000000Z','future')"""
+                   ) VALUES(4,'future','unknown','2026-09-15T00:00:00.000000Z','future')"""
             )
         with self.assertRaisesRegex(db_admin.UnsupportedSchemaError, "newer or unknown"):
             db_admin.migrate_database(self.path)
@@ -162,10 +163,76 @@ class DatabaseSafetyTests(unittest.TestCase):
         report = db_admin.migrate_database(self.path)
         self.assertEqual(report.previous_state, "versioned")
         self.assertEqual(report.previous_version, 1)
-        self.assertEqual(report.applied_versions, (2,))
+        self.assertEqual(report.applied_versions, (2, 3))
         self.assertTrue(report.backup_path)
         self.assertEqual(db_admin.verify_database(report.backup_path).schema_version, 1)
-        self.assertEqual(report.verification.schema_version, 2)
+        self.assertEqual(report.verification.schema_version, 3)
+
+    def test_version_two_jobs_survive_publication_ledger_upgrade(self):
+        with database.get_db(self.path) as db:
+            self.assertEqual(
+                db_admin.apply_migrations(db, db_admin.MIGRATIONS[:2]), (1, 2)
+            )
+        with patch.object(database, "DB_PATH", self.path):
+            legacy = enqueue_job(
+                kind="test",
+                idempotency_key="legacy-key",
+                input_version="input-v1",
+                payload={"value": 1},
+                scheduled_for="2026-09-15T00:00:00.000000Z",
+            )
+            repeated_before = enqueue_job(
+                kind="test",
+                idempotency_key="legacy-key",
+                input_version="input-v1",
+                payload={"value": 1},
+                scheduled_for="2026-09-15T00:00:00.000000Z",
+            )
+        self.assertEqual(repeated_before.id, legacy.id)
+
+        report = db_admin.migrate_database(self.path)
+        self.assertEqual(report.previous_version, 2)
+        self.assertEqual(report.applied_versions, (3,))
+        with sqlite3.connect(self.path) as db:
+            job = db.execute(
+                """SELECT id,idempotency_key,logical_idempotency_key,
+                          idempotency_scope,dataset_epoch FROM jobs"""
+            ).fetchone()
+            identity = db.execute(
+                "SELECT dataset_id,current_epoch,owner_environment_id FROM dataset_state"
+            ).fetchone()
+        self.assertEqual(job[0], legacy.id)
+        self.assertEqual(job[1], "legacy-key")
+        self.assertEqual(job[2], "legacy-key")
+        self.assertEqual(job[3], identity[1])
+        self.assertEqual(job[4], identity[1])
+        self.assertTrue(identity[0].startswith("dataset_"))
+        self.assertTrue(identity[1].startswith("epoch_"))
+        self.assertTrue(identity[2])
+        with patch.object(database, "DB_PATH", self.path):
+            repeated_after = enqueue_job(
+                kind="test",
+                idempotency_key="legacy-key",
+                input_version="input-v1",
+                payload={"value": 1},
+                scheduled_for="2026-09-15T00:00:00.000000Z",
+            )
+            claimed = claim_job(
+                worker_id="migration-test",
+                now="2026-09-15T00:00:01.000000Z",
+            )
+        self.assertEqual(repeated_after.id, legacy.id)
+        self.assertEqual(claimed.id, legacy.id)
+        self.assertEqual(claimed.dataset_epoch, identity[1])
+
+    def test_current_schema_rejects_a_missing_dataset_identity(self):
+        db_admin.migrate_database(self.path)
+        with sqlite3.connect(self.path) as db:
+            db.execute("DELETE FROM dataset_state")
+        with self.assertRaisesRegex(
+            db_admin.DatabaseVerificationError, "exactly one valid dataset identity"
+        ):
+            db_admin.verify_database(self.path, require_current=True)
 
 
 if __name__ == "__main__":

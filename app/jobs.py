@@ -9,6 +9,7 @@ from datetime import datetime, timedelta
 from typing import Iterable, Mapping
 from uuid import uuid4
 
+from . import config
 from .database import get_db
 from .timeutil import format_utc, parse_utc, utc_now
 
@@ -29,6 +30,10 @@ class InputVersionChangedError(JobError):
     """The worker result was produced for a different input version."""
 
 
+class JobEnvironmentError(JobError):
+    """The job database belongs to a different runtime environment."""
+
+
 @dataclass(frozen=True)
 class JobRecord:
     id: str
@@ -37,6 +42,7 @@ class JobRecord:
     input_version: str | None
     payload: dict
     idempotency_key: str
+    dataset_epoch: str | None
     state: str
     priority: int
     scheduled_for: str
@@ -105,13 +111,19 @@ def _clean_required(value: str, field: str, maximum: int = 200) -> str:
 
 
 def _job_from_row(row) -> JobRecord:
+    logical_key = (
+        row["logical_idempotency_key"]
+        if "logical_idempotency_key" in row.keys() and row["logical_idempotency_key"]
+        else row["idempotency_key"]
+    )
     return JobRecord(
         id=row["id"],
         kind=row["kind"],
         subject_id=row["subject_id"],
         input_version=row["input_version"],
         payload=json.loads(row["payload_json"]),
-        idempotency_key=row["idempotency_key"],
+        idempotency_key=logical_key,
+        dataset_epoch=row["dataset_epoch"] if "dataset_epoch" in row.keys() else None,
         state=row["state"],
         priority=row["priority"],
         scheduled_for=row["scheduled_for"],
@@ -140,6 +152,39 @@ def _normalize_time(value: datetime | str | None) -> str:
     return format_utc(value)
 
 
+def _idempotency_scope(db, logical_key: str) -> tuple[str | None, str]:
+    dataset_table = db.execute(
+        "SELECT 1 FROM sqlite_master WHERE type='table' AND name='dataset_state'"
+    ).fetchone()
+    if not dataset_table:
+        return None, logical_key
+    state = db.execute(
+        """SELECT current_epoch,owner_environment_id
+           FROM dataset_state WHERE singleton=1"""
+    ).fetchone()
+    if not state:
+        raise JobEnvironmentError("dataset identity has not been initialized")
+    if state["owner_environment_id"] != config.ENVIRONMENT_ID:
+        raise JobEnvironmentError(
+            f"database belongs to environment {state['owner_environment_id']!r}, "
+            f"not {config.ENVIRONMENT_ID!r}"
+        )
+    epoch = state["current_epoch"]
+    return epoch, f"{epoch}:{logical_key}"
+
+
+def _find_existing_job(db, logical_key: str, epoch: str | None, storage_key: str):
+    if epoch is None:
+        return db.execute(
+            "SELECT * FROM jobs WHERE idempotency_key=?", (storage_key,)
+        ).fetchone()
+    return db.execute(
+        """SELECT * FROM jobs
+           WHERE dataset_epoch=? AND logical_idempotency_key=?""",
+        (epoch, logical_key),
+    ).fetchone()
+
+
 def _enqueue(
     db,
     *,
@@ -158,6 +203,7 @@ def _enqueue(
     if not 1 <= max_attempts <= 100:
         raise ValueError("max_attempts must be between 1 and 100")
     payload_json = _canonical_json(payload)
+    dataset_epoch, storage_key = _idempotency_scope(db, clean_key)
     request_hash = _hash_request(
         clean_kind,
         subject_id,
@@ -167,9 +213,7 @@ def _enqueue(
         scheduled_for,
         max_attempts,
     )
-    existing = db.execute(
-        "SELECT * FROM jobs WHERE idempotency_key=?", (clean_key,)
-    ).fetchone()
+    existing = _find_existing_job(db, clean_key, dataset_epoch, storage_key)
     if existing:
         if existing["request_hash"] != request_hash:
             raise IdempotencyConflictError(
@@ -178,27 +222,31 @@ def _enqueue(
         return _job_from_row(existing)
 
     job_id = str(uuid4())
-    db.execute(
-        """INSERT INTO jobs(
-               id,kind,subject_id,input_version,payload_json,request_hash,idempotency_key,
-               state,priority,scheduled_for,next_attempt_at,max_attempts,created_at,updated_at
-           ) VALUES(?,?,?,?,?,?,?,'pending',?,?,?,?,?,?)""",
-        (
-            job_id,
-            clean_kind,
-            subject_id,
-            input_version,
-            payload_json,
-            request_hash,
-            clean_key,
-            priority,
-            scheduled_for,
-            scheduled_for,
-            max_attempts,
-            created_at,
-            created_at,
-        ),
-    )
+    if dataset_epoch:
+        db.execute(
+            """INSERT INTO jobs(
+                   id,kind,subject_id,input_version,payload_json,request_hash,idempotency_key,
+                   dataset_epoch,idempotency_scope,logical_idempotency_key,state,priority,
+                   scheduled_for,next_attempt_at,max_attempts,created_at,updated_at
+               ) VALUES(?,?,?,?,?,?,?,?,?,?,'pending',?,?,?,?,?,?)""",
+            (
+                job_id, clean_kind, subject_id, input_version, payload_json, request_hash,
+                storage_key, dataset_epoch, dataset_epoch, clean_key, priority, scheduled_for,
+                scheduled_for, max_attempts, created_at, created_at,
+            ),
+        )
+    else:
+        db.execute(
+            """INSERT INTO jobs(
+                   id,kind,subject_id,input_version,payload_json,request_hash,idempotency_key,
+                   state,priority,scheduled_for,next_attempt_at,max_attempts,created_at,updated_at
+               ) VALUES(?,?,?,?,?,?,?,'pending',?,?,?,?,?,?)""",
+            (
+                job_id, clean_kind, subject_id, input_version, payload_json, request_hash,
+                clean_key, priority, scheduled_for, scheduled_for, max_attempts, created_at,
+                created_at,
+            ),
+        )
     return _job_from_row(db.execute("SELECT * FROM jobs WHERE id=?", (job_id,)).fetchone())
 
 
@@ -217,10 +265,9 @@ def enqueue_job(
     with get_db() as db:
         db.execute("BEGIN IMMEDIATE")
         if scheduled_for is None:
-            existing = db.execute(
-                "SELECT scheduled_for FROM jobs WHERE idempotency_key=?",
-                (idempotency_key.strip(),),
-            ).fetchone()
+            clean_key = _clean_required(idempotency_key, "idempotency_key", 500)
+            epoch, storage_key = _idempotency_scope(db, clean_key)
+            existing = _find_existing_job(db, clean_key, epoch, storage_key)
             due = existing["scheduled_for"] if existing else created
         else:
             due = _normalize_time(scheduled_for)
@@ -291,6 +338,22 @@ def claim_job(
         _expire_leases(db, current)
         where = "state IN ('pending','retry_wait') AND scheduled_for<=? AND next_attempt_at<=?"
         params: list = [current, current]
+        dataset_table = db.execute(
+            "SELECT 1 FROM sqlite_master WHERE type='table' AND name='dataset_state'"
+        ).fetchone()
+        if dataset_table:
+            state = db.execute(
+                """SELECT current_epoch,owner_environment_id
+                   FROM dataset_state WHERE singleton=1"""
+            ).fetchone()
+            if state["owner_environment_id"] != config.ENVIRONMENT_ID:
+                raise JobEnvironmentError(
+                    f"database belongs to environment {state['owner_environment_id']!r}, "
+                    f"not {config.ENVIRONMENT_ID!r}"
+                )
+            current_epoch = state["current_epoch"]
+            where += " AND dataset_epoch=?"
+            params.append(current_epoch)
         if clean_kinds:
             where += f" AND kind IN ({','.join('?' * len(clean_kinds))})"
             params.extend(clean_kinds)
@@ -367,6 +430,69 @@ def renew_lease(
         return _job_from_row(db.execute("SELECT * FROM jobs WHERE id=?", (job_id,)).fetchone())
 
 
+def _validate_input_version(db, row, expected_input_version: str | None) -> str | None:
+    if row["input_version"] != expected_input_version:
+        raise InputVersionChangedError("job input version changed before completion")
+    try:
+        schedule_id = json.loads(row["payload_json"]).get("schedule_id")
+    except (AttributeError, json.JSONDecodeError):
+        schedule_id = None
+    if schedule_id:
+        schedule = db.execute(
+            "SELECT config_hash FROM schedules WHERE id=?", (schedule_id,)
+        ).fetchone()
+        if not schedule or schedule["config_hash"] != row["input_version"]:
+            raise InputVersionChangedError(
+                "schedule configuration changed before completion"
+            )
+    return schedule_id
+
+
+def _complete_job_in_transaction(
+    db,
+    job_id: str,
+    lease_token: str,
+    *,
+    expected_input_version: str | None = None,
+    result_ref: str | None = None,
+    current: str,
+) -> JobRecord:
+    existing = db.execute("SELECT * FROM jobs WHERE id=?", (job_id,)).fetchone()
+    if (
+        existing
+        and existing["state"] == "succeeded"
+        and existing["completed_lease_token"] == lease_token
+    ):
+        if (
+            existing["input_version"] != expected_input_version
+            or existing["result_ref"] != result_ref
+        ):
+            raise IdempotencyConflictError(
+                "completion retry does not match the published result"
+            )
+        return _job_from_row(existing)
+    row = _current_lease(db, job_id, lease_token, current)
+    schedule_id = _validate_input_version(db, row, expected_input_version)
+    db.execute(
+        """UPDATE job_attempts SET status='succeeded',finished_at=?,result_ref=?
+           WHERE job_id=? AND lease_token=? AND status='running'""",
+        (current, result_ref, job_id, lease_token),
+    )
+    db.execute(
+        """UPDATE jobs SET state='succeeded',lease_owner=NULL,lease_token=NULL,
+                  lease_expires_at=NULL,result_ref=?,completed_lease_token=?,
+                  updated_at=?,finished_at=? WHERE id=?""",
+        (result_ref, lease_token, current, current, job_id),
+    )
+    if schedule_id:
+        db.execute(
+            """UPDATE schedules SET last_success_at=?,updated_at=?
+               WHERE id=? AND config_hash=?""",
+            (current, current, schedule_id, row["input_version"]),
+        )
+    return _job_from_row(db.execute("SELECT * FROM jobs WHERE id=?", (job_id,)).fetchone())
+
+
 def complete_job(
     job_id: str,
     lease_token: str,
@@ -378,53 +504,14 @@ def complete_job(
     current = _normalize_time(now)
     with get_db() as db:
         db.execute("BEGIN IMMEDIATE")
-        existing = db.execute("SELECT * FROM jobs WHERE id=?", (job_id,)).fetchone()
-        if (
-            existing
-            and existing["state"] == "succeeded"
-            and existing["completed_lease_token"] == lease_token
-        ):
-            if (
-                existing["input_version"] != expected_input_version
-                or existing["result_ref"] != result_ref
-            ):
-                raise IdempotencyConflictError(
-                    "completion retry does not match the published result"
-                )
-            return _job_from_row(existing)
-        row = _current_lease(db, job_id, lease_token, current)
-        if row["input_version"] != expected_input_version:
-            raise InputVersionChangedError("job input version changed before completion")
-        try:
-            schedule_id = json.loads(row["payload_json"]).get("schedule_id")
-        except (AttributeError, json.JSONDecodeError):
-            schedule_id = None
-        if schedule_id:
-            schedule = db.execute(
-                "SELECT config_hash FROM schedules WHERE id=?", (schedule_id,)
-            ).fetchone()
-            if not schedule or schedule["config_hash"] != row["input_version"]:
-                raise InputVersionChangedError(
-                    "schedule configuration changed before completion"
-                )
-        db.execute(
-            """UPDATE job_attempts SET status='succeeded',finished_at=?,result_ref=?
-               WHERE job_id=? AND lease_token=? AND status='running'""",
-            (current, result_ref, job_id, lease_token),
+        return _complete_job_in_transaction(
+            db,
+            job_id,
+            lease_token,
+            expected_input_version=expected_input_version,
+            result_ref=result_ref,
+            current=current,
         )
-        db.execute(
-            """UPDATE jobs SET state='succeeded',lease_owner=NULL,lease_token=NULL,
-                      lease_expires_at=NULL,result_ref=?,completed_lease_token=?,
-                      updated_at=?,finished_at=? WHERE id=?""",
-            (result_ref, lease_token, current, current, job_id),
-        )
-        if schedule_id:
-            db.execute(
-                """UPDATE schedules SET last_success_at=?,updated_at=?
-                   WHERE id=? AND config_hash=?""",
-                (current, current, schedule_id, row["input_version"]),
-            )
-        return _job_from_row(db.execute("SELECT * FROM jobs WHERE id=?", (job_id,)).fetchone())
 
 
 def fail_job(

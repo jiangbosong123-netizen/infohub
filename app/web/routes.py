@@ -79,6 +79,7 @@ def _source_status(row, now: datetime | None = None) -> str:
 
 def _system_snapshot() -> dict:
     now = datetime.now(timezone.utc)
+    now_utc = now.isoformat(timespec="microseconds").replace("+00:00", "Z")
     with get_db() as db:
         item = db.execute("""SELECT COUNT(*) AS total,
             COALESCE(SUM(CASE WHEN score IS NULL THEN 1 ELSE 0 END),0) AS pending_score,
@@ -108,13 +109,31 @@ def _system_snapshot() -> dict:
         expired_running = db.execute(
             """SELECT COUNT(*) FROM jobs
                WHERE state='running' AND lease_expires_at<=?""",
-            (now.isoformat(timespec="microseconds").replace("+00:00", "Z"),),
+            (now_utc,),
         ).fetchone()[0]
+        dataset_row = db.execute(
+            """SELECT dataset_id,current_epoch,owner_environment_id
+               FROM dataset_state WHERE singleton=1"""
+        ).fetchone()
+        change_high_water = db.execute(
+            """SELECT COALESCE(MAX(seq),0) FROM change_log
+               WHERE dataset_id=? AND epoch=?""",
+            (dataset_row["dataset_id"], dataset_row["current_epoch"]),
+        ).fetchone()[0]
+        checkpoint = db.execute(
+            """SELECT id,high_water,observed_at,clock_status
+               FROM knowledge_checkpoints WHERE dataset_id=? AND epoch=?
+               ORDER BY observed_at DESC,id DESC LIMIT 1""",
+            (dataset_row["dataset_id"], dataset_row["current_epoch"]),
+        ).fetchone()
     source_states = [_source_status(row, now) for row in source_rows]
     issues = sum(state in {"bad", "partial", "stale"} for state in source_states)
     job_issues = job_states["blocked"] + job_states["dead_letter"] + expired_running
+    dataset_owner_matches = dataset_row["owner_environment_id"] == ENVIRONMENT_ID
     return {
-        "status": "degraded" if issues or (DURABLE_JOBS_ENABLED and job_issues) else "ok",
+        "status": "degraded" if (
+            issues or not dataset_owner_matches or (DURABLE_JOBS_ENABLED and job_issues)
+        ) else "ok",
         "version": APP_VERSION,
         "runtime": {
             "environment": ENVIRONMENT,
@@ -140,6 +159,14 @@ def _system_snapshot() -> dict:
             "states": job_states,
             "oldest_ready_at": oldest_ready,
             "expired_running": expired_running,
+        },
+        "dataset": {
+            "dataset_id": dataset_row["dataset_id"],
+            "epoch": dataset_row["current_epoch"],
+            "high_water": change_high_water,
+            "owner_environment_id": dataset_row["owner_environment_id"],
+            "owner_matches_environment": dataset_owner_matches,
+            "latest_checkpoint": dict(checkpoint) if checkpoint else None,
         },
         "checked_at": now.isoformat(),
     }

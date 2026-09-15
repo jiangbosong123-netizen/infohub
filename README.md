@@ -163,6 +163,7 @@ python cli.py db-migrate                # 仅迁移；需要变更的旧库会�
 python cli.py db-verify                 # 要求完整性通过且schema为当前版本
 python cli.py runtime-config            # 显示非敏感运行配置和实际数据路径
 python cli.py jobs-status               # 显示持久任务开关与各状态数量
+python cli.py dataset-status            # 显示数据集身份、epoch 与变化高水位
 ```
 
 命令输出中的 `file_sha256` 是指定 `.db` 文件的校验值；`db-backup` 生成的是单文件备份，
@@ -183,6 +184,11 @@ lease token；续租、完成、失败、阻塞和运行中取消都必须持有
 重启期间错过的相同定时计划合并为一个任务。`INFOHUB_DURABLE_JOBS_ENABLED` 是后续 worker
 切换的发布开关，目前 Compose 明确保持 `false`，现有 APScheduler 继续工作，不会出现两个
 调度器同时发任务。
+
+数据集身份、恢复 epoch、JCS 变化哈希、知识检查点和“内容版本 + change + job 完成”
+原子事务的使用与恢复边界见 [发布账本说明](docs/PUBLICATION_LEDGER.md)。恢复旧备份后只有在
+worker 已停止且租约不再存活时，才可用当前 epoch 和明确原因执行
+`python cli.py dataset-new-epoch EXPECTED_EPOCH REASON`；普通重启与同一最新备份恢复不切换。
 
 
 ## 主题与事件维护
