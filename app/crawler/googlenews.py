@@ -124,7 +124,9 @@ def run_reconcile() -> dict:
                     observed_at=raw.get("observed_at"),
                 )
                 observed_bytes += observation.size_bytes
-                if insert_item("google-news", raw, via="reconcile"):
+                if insert_item(
+                    "google-news", raw, via="reconcile", observation=observation
+                ):
                     inserted += 1
                 else:
                     duplicates += 1

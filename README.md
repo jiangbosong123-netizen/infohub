@@ -212,7 +212,10 @@ worker 已停止且租约不再存活时，才可用当前 epoch 和明确原因
 来源配置版本和 observation。重复看到相同载荷只追加观察，同 URL 内容改变会保留新的不可变载荷。
 旧 HTML 抓取仍保存 `generated_metadata`，不冒充发布方全文；JSON/RSS 连接器保存逐条
 `api_record` / `feed_entry`，并将 published、updated、SEC accepted/filing/report 等来源时间按
-不可变规则分开。具体语义见[来源时间说明](docs/SOURCE_TIME.md)；document version 在 P06c 接入。
+不可变规则分开。新采集内容同时生成稳定 document 和不可变 version；同一来源 locator 内容改变会
+追加更正版本，完全重复抓取只增加 observation。门户目前仍读 `items` 兼容投影，历史内容不会在
+没有 raw evidence 的情况下自动包装成“已验证版本”。具体边界见[来源时间说明](docs/SOURCE_TIME.md)
+与[文档版本说明](docs/DOCUMENT_VERSIONS.md)。
 运行 `python cli.py raw-verify` 可全量校验 DB 引用与 CAS
 文件；从这一版起，完整备份必须同时包含 SQLite 和 blobs，具体步骤见
 [采集证据说明](docs/INGEST_EVIDENCE.md)。

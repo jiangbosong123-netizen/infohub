@@ -32,5 +32,6 @@ DST 回拨重复小时标 `ambiguous_local_time`，春季不存在小时标 `non
 门户仍读取旧 `items.published_at NOT NULL`。缺失、不可信或仅 updated/accepted 的来源时间，在
 legacy 投影中仍暂用抓取时间维持页面排序；可信原值和解析状态只在新表中，绝不能把 legacy
 fallback 用于历史研究。新写入会在 `items.extra._legacy_time_basis` 标明
-`source_published`、`connector_observed` 或 `item_inserted`。P06c 建立 nullable 的 document versions 后，正式 published 投影才切换，
-并将旧数据标 `legacy_unverified`。本 PR 不回填历史 items，也不重写旧发布时间。
+`source_published`、`connector_observed` 或 `item_inserted`。P06c 的 nullable document version 只从
+同一 raw record 上有效的 published 证据生成正式投影；旧数据仍等待 P07 标记和回填。本阶段不重写
+历史 items，也不把 legacy fallback 提升为来源事实。

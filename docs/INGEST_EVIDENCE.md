@@ -1,8 +1,8 @@
 # 不可变采集证据与 CAS
 
 P06a 建立采集运行、来源配置快照、不可变载荷和重复观察的基础层。P06b 在同一基础上为 JSON/RSS
-连接器保存逐条 API record / 解析 entry 和来源时间；HTML 列表仍是 generated metadata。文档版本和
-正文提取由 P06c 接续，不能把本层记录直接当作已经标准化的文章或发布方全文。
+连接器保存逐条 API record / 解析 entry 和来源时间；HTML 列表仍是 generated metadata。P06c 将
+这些证据投影成文档版本，但内容质量仍按实际取得的载荷标注，不能把本层记录冒充发布方全文。
 
 ## 当前写入链路
 

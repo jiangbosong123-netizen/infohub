@@ -454,6 +454,163 @@ BEFORE DELETE ON source_time_values
 BEGIN SELECT RAISE(ABORT, 'source time values are immutable'); END;
 """
 
+DOCUMENT_VERSION_SCHEMA_SQL = """
+CREATE TABLE documents (
+    id TEXT PRIMARY KEY,
+    dataset_id TEXT NOT NULL,
+    legacy_item_id INTEGER NOT NULL UNIQUE REFERENCES items(id),
+    kind TEXT NOT NULL CHECK(kind IN (
+        'article','flash','filing','policy_release','research','commentary','transcript','other'
+    )),
+    first_seen_at TEXT NOT NULL CHECK(length(first_seen_at)=27 AND substr(first_seen_at,27,1)='Z'),
+    current_version_id TEXT UNIQUE REFERENCES document_versions(id),
+    status TEXT NOT NULL DEFAULT 'active' CHECK(status IN (
+        'active','withdrawn','restricted','duplicate_alias'
+    ))
+);
+CREATE INDEX idx_documents_dataset_seen ON documents(dataset_id, first_seen_at DESC);
+
+CREATE TABLE document_versions (
+    id TEXT PRIMARY KEY,
+    document_id TEXT NOT NULL REFERENCES documents(id),
+    version INTEGER NOT NULL CHECK(version > 0),
+    previous_version_id TEXT REFERENCES document_versions(id),
+    normalizer_version TEXT NOT NULL,
+    normalized_at TEXT NOT NULL CHECK(length(normalized_at)=27 AND substr(normalized_at,27,1)='Z'),
+    title_original TEXT NOT NULL,
+    language TEXT NOT NULL,
+    text TEXT NOT NULL,
+    content_sha256 TEXT NOT NULL CHECK(length(content_sha256)=64),
+    version_sha256 TEXT NOT NULL CHECK(length(version_sha256)=64),
+    canonical_url TEXT NOT NULL,
+    source_id INTEGER NOT NULL REFERENCES sources(id),
+    publisher_id TEXT,
+    published_at TEXT CHECK(
+        published_at IS NULL OR (length(published_at)=27 AND substr(published_at,27,1)='Z')
+    ),
+    published_time_value_id TEXT REFERENCES source_time_values(id),
+    published_precision TEXT NOT NULL CHECK(published_precision IN (
+        'second','minute','date','month','unknown'
+    )),
+    time_status TEXT NOT NULL CHECK(time_status IN (
+        'parsed','missing','invalid','missing_timezone','ambiguous_local_time',
+        'nonexistent_local_time','future_suspect'
+    )),
+    time_rule_version TEXT NOT NULL,
+    tzdb_version TEXT NOT NULL,
+    content_origin TEXT NOT NULL CHECK(content_origin IN (
+        'publisher_text','feed_excerpt','generated_metadata','legacy_unknown'
+    )),
+    content_extent TEXT NOT NULL CHECK(content_extent IN (
+        'full','excerpt','title_only','none'
+    )),
+    truncated INTEGER NOT NULL CHECK(truncated IN (0,1)),
+    extraction_status TEXT NOT NULL CHECK(extraction_status IN (
+        'complete','partial','not_attempted','failed'
+    )),
+    correction_kind TEXT NOT NULL CHECK(correction_kind IN (
+        'initial','content_change','metadata_change'
+    )),
+    available_at TEXT NOT NULL CHECK(length(available_at)=27 AND substr(available_at,27,1)='Z'),
+    UNIQUE(document_id, version),
+    CHECK((version=1 AND previous_version_id IS NULL)
+       OR (version>1 AND previous_version_id IS NOT NULL))
+);
+CREATE INDEX idx_document_versions_document
+    ON document_versions(document_id, version DESC);
+CREATE INDEX idx_document_versions_content ON document_versions(content_sha256);
+
+CREATE TABLE document_version_inputs (
+    version_id TEXT NOT NULL REFERENCES document_versions(id),
+    raw_record_id TEXT NOT NULL REFERENCES raw_records(id),
+    role TEXT NOT NULL CHECK(role IN ('primary','metadata','additional')),
+    PRIMARY KEY(version_id, raw_record_id)
+);
+CREATE INDEX idx_document_inputs_raw ON document_version_inputs(raw_record_id);
+
+CREATE TABLE document_locators (
+    document_id TEXT NOT NULL REFERENCES documents(id),
+    source_id INTEGER NOT NULL REFERENCES sources(id),
+    external_id TEXT NOT NULL,
+    canonical_url TEXT NOT NULL,
+    relation TEXT NOT NULL CHECK(relation IN (
+        'canonical','mirror','redirect','source_alias'
+    )),
+    first_observed_at TEXT NOT NULL CHECK(
+        length(first_observed_at)=27 AND substr(first_observed_at,27,1)='Z'
+    ),
+    last_observed_at TEXT NOT NULL CHECK(
+        length(last_observed_at)=27 AND substr(last_observed_at,27,1)='Z'
+    ),
+    PRIMARY KEY(source_id, external_id),
+    CHECK(last_observed_at >= first_observed_at)
+);
+CREATE INDEX idx_document_locators_document ON document_locators(document_id);
+CREATE INDEX idx_document_locators_url ON document_locators(canonical_url);
+
+CREATE TRIGGER document_versions_valid_append
+BEFORE INSERT ON document_versions
+WHEN NEW.version != COALESCE(
+         (SELECT MAX(version)+1 FROM document_versions WHERE document_id=NEW.document_id), 1
+     )
+  OR (NEW.version=1 AND NEW.previous_version_id IS NOT NULL)
+  OR (NEW.version>1 AND NEW.previous_version_id IS NOT (
+         SELECT id FROM document_versions
+         WHERE document_id=NEW.document_id AND version=NEW.version-1
+     ))
+BEGIN SELECT RAISE(ABORT, 'document versions must form a contiguous append-only chain'); END;
+
+CREATE TRIGGER document_versions_no_update
+BEFORE UPDATE ON document_versions
+BEGIN SELECT RAISE(ABORT, 'document versions are immutable'); END;
+CREATE TRIGGER document_versions_no_delete
+BEFORE DELETE ON document_versions
+BEGIN SELECT RAISE(ABORT, 'document versions are immutable'); END;
+CREATE TRIGGER document_version_inputs_no_update
+BEFORE UPDATE ON document_version_inputs
+BEGIN SELECT RAISE(ABORT, 'document version inputs are immutable'); END;
+CREATE TRIGGER document_version_inputs_no_delete
+BEFORE DELETE ON document_version_inputs
+BEGIN SELECT RAISE(ABORT, 'document version inputs are immutable'); END;
+
+CREATE TRIGGER documents_identity_immutable
+BEFORE UPDATE ON documents
+WHEN NEW.id IS NOT OLD.id
+  OR NEW.dataset_id IS NOT OLD.dataset_id
+  OR NEW.legacy_item_id IS NOT OLD.legacy_item_id
+  OR NEW.kind IS NOT OLD.kind
+  OR NEW.first_seen_at IS NOT OLD.first_seen_at
+BEGIN SELECT RAISE(ABORT, 'document identity is immutable'); END;
+
+CREATE TRIGGER documents_current_version_valid
+BEFORE UPDATE OF current_version_id ON documents
+WHEN NEW.current_version_id IS NOT NULL
+ AND NOT EXISTS(
+     SELECT 1 FROM document_versions
+     WHERE id=NEW.current_version_id AND document_id=NEW.id
+ )
+BEGIN SELECT RAISE(ABORT, 'current version must belong to the document'); END;
+CREATE TRIGGER documents_current_version_required
+BEFORE UPDATE OF current_version_id ON documents
+WHEN NEW.current_version_id IS NULL
+BEGIN SELECT RAISE(ABORT, 'current version cannot be cleared'); END;
+
+CREATE TRIGGER documents_no_delete
+BEFORE DELETE ON documents
+BEGIN SELECT RAISE(ABORT, 'documents are stable identities'); END;
+
+CREATE TRIGGER document_locators_identity_immutable
+BEFORE UPDATE ON document_locators
+WHEN NEW.document_id IS NOT OLD.document_id
+  OR NEW.source_id IS NOT OLD.source_id
+  OR NEW.external_id IS NOT OLD.external_id
+  OR NEW.first_observed_at IS NOT OLD.first_observed_at
+BEGIN SELECT RAISE(ABORT, 'document locator identity is immutable'); END;
+CREATE TRIGGER document_locators_no_delete
+BEFORE DELETE ON document_locators
+BEGIN SELECT RAISE(ABORT, 'document locators are append-only'); END;
+"""
+
 
 def _execute_script(db: sqlite3.Connection, script: str) -> None:
     """Execute a SQL script without sqlite3.executescript's implicit COMMIT."""
@@ -537,6 +694,10 @@ def _source_time_foundation(db: sqlite3.Connection) -> None:
     _execute_script(db, SOURCE_TIME_SCHEMA_SQL)
 
 
+def _document_version_foundation(db: sqlite3.Connection) -> None:
+    _execute_script(db, DOCUMENT_VERSION_SCHEMA_SQL)
+
+
 # Migration 1 freezes the exact legacy schema at main@88a2a1e. Future schema
 # changes must append a new Migration instead of editing this definition.
 MIGRATIONS = (
@@ -573,6 +734,12 @@ MIGRATIONS = (
         SOURCE_TIME_SCHEMA_SQL,
         _source_time_foundation,
     ),
+    Migration(
+        6,
+        "stable document version foundation",
+        DOCUMENT_VERSION_SCHEMA_SQL,
+        _document_version_foundation,
+    ),
 )
 CURRENT_SCHEMA_VERSION = MIGRATIONS[-1].version
 REQUIRED_MIGRATION_COLUMNS = {
@@ -587,6 +754,7 @@ EXPECTED_TABLES = LEGACY_ANCHORS | {
     "knowledge_checkpoints",
     "source_config_versions", "ingest_runs", "raw_records", "raw_observations",
     "source_time_values",
+    "documents", "document_versions", "document_version_inputs", "document_locators",
 }
 EXPECTED_ITEM_COLUMNS = {
     "id", "source_id", "url", "title", "title_zh", "summary", "raw_summary",
@@ -655,12 +823,37 @@ EXPECTED_SOURCE_TIME_COLUMNS = {
     "source_timezone", "utc", "range_start_utc", "range_end_utc", "precision",
     "interpretation", "status", "rule_version", "tzdb_version",
 }
+EXPECTED_DOCUMENT_COLUMNS = {
+    "id", "dataset_id", "legacy_item_id", "kind", "first_seen_at",
+    "current_version_id", "status",
+}
+EXPECTED_DOCUMENT_VERSION_COLUMNS = {
+    "id", "document_id", "version", "previous_version_id", "normalizer_version",
+    "normalized_at",
+    "title_original", "language", "text", "content_sha256", "version_sha256",
+    "canonical_url", "source_id", "publisher_id", "published_at",
+    "published_time_value_id", "published_precision", "time_status",
+    "time_rule_version", "tzdb_version",
+    "content_origin", "content_extent", "truncated", "extraction_status",
+    "correction_kind", "available_at",
+}
+EXPECTED_DOCUMENT_INPUT_COLUMNS = {"version_id", "raw_record_id", "role"}
+EXPECTED_DOCUMENT_LOCATOR_COLUMNS = {
+    "document_id", "source_id", "external_id", "canonical_url", "relation",
+    "first_observed_at", "last_observed_at",
+}
 EXPECTED_INGEST_TRIGGERS = {
     "source_config_versions_no_update", "source_config_versions_no_delete",
     "raw_records_no_update", "raw_records_no_delete",
     "raw_observations_no_update", "raw_observations_no_delete",
     "ingest_runs_valid_transition", "ingest_runs_no_delete",
     "source_time_values_no_update", "source_time_values_no_delete",
+    "document_versions_valid_append", "document_versions_no_update",
+    "document_versions_no_delete", "document_version_inputs_no_update",
+    "document_version_inputs_no_delete", "documents_identity_immutable",
+    "documents_current_version_valid", "documents_current_version_required",
+    "documents_no_delete",
+    "document_locators_identity_immutable", "document_locators_no_delete",
 }
 
 
@@ -852,6 +1045,28 @@ def _assert_current_schema(db: sqlite3.Connection) -> None:
         row["name"] for row in db.execute("PRAGMA table_info(source_time_values)")
     }
     missing_source_time_columns = EXPECTED_SOURCE_TIME_COLUMNS - source_time_columns
+    document_columns = {
+        row["name"] for row in db.execute("PRAGMA table_info(documents)")
+    }
+    missing_document_columns = EXPECTED_DOCUMENT_COLUMNS - document_columns
+    document_version_columns = {
+        row["name"] for row in db.execute("PRAGMA table_info(document_versions)")
+    }
+    missing_document_version_columns = (
+        EXPECTED_DOCUMENT_VERSION_COLUMNS - document_version_columns
+    )
+    document_input_columns = {
+        row["name"] for row in db.execute("PRAGMA table_info(document_version_inputs)")
+    }
+    missing_document_input_columns = (
+        EXPECTED_DOCUMENT_INPUT_COLUMNS - document_input_columns
+    )
+    document_locator_columns = {
+        row["name"] for row in db.execute("PRAGMA table_info(document_locators)")
+    }
+    missing_document_locator_columns = (
+        EXPECTED_DOCUMENT_LOCATOR_COLUMNS - document_locator_columns
+    )
     ingest_triggers = {
         row["name"] for row in db.execute(
             "SELECT name FROM sqlite_master WHERE type='trigger'"
@@ -874,6 +1089,10 @@ def _assert_current_schema(db: sqlite3.Connection) -> None:
         or missing_raw_record_columns
         or missing_raw_observation_columns
         or missing_source_time_columns
+        or missing_document_columns
+        or missing_document_version_columns
+        or missing_document_input_columns
+        or missing_document_locator_columns
         or missing_ingest_triggers
         or "title_zh" not in fts_columns
     ):
@@ -893,6 +1112,10 @@ def _assert_current_schema(db: sqlite3.Connection) -> None:
             f"raw_record_columns={sorted(missing_raw_record_columns)}, "
             f"raw_observation_columns={sorted(missing_raw_observation_columns)}, "
             f"source_time_columns={sorted(missing_source_time_columns)}, "
+            f"document_columns={sorted(missing_document_columns)}, "
+            f"document_version_columns={sorted(missing_document_version_columns)}, "
+            f"document_input_columns={sorted(missing_document_input_columns)}, "
+            f"document_locator_columns={sorted(missing_document_locator_columns)}, "
             f"ingest_triggers={sorted(missing_ingest_triggers)}, "
             f"fts_title_zh={'title_zh' in fts_columns}"
         )
@@ -910,6 +1133,20 @@ def _assert_current_schema(db: sqlite3.Connection) -> None:
     if identity_rows[0]["owner_environment_id"] != identity_rows[0]["epoch_owner"]:
         raise DatabaseVerificationError(
             "dataset state and current epoch have different environment owners"
+        )
+    invalid_documents = db.execute(
+        """SELECT COUNT(*) FROM documents AS document
+           LEFT JOIN document_versions AS version
+             ON version.id=document.current_version_id
+           JOIN dataset_state AS state ON state.singleton=1
+           WHERE document.dataset_id<>state.dataset_id
+              OR document.current_version_id IS NULL
+              OR version.id IS NULL
+              OR version.document_id<>document.id"""
+    ).fetchone()[0]
+    if invalid_documents:
+        raise DatabaseVerificationError(
+            f"{invalid_documents} document(s) have an invalid dataset or current version"
         )
     invalid_jobs = db.execute(
         """SELECT COUNT(*) FROM jobs AS job

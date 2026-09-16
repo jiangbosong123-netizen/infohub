@@ -13,7 +13,8 @@ from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 
 from .. import company_match
 from ..database import get_db
-from ..ingest import begin_ingest_run, finish_ingest_run, observe_candidate
+from ..documents import project_candidate
+from ..ingest import RawObservation, begin_ingest_run, finish_ingest_run, observe_candidate
 from . import fastnews, hkex_source, html_source, rss_source, sec_source, sina_source
 from . import googlenews
 from .sources import all_sources
@@ -74,7 +75,13 @@ def _legacy_publication_projection(raw: dict) -> tuple[str, str]:
         return observed.isoformat(), basis
 
 
-def insert_item(source_key: str, raw: dict, via: str = "normal") -> bool:
+def insert_item(
+    source_key: str,
+    raw: dict,
+    via: str = "normal",
+    *,
+    observation: RawObservation | None = None,
+) -> bool:
     """入库一条（去重）。返回是否新插入。raw 带 _error 时只记日志。"""
     if "_error" in raw:
         log.warning("源 %s 部分子任务失败: %s", source_key, raw["_error"])
@@ -85,7 +92,10 @@ def insert_item(source_key: str, raw: dict, via: str = "normal") -> bool:
         return False
     published_at, legacy_time_basis = _legacy_publication_projection(raw)
     with get_db() as db:
-        src = db.execute("SELECT id, channel, tier FROM sources WHERE key=?", (source_key,)).fetchone()
+        db.execute("BEGIN IMMEDIATE")
+        src = db.execute(
+            "SELECT id,channel,tier,type FROM sources WHERE key=?", (source_key,)
+        ).fetchone()
         if not src:
             return False
         text = f"{title} {raw.get('summary') or ''}"
@@ -120,6 +130,25 @@ def insert_item(source_key: str, raw: dict, via: str = "normal") -> bool:
             if row:
                 db.execute("INSERT OR IGNORE INTO item_companies (item_id, company_id) VALUES (?,?)",
                            (item_id, row["id"]))
+        if observation is not None:
+            projection = project_candidate(
+                db,
+                source=src,
+                legacy_item_id=item_id,
+                candidate=raw,
+                canonical_url=url,
+                observation=observation,
+            )
+            if projection.created_version and not inserted:
+                # ``items`` remains the compatibility projection used by the
+                # portal until versioned reads are enabled in a later PR.
+                values = [title, raw.get("summary") or "", raw.get("summary") or ""]
+                assignment = "title=?,summary=?,raw_summary=?"
+                if projection.published_at is not None:
+                    assignment += ",published_at=?"
+                    values.append(projection.published_at)
+                values.append(item_id)
+                db.execute(f"UPDATE items SET {assignment} WHERE id=?", values)
     return inserted
 
 
@@ -162,7 +191,7 @@ def run_source(source: dict) -> tuple[int, bool, str]:
                 ingest_run, raw, ordinal=ordinal, observed_at=raw.get("observed_at")
             )
             observed_bytes += observation.size_bytes
-            if insert_item(source["key"], raw):
+            if insert_item(source["key"], raw, observation=observation):
                 inserted += 1
             else:
                 duplicates += 1
