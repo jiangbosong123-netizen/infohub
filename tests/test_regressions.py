@@ -7,7 +7,7 @@ from datetime import datetime, timezone
 from concurrent.futures import ThreadPoolExecutor
 
 from fastapi.testclient import TestClient
-from app import database, company_match, ranking
+from app import config, database, company_match, ranking
 from app.ai import daily, pipeline
 from app.crawler import runner
 from app.web import routes
@@ -20,6 +20,9 @@ class RegressionTests(unittest.TestCase):
         patcher = patch.object(database, 'DB_PATH', Path(self.temp.name) / 'test.db')
         patcher.start()
         self.addCleanup(patcher.stop)
+        blob_patcher = patch.object(config, 'BLOB_PATH', Path(self.temp.name) / 'blobs')
+        blob_patcher.start()
+        self.addCleanup(blob_patcher.stop)
         database.init_schema()
         company_match.invalidate_cache()
         self.addCleanup(company_match.invalidate_cache)

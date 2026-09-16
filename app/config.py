@@ -274,6 +274,9 @@ WORKER_LEASE_SECONDS = _integer(os.environ, "WORKER_LEASE_SECONDS", 300, 30, 360
 PIPELINE_JOB_STALE_SECONDS = _integer(
     os.environ, "PIPELINE_JOB_STALE_SECONDS", 900, 60, 86_400
 )
+RAW_PAYLOAD_MAX_BYTES = _integer(
+    os.environ, "RAW_PAYLOAD_MAX_BYTES", 2_097_152, 1_024, 104_857_600
+)
 
 SEC_USER_AGENT = os.getenv(
     "SEC_USER_AGENT", "personal-news-aggregator admin@example.com"

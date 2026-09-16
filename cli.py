@@ -21,6 +21,7 @@ from __future__ import annotations
   python cli.py worker                 # 启动持久任务调度与执行进程
   python cli.py worker-health          # 检查当前版本 worker 心跳
   python cli.py prepare-release        # 安全迁移、同步静态配置并清除旧心跳
+  python cli.py raw-verify             # 全量校验原始载荷 CAS 引用和哈希
 """
 import json
 import logging
@@ -202,6 +203,14 @@ def cmd_prepare_release() -> None:
     print("发布准备完成：数据库已验证，旧 worker 心跳已清除。")
 
 
+def cmd_raw_verify() -> None:
+    from app.ingest import audit_payloads
+    report = audit_payloads()
+    print(json.dumps(report.to_dict(), ensure_ascii=False, indent=2))
+    if not report.healthy:
+        raise SystemExit(1)
+
+
 def main() -> None:
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
     cmd = sys.argv[1] if len(sys.argv) > 1 else ""
@@ -244,6 +253,8 @@ def main() -> None:
         cmd_worker_health()
     elif cmd == "prepare-release":
         cmd_prepare_release()
+    elif cmd == "raw-verify":
+        cmd_raw_verify()
     else:
         print(__doc__)
         sys.exit(1)

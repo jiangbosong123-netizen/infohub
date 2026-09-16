@@ -128,6 +128,18 @@ def _system_snapshot() -> dict:
                ORDER BY observed_at DESC,id DESC LIMIT 1""",
             (dataset_row["dataset_id"], dataset_row["current_epoch"]),
         ).fetchone()
+        ingest_states = {
+            state: 0
+            for state in ("queued", "running", "succeeded", "partial", "failed", "skipped")
+        }
+        for row in db.execute("SELECT status,COUNT(*) AS n FROM ingest_runs GROUP BY status"):
+            ingest_states[row["status"]] = row["n"]
+        ingest_evidence = db.execute(
+            """SELECT
+                   (SELECT COUNT(*) FROM raw_records) AS records,
+                   (SELECT COUNT(*) FROM raw_observations) AS observations,
+                   (SELECT MAX(finished_at) FROM ingest_runs) AS last_finished_at"""
+        ).fetchone()
     source_states = [_source_status(row, now) for row in source_rows]
     issues = sum(state != "ok" for state in source_states)
     oldest_ready_age = (
@@ -193,6 +205,12 @@ def _system_snapshot() -> dict:
             "oldest_ready_at": oldest_ready,
             "oldest_ready_age_seconds": oldest_ready_age,
             "expired_running": expired_running,
+        },
+        "ingest": {
+            "states": ingest_states,
+            "raw_records": ingest_evidence["records"],
+            "observations": ingest_evidence["observations"],
+            "last_finished_at": ingest_evidence["last_finished_at"],
         },
         "dataset": {
             "dataset_id": dataset_row["dataset_id"],
@@ -553,6 +571,7 @@ def api_pipeline():
         "worker": snapshot["worker"],
         "sources": snapshot["sources"],
         "jobs": snapshot["jobs"],
+        "ingest": snapshot["ingest"],
         "items": snapshot["items"],
         "reports": snapshot["reports"],
         "checked_at": snapshot["checked_at"],

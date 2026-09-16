@@ -124,6 +124,7 @@ app/
 ├── ai/               # LLM 策展（摘要 / 评分 / 日报），无 Key 自动降级
 ├── worker.py         # 持久计划、任务领取、租约续期与处理循环
 ├── runtime_health.py # worker 原子心跳和版本/新鲜度判断
+├── ingest.py         # 采集运行、不可变观察与内容寻址载荷（CAS）
 ├── ranking.py        # 热度算法 + 热点聚类（标题相似度 + 多信源加成）
 ├── web/              # FastAPI + Jinja2 页面
 └── database.py       # SQLite（WAL）schema
@@ -206,5 +207,13 @@ worker 已停止且租约不再存活时，才可用当前 epoch 和明确原因
 `prepare-release` 在 web/worker 启动前安全迁移数据库、同步公司与来源并清除旧版本心跳；
 `serve` 只验证当前数据库后提供页面，不再初始化或运行任务。抓取和 AI worker 任务继续更新
 主题与事件。
+
+新采集候选在写入旧 `items` 投影前，先以 SHA-256 保存到 `data/blobs`，并追加 ingest run、
+来源配置版本和 observation。重复看到相同载荷只追加观察，同 URL 内容改变会保留新的不可变载荷。
+当前保存的是旧 fetcher 输出的 `generated_metadata`，不冒充发布方全文；逐来源原始 entry、时间规则
+和 document version 在 P06b/P06c 接入。运行 `python cli.py raw-verify` 可全量校验 DB 引用与 CAS
+文件；从这一版起，完整备份必须同时包含 SQLite 和 blobs，具体步骤见
+[采集证据说明](docs/INGEST_EVIDENCE.md)。
+
 历史事件链接保留；未识别发布方的聚合入口不增加发布方数量。算法使用保守的标题、
 版本、时间与实体规则，仍可能漏合并大幅改写的报道，具体边界见对标说明。

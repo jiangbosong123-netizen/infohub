@@ -291,6 +291,128 @@ CREATE INDEX idx_knowledge_checkpoints_latest
     ON knowledge_checkpoints(dataset_id, epoch, observed_at DESC, id DESC);
 """
 
+INGEST_EVIDENCE_SCHEMA_SQL = """
+CREATE TABLE source_config_versions (
+    id TEXT PRIMARY KEY,
+    source_id INTEGER NOT NULL REFERENCES sources(id),
+    version INTEGER NOT NULL CHECK(version > 0),
+    config_json TEXT NOT NULL,
+    config_hash TEXT NOT NULL,
+    available_at TEXT NOT NULL,
+    UNIQUE(source_id, version),
+    UNIQUE(source_id, config_hash)
+);
+
+CREATE TABLE ingest_runs (
+    id TEXT PRIMARY KEY,
+    source_id INTEGER NOT NULL REFERENCES sources(id),
+    config_version_id TEXT NOT NULL REFERENCES source_config_versions(id),
+    dataset_id TEXT NOT NULL,
+    dataset_epoch TEXT NOT NULL,
+    parent_run_id TEXT REFERENCES ingest_runs(id),
+    scheduled_for TEXT NOT NULL,
+    started_at TEXT NOT NULL,
+    finished_at TEXT,
+    status TEXT NOT NULL CHECK(status IN (
+        'queued','running','succeeded','partial','failed','skipped'
+    )),
+    request_count INTEGER NOT NULL DEFAULT 0 CHECK(request_count >= 0),
+    raw_count INTEGER NOT NULL DEFAULT 0 CHECK(raw_count >= 0),
+    accepted_count INTEGER NOT NULL DEFAULT 0 CHECK(accepted_count >= 0),
+    duplicate_count INTEGER NOT NULL DEFAULT 0 CHECK(duplicate_count >= 0),
+    rejected_count INTEGER NOT NULL DEFAULT 0 CHECK(rejected_count >= 0),
+    bytes INTEGER NOT NULL DEFAULT 0 CHECK(bytes >= 0),
+    watermark_before TEXT,
+    watermark_after TEXT,
+    error_code TEXT,
+    trace_id TEXT NOT NULL UNIQUE,
+    FOREIGN KEY(dataset_id, dataset_epoch)
+        REFERENCES dataset_epochs(dataset_id, epoch)
+);
+CREATE INDEX idx_ingest_runs_source_started
+    ON ingest_runs(source_id, started_at DESC);
+CREATE INDEX idx_ingest_runs_status_started
+    ON ingest_runs(status, started_at);
+
+CREATE TABLE raw_records (
+    id TEXT PRIMARY KEY,
+    first_ingest_run_id TEXT NOT NULL REFERENCES ingest_runs(id),
+    source_id INTEGER NOT NULL REFERENCES sources(id),
+    external_id TEXT NOT NULL,
+    observed_at TEXT NOT NULL,
+    ingested_at TEXT NOT NULL,
+    request_url TEXT,
+    final_url TEXT,
+    http_status INTEGER,
+    selected_headers TEXT NOT NULL DEFAULT '{}',
+    media_type TEXT NOT NULL,
+    encoding TEXT,
+    payload_sha256 TEXT NOT NULL,
+    payload_ref TEXT NOT NULL,
+    payload_kind TEXT NOT NULL CHECK(payload_kind IN (
+        'feed_entry','api_record','html','pdf','legacy_excerpt','generated_metadata'
+    )),
+    truncated INTEGER NOT NULL DEFAULT 0 CHECK(truncated IN (0,1)),
+    size_bytes INTEGER NOT NULL CHECK(size_bytes >= 0),
+    retention_class TEXT NOT NULL,
+    UNIQUE(source_id, external_id, payload_sha256)
+);
+CREATE INDEX idx_raw_records_source_observed
+    ON raw_records(source_id, observed_at DESC);
+CREATE INDEX idx_raw_records_payload ON raw_records(payload_sha256);
+
+CREATE TABLE raw_observations (
+    id TEXT PRIMARY KEY,
+    raw_record_id TEXT NOT NULL REFERENCES raw_records(id),
+    ingest_run_id TEXT NOT NULL REFERENCES ingest_runs(id),
+    ordinal INTEGER NOT NULL CHECK(ordinal >= 0),
+    observed_at TEXT NOT NULL,
+    UNIQUE(ingest_run_id, ordinal)
+);
+CREATE INDEX idx_raw_observations_record
+    ON raw_observations(raw_record_id, observed_at DESC);
+
+CREATE TRIGGER source_config_versions_no_update
+BEFORE UPDATE ON source_config_versions
+BEGIN SELECT RAISE(ABORT, 'source config versions are immutable'); END;
+CREATE TRIGGER source_config_versions_no_delete
+BEFORE DELETE ON source_config_versions
+BEGIN SELECT RAISE(ABORT, 'source config versions are immutable'); END;
+
+CREATE TRIGGER raw_records_no_update
+BEFORE UPDATE ON raw_records
+BEGIN SELECT RAISE(ABORT, 'raw records are immutable'); END;
+CREATE TRIGGER raw_records_no_delete
+BEFORE DELETE ON raw_records
+BEGIN SELECT RAISE(ABORT, 'raw records are immutable'); END;
+CREATE TRIGGER raw_observations_no_update
+BEFORE UPDATE ON raw_observations
+BEGIN SELECT RAISE(ABORT, 'raw observations are immutable'); END;
+CREATE TRIGGER raw_observations_no_delete
+BEFORE DELETE ON raw_observations
+BEGIN SELECT RAISE(ABORT, 'raw observations are immutable'); END;
+
+CREATE TRIGGER ingest_runs_valid_transition
+BEFORE UPDATE ON ingest_runs
+WHEN OLD.status <> 'running'
+  OR NEW.id IS NOT OLD.id
+  OR NEW.source_id IS NOT OLD.source_id
+  OR NEW.config_version_id IS NOT OLD.config_version_id
+  OR NEW.dataset_id IS NOT OLD.dataset_id
+  OR NEW.dataset_epoch IS NOT OLD.dataset_epoch
+  OR NEW.parent_run_id IS NOT OLD.parent_run_id
+  OR NEW.scheduled_for IS NOT OLD.scheduled_for
+  OR NEW.started_at IS NOT OLD.started_at
+  OR NEW.watermark_before IS NOT OLD.watermark_before
+  OR NEW.trace_id IS NOT OLD.trace_id
+  OR NEW.status NOT IN ('succeeded','partial','failed','skipped')
+  OR NEW.finished_at IS NULL
+BEGIN SELECT RAISE(ABORT, 'invalid immutable ingest run transition'); END;
+CREATE TRIGGER ingest_runs_no_delete
+BEFORE DELETE ON ingest_runs
+BEGIN SELECT RAISE(ABORT, 'ingest runs are immutable'); END;
+"""
+
 
 def _execute_script(db: sqlite3.Connection, script: str) -> None:
     """Execute a SQL script without sqlite3.executescript's implicit COMMIT."""
@@ -366,6 +488,10 @@ def _publication_ledger_foundation(db: sqlite3.Connection) -> None:
     )
 
 
+def _ingest_evidence_foundation(db: sqlite3.Connection) -> None:
+    _execute_script(db, INGEST_EVIDENCE_SCHEMA_SQL)
+
+
 # Migration 1 freezes the exact legacy schema at main@88a2a1e. Future schema
 # changes must append a new Migration instead of editing this definition.
 MIGRATIONS = (
@@ -390,6 +516,12 @@ MIGRATIONS = (
         + "\nadopt-version-2-jobs-into-initial-epoch-v1",
         _publication_ledger_foundation,
     ),
+    Migration(
+        4,
+        "immutable ingest evidence foundation",
+        INGEST_EVIDENCE_SCHEMA_SQL,
+        _ingest_evidence_foundation,
+    ),
 )
 CURRENT_SCHEMA_VERSION = MIGRATIONS[-1].version
 REQUIRED_MIGRATION_COLUMNS = {
@@ -402,6 +534,7 @@ EXPECTED_TABLES = LEGACY_ANCHORS | {
     "indexed_items", "schema_migrations", "jobs", "job_attempts", "schedules",
     "dataset_epochs", "dataset_state", "change_log", "clock_checks",
     "knowledge_checkpoints",
+    "source_config_versions", "ingest_runs", "raw_records", "raw_observations",
 }
 EXPECTED_ITEM_COLUMNS = {
     "id", "source_id", "url", "title", "title_zh", "summary", "raw_summary",
@@ -445,6 +578,31 @@ EXPECTED_CHECKPOINT_COLUMNS = {
 EXPECTED_CLOCK_CHECK_COLUMNS = {
     "id", "environment_id", "measured_at", "recorded_at", "source", "offset_ms",
     "status", "detail_json",
+}
+EXPECTED_SOURCE_CONFIG_VERSION_COLUMNS = {
+    "id", "source_id", "version", "config_json", "config_hash", "available_at",
+}
+EXPECTED_INGEST_RUN_COLUMNS = {
+    "id", "source_id", "config_version_id", "dataset_id", "dataset_epoch",
+    "parent_run_id", "scheduled_for",
+    "started_at", "finished_at", "status", "request_count", "raw_count",
+    "accepted_count", "duplicate_count", "rejected_count", "bytes",
+    "watermark_before", "watermark_after", "error_code", "trace_id",
+}
+EXPECTED_RAW_RECORD_COLUMNS = {
+    "id", "first_ingest_run_id", "source_id", "external_id", "observed_at",
+    "ingested_at", "request_url", "final_url", "http_status", "selected_headers",
+    "media_type", "encoding", "payload_sha256", "payload_ref", "payload_kind",
+    "truncated", "size_bytes", "retention_class",
+}
+EXPECTED_RAW_OBSERVATION_COLUMNS = {
+    "id", "raw_record_id", "ingest_run_id", "ordinal", "observed_at",
+}
+EXPECTED_INGEST_TRIGGERS = {
+    "source_config_versions_no_update", "source_config_versions_no_delete",
+    "raw_records_no_update", "raw_records_no_delete",
+    "raw_observations_no_update", "raw_observations_no_delete",
+    "ingest_runs_valid_transition", "ingest_runs_no_delete",
 }
 
 
@@ -612,6 +770,32 @@ def _assert_current_schema(db: sqlite3.Connection) -> None:
         row["name"] for row in db.execute("PRAGMA table_info(clock_checks)")
     }
     missing_clock_columns = EXPECTED_CLOCK_CHECK_COLUMNS - clock_columns
+    source_config_columns = {
+        row["name"] for row in db.execute("PRAGMA table_info(source_config_versions)")
+    }
+    missing_source_config_columns = (
+        EXPECTED_SOURCE_CONFIG_VERSION_COLUMNS - source_config_columns
+    )
+    ingest_run_columns = {
+        row["name"] for row in db.execute("PRAGMA table_info(ingest_runs)")
+    }
+    missing_ingest_run_columns = EXPECTED_INGEST_RUN_COLUMNS - ingest_run_columns
+    raw_record_columns = {
+        row["name"] for row in db.execute("PRAGMA table_info(raw_records)")
+    }
+    missing_raw_record_columns = EXPECTED_RAW_RECORD_COLUMNS - raw_record_columns
+    raw_observation_columns = {
+        row["name"] for row in db.execute("PRAGMA table_info(raw_observations)")
+    }
+    missing_raw_observation_columns = (
+        EXPECTED_RAW_OBSERVATION_COLUMNS - raw_observation_columns
+    )
+    ingest_triggers = {
+        row["name"] for row in db.execute(
+            "SELECT name FROM sqlite_master WHERE type='trigger'"
+        )
+    }
+    missing_ingest_triggers = EXPECTED_INGEST_TRIGGERS - ingest_triggers
     if (
         missing_tables
         or missing_columns
@@ -623,6 +807,11 @@ def _assert_current_schema(db: sqlite3.Connection) -> None:
         or missing_change_columns
         or missing_checkpoint_columns
         or missing_clock_columns
+        or missing_source_config_columns
+        or missing_ingest_run_columns
+        or missing_raw_record_columns
+        or missing_raw_observation_columns
+        or missing_ingest_triggers
         or "title_zh" not in fts_columns
     ):
         raise DatabaseVerificationError(
@@ -636,6 +825,11 @@ def _assert_current_schema(db: sqlite3.Connection) -> None:
             f"change_columns={sorted(missing_change_columns)}, "
             f"checkpoint_columns={sorted(missing_checkpoint_columns)}, "
             f"clock_columns={sorted(missing_clock_columns)}, "
+            f"source_config_columns={sorted(missing_source_config_columns)}, "
+            f"ingest_run_columns={sorted(missing_ingest_run_columns)}, "
+            f"raw_record_columns={sorted(missing_raw_record_columns)}, "
+            f"raw_observation_columns={sorted(missing_raw_observation_columns)}, "
+            f"ingest_triggers={sorted(missing_ingest_triggers)}, "
             f"fts_title_zh={'title_zh' in fts_columns}"
         )
     identity_rows = db.execute(

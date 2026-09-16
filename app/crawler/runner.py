@@ -13,6 +13,7 @@ from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 
 from .. import company_match
 from ..database import get_db
+from ..ingest import begin_ingest_run, finish_ingest_run, observe_candidate
 from . import fastnews, hkex_source, html_source, rss_source, sec_source, sina_source
 from . import googlenews
 from .sources import all_sources
@@ -108,28 +109,60 @@ def run_source(source: dict) -> tuple[int, bool, str]:
         message = f"未知源类型 {source['type']}"
         _record(source["key"], ok=False, new=0, message=message)
         return 0, False, message
+    ingest_run = begin_ingest_run(source)
     try:
         raws = fetcher(source)
     except Exception as exc:  # noqa: BLE001 - 源级失败，记健康状态
         log.warning("源 %s 抓取失败: %s", source["key"], exc)
+        finish_ingest_run(
+            ingest_run,
+            status="failed",
+            raw_count=0,
+            accepted_count=0,
+            duplicate_count=0,
+            rejected_count=0,
+            byte_count=0,
+            error_code=f"fetch_{type(exc).__name__}",
+        )
         _record(source["key"], ok=False, new=0, message=str(exc)[:300])
         return 0, False, str(exc)[:300]
 
     errors = [r["_error"] for r in raws if "_error" in r]
     inserted = 0
-    for raw in raws:
+    accepted = 0
+    duplicates = 0
+    rejected = 0
+    observed_bytes = 0
+    for ordinal, raw in enumerate(raws):
         if "_error" in raw:
             continue
         try:
+            observation = observe_candidate(ingest_run, raw, ordinal=ordinal)
+            observed_bytes += observation.size_bytes
             if insert_item(source["key"], raw):
                 inserted += 1
+            else:
+                duplicates += 1
+            accepted += 1
         except Exception as exc:
-            errors.append(f"入库失败: {type(exc).__name__}")
-            log.exception("源 %s 条目入库失败", source["key"])
+            rejected += 1
+            errors.append(f"证据或入库失败: {type(exc).__name__}")
+            log.exception("源 %s 条目证据或入库失败", source["key"])
     ok = not errors  # 部分失败也展示，已成功抓取的条目照常保留
     message = "; ".join(errors[-3:]) if errors else ""
+    run_status = "succeeded" if ok else ("partial" if accepted else "failed")
+    finish_ingest_run(
+        ingest_run,
+        status=run_status,
+        raw_count=sum("_error" not in raw for raw in raws),
+        accepted_count=accepted,
+        duplicate_count=duplicates,
+        rejected_count=rejected,
+        byte_count=observed_bytes,
+        error_code="candidate_rejected" if errors else None,
+    )
     _record(source["key"], ok=ok, new=inserted, message=message,
-            partial=bool(errors) and len(errors)<len(raws))
+            partial=bool(errors) and accepted > 0)
     return inserted, ok, message
 
 

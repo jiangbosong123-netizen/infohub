@@ -17,6 +17,8 @@ class CrawlerHealthTests(unittest.TestCase):
         self.folder=Path(folder.name)
         patcher=patch.object(database,'DB_PATH',Path(folder.name)/'test.db')
         patcher.start();self.addCleanup(patcher.stop)
+        blob_patcher=patch.object(config,'BLOB_PATH',Path(folder.name)/'blobs')
+        blob_patcher.start();self.addCleanup(blob_patcher.stop)
         database.init_schema()
         company_match.invalidate_cache();self.addCleanup(company_match.invalidate_cache)
         with database.get_db() as db:
@@ -155,3 +157,5 @@ class CrawlerHealthTests(unittest.TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.json()['status'], 'degraded')
         self.assertIn('durable_job_backlog_stale', response.json()['issues'])
+        self.assertEqual(response.json()['ingest']['raw_records'], 0)
+        self.assertEqual(response.json()['ingest']['observations'], 0)
