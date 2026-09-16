@@ -33,7 +33,7 @@ class DatabaseSafetyTests(unittest.TestCase):
         first = db_admin.migrate_database(self.path)
         second = db_admin.migrate_database(self.path)
         self.assertEqual(first.previous_state, "empty")
-        self.assertEqual(first.applied_versions, (1, 2, 3, 4, 5, 6))
+        self.assertEqual(first.applied_versions, (1, 2, 3, 4, 5, 6, 7))
         self.assertIsNone(first.backup_path)
         self.assertEqual(second.applied_versions, ())
         self.assertEqual(second.verification.state, "current")
@@ -164,10 +164,10 @@ class DatabaseSafetyTests(unittest.TestCase):
         report = db_admin.migrate_database(self.path)
         self.assertEqual(report.previous_state, "versioned")
         self.assertEqual(report.previous_version, 1)
-        self.assertEqual(report.applied_versions, (2, 3, 4, 5, 6))
+        self.assertEqual(report.applied_versions, (2, 3, 4, 5, 6, 7))
         self.assertTrue(report.backup_path)
         self.assertEqual(db_admin.verify_database(report.backup_path).schema_version, 1)
-        self.assertEqual(report.verification.schema_version, 6)
+        self.assertEqual(report.verification.schema_version, 7)
 
     def test_version_two_jobs_survive_publication_ledger_upgrade(self):
         with database.get_db(self.path) as db:
@@ -193,7 +193,7 @@ class DatabaseSafetyTests(unittest.TestCase):
 
         report = db_admin.migrate_database(self.path)
         self.assertEqual(report.previous_version, 2)
-        self.assertEqual(report.applied_versions, (3, 4, 5, 6))
+        self.assertEqual(report.applied_versions, (3, 4, 5, 6, 7))
         with sqlite3.connect(self.path) as db:
             job = db.execute(
                 """SELECT id,idempotency_key,logical_idempotency_key,
@@ -244,7 +244,7 @@ class DatabaseSafetyTests(unittest.TestCase):
             )
         report = db_admin.migrate_database(self.path)
         self.assertEqual(report.previous_version, 3)
-        self.assertEqual(report.applied_versions, (4, 5, 6))
+        self.assertEqual(report.applied_versions, (4, 5, 6, 7))
         self.assertTrue(report.backup_path)
         with sqlite3.connect(self.path) as db:
             self.assertEqual(
@@ -298,7 +298,7 @@ class DatabaseSafetyTests(unittest.TestCase):
             )
         report = db_admin.migrate_database(self.path)
         self.assertEqual(report.previous_version, 4)
-        self.assertEqual(report.applied_versions, (5, 6))
+        self.assertEqual(report.applied_versions, (5, 6, 7))
         self.assertTrue(report.backup_path)
         with sqlite3.connect(self.path) as db:
             raw = db.execute(
@@ -327,7 +327,7 @@ class DatabaseSafetyTests(unittest.TestCase):
             )
         report = db_admin.migrate_database(self.path)
         self.assertEqual(report.previous_version, 5)
-        self.assertEqual(report.applied_versions, (6,))
+        self.assertEqual(report.applied_versions, (6, 7))
         self.assertTrue(report.backup_path)
         with sqlite3.connect(self.path) as db:
             self.assertEqual(
@@ -335,6 +335,71 @@ class DatabaseSafetyTests(unittest.TestCase):
                 ("existing", "unchanged"),
             )
             self.assertEqual(db.execute("SELECT COUNT(*) FROM documents").fetchone()[0], 0)
+
+    def test_version_six_adds_backfill_state_without_rewriting_documents(self):
+        with database.get_db(self.path) as db:
+            self.assertEqual(
+                db_admin.apply_migrations(db, db_admin.MIGRATIONS[:6]),
+                (1, 2, 3, 4, 5, 6),
+            )
+            dataset_id = db.execute(
+                "SELECT dataset_id FROM dataset_state WHERE singleton=1"
+            ).fetchone()[0]
+            db.execute(
+                """INSERT INTO sources(key,name,channel,type)
+                   VALUES('fixture','Fixture','stock','rss')"""
+            )
+            db.execute(
+                """INSERT INTO items(
+                       source_id,url,title,summary,channel,published_at,fetched_at
+                   ) VALUES(1,'https://example.com/existing','existing','unchanged',
+                            'stock','2026-09-16T00:00:00+00:00',
+                            '2026-09-16T00:01:00+00:00')"""
+            )
+            db.execute(
+                """INSERT INTO documents(
+                       id,dataset_id,legacy_item_id,kind,first_seen_at,status
+                   ) VALUES('doc',?,1,'article',
+                            '2026-09-16T00:00:00.000000Z','active')""",
+                (dataset_id,),
+            )
+            db.execute(
+                """INSERT INTO document_versions(
+                       id,document_id,version,normalizer_version,normalized_at,
+                       title_original,language,text,content_sha256,version_sha256,
+                       canonical_url,source_id,published_precision,time_status,
+                       time_rule_version,tzdb_version,content_origin,content_extent,
+                       truncated,extraction_status,correction_kind,available_at
+                   ) VALUES('version','doc',1,'normalizer-v1',
+                            '2026-09-16T00:00:00.000000Z','existing','en','unchanged',
+                            ?,?,'https://example.com/existing',1,'second','parsed',
+                            'source-time-v1','system','publisher_text','full',0,
+                            'complete','initial','2026-09-16T00:00:00.000000Z')""",
+                ("a" * 64, "b" * 64),
+            )
+            db.execute(
+                "UPDATE documents SET current_version_id='version' WHERE id='doc'"
+            )
+
+        report = db_admin.migrate_database(self.path)
+        self.assertEqual(report.previous_version, 6)
+        self.assertEqual(report.applied_versions, (7,))
+        self.assertTrue(report.backup_path)
+        with sqlite3.connect(self.path) as db:
+            version = db.execute(
+                """SELECT title_original,availability_basis,point_in_time_eligible
+                   FROM document_versions WHERE id='version'"""
+            ).fetchone()
+            tables = {
+                row[0] for row in db.execute(
+                    "SELECT name FROM sqlite_master WHERE type='table'"
+                )
+            }
+        self.assertEqual(version, ("existing", "transaction_recorded", 0))
+        self.assertTrue(
+            {"legacy_backfill_state", "legacy_backfill_sources",
+             "legacy_object_mappings", "legacy_report_identities"} <= tables
+        )
 
     def test_current_schema_rejects_a_missing_dataset_identity(self):
         db_admin.migrate_database(self.path)

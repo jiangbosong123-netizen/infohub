@@ -169,6 +169,7 @@ python cli.py db-verify                 # 要求完整性通过且schema为当�
 python cli.py runtime-config            # 显示非敏感运行配置和实际数据路径
 python cli.py jobs-status               # 显示持久任务开关与各状态数量
 python cli.py dataset-status            # 显示数据集身份、epoch 与变化高水位
+python cli.py legacy-backfill 250       # maintenance 下可续跑迁移历史记录
 ```
 
 命令输出中的 `file_sha256` 是指定 `.db` 文件的校验值；`db-backup` 生成的是单文件备份，
@@ -219,6 +220,10 @@ worker 已停止且租约不再存活时，才可用当前 epoch 和明确原因
 运行 `python cli.py raw-verify` 可全量校验 DB 引用与 CAS
 文件；从这一版起，完整备份必须同时包含 SQLite 和 blobs，具体步骤见
 [采集证据说明](docs/INGEST_EVIDENCE.md)。
+
+历史 `items`、discovery 和日报通过可续跑 P07 任务建立稳定映射；旧发布时间与摘要明确标为未核实，
+不会因为格式存在就升级成来源事实。运行、覆盖差异和回滚步骤见
+[历史回填说明](docs/LEGACY_BACKFILL.md)。
 
 历史事件链接保留；未识别发布方的聚合入口不增加发布方数量。算法使用保守的标题、
 版本、时间与实体规则，仍可能漏合并大幅改写的报道，具体边界见对标说明。

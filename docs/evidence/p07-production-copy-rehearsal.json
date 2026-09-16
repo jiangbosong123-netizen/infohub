@@ -1,0 +1,62 @@
+{
+  "recorded_date": "2026-09-16",
+  "environment": "macOS temporary directory; SQLite online-backup copy of the active legacy database",
+  "elapsed_seconds": 402.1,
+  "schema_before": 0,
+  "schema_after": 7,
+  "migration_applied": [
+    1,
+    2,
+    3,
+    4,
+    5,
+    6,
+    7
+  ],
+  "automatic_backup_created": true,
+  "legacy_rows": {
+    "companies": 23,
+    "sources": 57,
+    "items": 20829,
+    "item_companies": 12096,
+    "item_discoveries": 21369,
+    "daily_reports": 5,
+    "fetch_log": 7206
+  },
+  "legacy_common_column_fingerprints_unchanged": true,
+  "coverage": {
+    "items_total": 20829,
+    "items_mapped": 20829,
+    "discoveries_total": 21369,
+    "discoveries_mapped": 21369,
+    "reports_total": 5,
+    "reports_mapped": 5,
+    "unexplained_items": 0,
+    "unexplained_discoveries": 0,
+    "unexplained_reports": 0
+  },
+  "new_domain_rows": {
+    "documents": 20829,
+    "document_versions": 20829,
+    "raw_records": 20829,
+    "raw_observations": 20829,
+    "legacy_object_mappings": 42203,
+    "legacy_report_identities": 5
+  },
+  "repeat_after_completion_processed": 0,
+  "ingested_not_after_observed": 0,
+  "cas_audit": {
+    "status": "ok",
+    "records": 20829,
+    "verified": 20829,
+    "missing": 0,
+    "corrupt": 0
+  },
+  "sqlite_integrity": "ok",
+  "foreign_key_violations": 0,
+  "limitations": [
+    "This is a consistent local copy, not the required new Windows export rehearsal.",
+    "The elapsed time includes durable per-object fsync and full CAS re-hashing on macOS and is not a Windows duration claim.",
+    "Legacy content and timestamps remain explicitly unverified; row preservation does not upgrade evidence quality."
+  ]
+}

@@ -57,6 +57,13 @@ def _document_kind(source_type: str) -> str:
 def _quality(candidate: Mapping, payload_kind: str) -> tuple[str, str, int, str]:
     text = _clean_text(candidate.get("summary"))
     source_type = str(candidate.get("_source_type") or "")
+    if payload_kind == "legacy_excerpt":
+        return (
+            "legacy_unknown",
+            "excerpt" if text else ("title_only" if _clean_text(candidate.get("title")) else "none"),
+            0,
+            "partial" if text else "not_attempted",
+        )
     if payload_kind == "feed_entry":
         return (
             "feed_excerpt",
@@ -227,13 +234,20 @@ def project_candidate(
 
     title = _clean_text(candidate.get("title"))
     text = _clean_text(candidate.get("summary"))
-    if not title:
+    if not title and raw["payload_kind"] != "legacy_excerpt":
         raise DocumentProjectionError("a document version requires a title")
     language = _clean_text(candidate.get("language")) or "und"
-    (
-        published_at, published_time_id, published_precision, time_status,
-        time_rule_version, tzdb_version,
-    ) = _published_time(db, raw["id"])
+    if raw["payload_kind"] == "legacy_excerpt":
+        published_at = published_time_id = None
+        published_precision = "unknown"
+        time_status = "legacy_unverified"
+        time_rule_version = "legacy-unverified-v1"
+        tzdb_version = "unknown"
+    else:
+        (
+            published_at, published_time_id, published_precision, time_status,
+            time_rule_version, tzdb_version,
+        ) = _published_time(db, raw["id"])
     origin, extent, truncated, extraction = _quality(
         {**candidate, "_source_type": source["type"]}, raw["payload_kind"]
     )
@@ -295,14 +309,17 @@ def project_candidate(
                canonical_url,source_id,publisher_id,published_at,published_time_value_id,
                published_precision,time_status,time_rule_version,tzdb_version,
                content_origin,content_extent,truncated,extraction_status,
-               correction_kind,available_at
-           ) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+               correction_kind,available_at,availability_basis,point_in_time_eligible
+           ) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
         (
             version_id, document_id, version, current["id"] if current else None,
             NORMALIZER_VERSION, normalized_at, title, language, text, _sha256(text), version_sha,
             canonical_url, source["id"], None, published_at, published_time_id,
             published_precision, time_status, time_rule_version, tzdb_version,
             origin, extent, truncated, extraction, correction_kind, normalized_at,
+            "legacy_unknown" if raw["payload_kind"] == "legacy_excerpt"
+            else "transaction_recorded",
+            0,
         ),
     )
     db.execute(

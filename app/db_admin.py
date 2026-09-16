@@ -611,6 +611,86 @@ BEFORE DELETE ON document_locators
 BEGIN SELECT RAISE(ABORT, 'document locators are append-only'); END;
 """
 
+LEGACY_BACKFILL_SCHEMA_SQL = """
+ALTER TABLE document_versions ADD COLUMN availability_basis TEXT NOT NULL
+    DEFAULT 'transaction_recorded' CHECK(availability_basis IN (
+        'transaction_recorded','legacy_unknown'
+    ));
+ALTER TABLE document_versions ADD COLUMN point_in_time_eligible INTEGER NOT NULL
+    DEFAULT 0 CHECK(point_in_time_eligible IN (0,1));
+
+CREATE TABLE legacy_backfill_state (
+    singleton INTEGER PRIMARY KEY CHECK(singleton=1),
+    dataset_id TEXT NOT NULL,
+    cutoff_item_id INTEGER NOT NULL CHECK(cutoff_item_id >= 0),
+    cutoff_report_id INTEGER NOT NULL CHECK(cutoff_report_id >= 0),
+    status TEXT NOT NULL CHECK(status IN ('running','completed','failed')),
+    started_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    finished_at TEXT,
+    error_detail TEXT
+);
+
+CREATE TABLE legacy_backfill_sources (
+    source_id INTEGER PRIMARY KEY REFERENCES sources(id),
+    dataset_id TEXT NOT NULL,
+    active_run_id TEXT REFERENCES ingest_runs(id),
+    last_item_id INTEGER NOT NULL DEFAULT 0 CHECK(last_item_id >= 0),
+    processed_count INTEGER NOT NULL DEFAULT 0 CHECK(processed_count >= 0),
+    status TEXT NOT NULL CHECK(status IN ('pending','running','completed','failed')),
+    updated_at TEXT NOT NULL,
+    error_detail TEXT
+);
+CREATE INDEX idx_legacy_backfill_sources_status
+    ON legacy_backfill_sources(status, source_id);
+
+CREATE TABLE legacy_object_mappings (
+    dataset_id TEXT NOT NULL,
+    resource_type TEXT NOT NULL CHECK(resource_type IN (
+        'item','item_discovery','daily_report'
+    )),
+    legacy_key TEXT NOT NULL,
+    target_type TEXT NOT NULL CHECK(target_type IN (
+        'document','document_locator','legacy_report'
+    )),
+    target_id TEXT NOT NULL,
+    legacy_sha256 TEXT NOT NULL CHECK(length(legacy_sha256)=64),
+    mapping_status TEXT NOT NULL CHECK(mapping_status IN (
+        'mapped','mapped_unverified','pending_domain_upgrade'
+    )),
+    detail_json TEXT NOT NULL DEFAULT '{}',
+    available_at TEXT NOT NULL,
+    PRIMARY KEY(dataset_id, resource_type, legacy_key)
+);
+CREATE INDEX idx_legacy_mappings_target
+    ON legacy_object_mappings(dataset_id, target_type, target_id);
+
+CREATE TABLE legacy_report_identities (
+    id TEXT PRIMARY KEY,
+    dataset_id TEXT NOT NULL,
+    legacy_report_id INTEGER NOT NULL,
+    report_date TEXT NOT NULL,
+    content_sha256 TEXT NOT NULL CHECK(length(content_sha256)=64),
+    legacy_created_at TEXT,
+    available_at TEXT NOT NULL,
+    status TEXT NOT NULL CHECK(status='legacy_unverified'),
+    UNIQUE(dataset_id, legacy_report_id)
+);
+
+CREATE TRIGGER legacy_object_mappings_no_update
+BEFORE UPDATE ON legacy_object_mappings
+BEGIN SELECT RAISE(ABORT, 'legacy mappings are immutable'); END;
+CREATE TRIGGER legacy_object_mappings_no_delete
+BEFORE DELETE ON legacy_object_mappings
+BEGIN SELECT RAISE(ABORT, 'legacy mappings are immutable'); END;
+CREATE TRIGGER legacy_report_identities_no_update
+BEFORE UPDATE ON legacy_report_identities
+BEGIN SELECT RAISE(ABORT, 'legacy report identities are immutable'); END;
+CREATE TRIGGER legacy_report_identities_no_delete
+BEFORE DELETE ON legacy_report_identities
+BEGIN SELECT RAISE(ABORT, 'legacy report identities are immutable'); END;
+"""
+
 
 def _execute_script(db: sqlite3.Connection, script: str) -> None:
     """Execute a SQL script without sqlite3.executescript's implicit COMMIT."""
@@ -698,6 +778,10 @@ def _document_version_foundation(db: sqlite3.Connection) -> None:
     _execute_script(db, DOCUMENT_VERSION_SCHEMA_SQL)
 
 
+def _legacy_backfill_foundation(db: sqlite3.Connection) -> None:
+    _execute_script(db, LEGACY_BACKFILL_SCHEMA_SQL)
+
+
 # Migration 1 freezes the exact legacy schema at main@88a2a1e. Future schema
 # changes must append a new Migration instead of editing this definition.
 MIGRATIONS = (
@@ -740,6 +824,12 @@ MIGRATIONS = (
         DOCUMENT_VERSION_SCHEMA_SQL,
         _document_version_foundation,
     ),
+    Migration(
+        7,
+        "resumable legacy backfill foundation",
+        LEGACY_BACKFILL_SCHEMA_SQL,
+        _legacy_backfill_foundation,
+    ),
 )
 CURRENT_SCHEMA_VERSION = MIGRATIONS[-1].version
 REQUIRED_MIGRATION_COLUMNS = {
@@ -755,6 +845,8 @@ EXPECTED_TABLES = LEGACY_ANCHORS | {
     "source_config_versions", "ingest_runs", "raw_records", "raw_observations",
     "source_time_values",
     "documents", "document_versions", "document_version_inputs", "document_locators",
+    "legacy_backfill_state", "legacy_backfill_sources", "legacy_object_mappings",
+    "legacy_report_identities",
 }
 EXPECTED_ITEM_COLUMNS = {
     "id", "source_id", "url", "title", "title_zh", "summary", "raw_summary",
@@ -835,7 +927,23 @@ EXPECTED_DOCUMENT_VERSION_COLUMNS = {
     "published_time_value_id", "published_precision", "time_status",
     "time_rule_version", "tzdb_version",
     "content_origin", "content_extent", "truncated", "extraction_status",
-    "correction_kind", "available_at",
+    "correction_kind", "available_at", "availability_basis", "point_in_time_eligible",
+}
+EXPECTED_LEGACY_BACKFILL_STATE_COLUMNS = {
+    "singleton", "dataset_id", "cutoff_item_id", "cutoff_report_id", "status",
+    "started_at", "updated_at", "finished_at", "error_detail",
+}
+EXPECTED_LEGACY_BACKFILL_SOURCE_COLUMNS = {
+    "source_id", "dataset_id", "active_run_id", "last_item_id",
+    "processed_count", "status", "updated_at", "error_detail",
+}
+EXPECTED_LEGACY_MAPPING_COLUMNS = {
+    "dataset_id", "resource_type", "legacy_key", "target_type", "target_id",
+    "legacy_sha256", "mapping_status", "detail_json", "available_at",
+}
+EXPECTED_LEGACY_REPORT_COLUMNS = {
+    "id", "dataset_id", "legacy_report_id", "report_date", "content_sha256",
+    "legacy_created_at", "available_at", "status",
 }
 EXPECTED_DOCUMENT_INPUT_COLUMNS = {"version_id", "raw_record_id", "role"}
 EXPECTED_DOCUMENT_LOCATOR_COLUMNS = {
@@ -854,6 +962,8 @@ EXPECTED_INGEST_TRIGGERS = {
     "documents_current_version_valid", "documents_current_version_required",
     "documents_no_delete",
     "document_locators_identity_immutable", "document_locators_no_delete",
+    "legacy_object_mappings_no_update", "legacy_object_mappings_no_delete",
+    "legacy_report_identities_no_update", "legacy_report_identities_no_delete",
 }
 
 
@@ -1067,6 +1177,26 @@ def _assert_current_schema(db: sqlite3.Connection) -> None:
     missing_document_locator_columns = (
         EXPECTED_DOCUMENT_LOCATOR_COLUMNS - document_locator_columns
     )
+    legacy_backfill_state_columns = {
+        row["name"] for row in db.execute("PRAGMA table_info(legacy_backfill_state)")
+    }
+    missing_legacy_backfill_state_columns = (
+        EXPECTED_LEGACY_BACKFILL_STATE_COLUMNS - legacy_backfill_state_columns
+    )
+    legacy_backfill_source_columns = {
+        row["name"] for row in db.execute("PRAGMA table_info(legacy_backfill_sources)")
+    }
+    missing_legacy_backfill_source_columns = (
+        EXPECTED_LEGACY_BACKFILL_SOURCE_COLUMNS - legacy_backfill_source_columns
+    )
+    legacy_mapping_columns = {
+        row["name"] for row in db.execute("PRAGMA table_info(legacy_object_mappings)")
+    }
+    missing_legacy_mapping_columns = EXPECTED_LEGACY_MAPPING_COLUMNS - legacy_mapping_columns
+    legacy_report_columns = {
+        row["name"] for row in db.execute("PRAGMA table_info(legacy_report_identities)")
+    }
+    missing_legacy_report_columns = EXPECTED_LEGACY_REPORT_COLUMNS - legacy_report_columns
     ingest_triggers = {
         row["name"] for row in db.execute(
             "SELECT name FROM sqlite_master WHERE type='trigger'"
@@ -1093,6 +1223,10 @@ def _assert_current_schema(db: sqlite3.Connection) -> None:
         or missing_document_version_columns
         or missing_document_input_columns
         or missing_document_locator_columns
+        or missing_legacy_backfill_state_columns
+        or missing_legacy_backfill_source_columns
+        or missing_legacy_mapping_columns
+        or missing_legacy_report_columns
         or missing_ingest_triggers
         or "title_zh" not in fts_columns
     ):
@@ -1116,6 +1250,10 @@ def _assert_current_schema(db: sqlite3.Connection) -> None:
             f"document_version_columns={sorted(missing_document_version_columns)}, "
             f"document_input_columns={sorted(missing_document_input_columns)}, "
             f"document_locator_columns={sorted(missing_document_locator_columns)}, "
+            f"legacy_backfill_state_columns={sorted(missing_legacy_backfill_state_columns)}, "
+            f"legacy_backfill_source_columns={sorted(missing_legacy_backfill_source_columns)}, "
+            f"legacy_mapping_columns={sorted(missing_legacy_mapping_columns)}, "
+            f"legacy_report_columns={sorted(missing_legacy_report_columns)}, "
             f"ingest_triggers={sorted(missing_ingest_triggers)}, "
             f"fts_title_zh={'title_zh' in fts_columns}"
         )
