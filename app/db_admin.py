@@ -494,7 +494,7 @@ CREATE TABLE document_versions (
     )),
     time_status TEXT NOT NULL CHECK(time_status IN (
         'parsed','missing','invalid','missing_timezone','ambiguous_local_time',
-        'nonexistent_local_time','future_suspect'
+        'nonexistent_local_time','future_suspect','legacy_unverified'
     )),
     time_rule_version TEXT NOT NULL,
     tzdb_version TEXT NOT NULL,

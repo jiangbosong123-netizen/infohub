@@ -39,6 +39,7 @@ legacy fallback 都不能提升为正式发布时间。版本通过 `published_t
 每个版本的 `source_id` 指采集入口。`publisher_id` 预留为可空稳定身份，P08 建立 publisher 目录前
 保持 NULL；不能把 Google News、SEC/HKEX 传输入口或一个 feed 自动当成实际刊登者。版本同时冻结
 `normalizer_version`、`normalized_at`、`time_rule_version`、`tzdb_version`、时间精度和解析状态。
+`legacy_unverified` 只为 P07 迁移旧记录保留，不能由新采集路径产生，也不能升级为可信发布时间。
 
 当前 normalizer 为 `document-normalizer-v1`。任何会改变标准化结果的代码升级必须提升版本标识，
 不能用同一个规则名产生不同结果。

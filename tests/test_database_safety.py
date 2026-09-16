@@ -345,6 +345,14 @@ class DatabaseSafetyTests(unittest.TestCase):
         ):
             db_admin.verify_database(self.path, require_current=True)
 
+    def test_document_time_status_reserves_honest_legacy_mapping(self):
+        db_admin.migrate_database(self.path)
+        with sqlite3.connect(self.path) as db:
+            definition = db.execute(
+                "SELECT sql FROM sqlite_master WHERE type='table' AND name='document_versions'"
+            ).fetchone()[0]
+        self.assertIn("legacy_unverified", definition)
+
 
 if __name__ == "__main__":
     unittest.main()
