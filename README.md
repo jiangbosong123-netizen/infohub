@@ -210,8 +210,10 @@ worker 已停止且租约不再存活时，才可用当前 epoch 和明确原因
 
 新采集候选在写入旧 `items` 投影前，先以 SHA-256 保存到 `data/blobs`，并追加 ingest run、
 来源配置版本和 observation。重复看到相同载荷只追加观察，同 URL 内容改变会保留新的不可变载荷。
-当前保存的是旧 fetcher 输出的 `generated_metadata`，不冒充发布方全文；逐来源原始 entry、时间规则
-和 document version 在 P06b/P06c 接入。运行 `python cli.py raw-verify` 可全量校验 DB 引用与 CAS
+旧 HTML 抓取仍保存 `generated_metadata`，不冒充发布方全文；JSON/RSS 连接器保存逐条
+`api_record` / `feed_entry`，并将 published、updated、SEC accepted/filing/report 等来源时间按
+不可变规则分开。具体语义见[来源时间说明](docs/SOURCE_TIME.md)；document version 在 P06c 接入。
+运行 `python cli.py raw-verify` 可全量校验 DB 引用与 CAS
 文件；从这一版起，完整备份必须同时包含 SQLite 和 blobs，具体步骤见
 [采集证据说明](docs/INGEST_EVIDENCE.md)。
 

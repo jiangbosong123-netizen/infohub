@@ -33,7 +33,7 @@ class DatabaseSafetyTests(unittest.TestCase):
         first = db_admin.migrate_database(self.path)
         second = db_admin.migrate_database(self.path)
         self.assertEqual(first.previous_state, "empty")
-        self.assertEqual(first.applied_versions, (1, 2, 3, 4))
+        self.assertEqual(first.applied_versions, (1, 2, 3, 4, 5))
         self.assertIsNone(first.backup_path)
         self.assertEqual(second.applied_versions, ())
         self.assertEqual(second.verification.state, "current")
@@ -164,10 +164,10 @@ class DatabaseSafetyTests(unittest.TestCase):
         report = db_admin.migrate_database(self.path)
         self.assertEqual(report.previous_state, "versioned")
         self.assertEqual(report.previous_version, 1)
-        self.assertEqual(report.applied_versions, (2, 3, 4))
+        self.assertEqual(report.applied_versions, (2, 3, 4, 5))
         self.assertTrue(report.backup_path)
         self.assertEqual(db_admin.verify_database(report.backup_path).schema_version, 1)
-        self.assertEqual(report.verification.schema_version, 4)
+        self.assertEqual(report.verification.schema_version, 5)
 
     def test_version_two_jobs_survive_publication_ledger_upgrade(self):
         with database.get_db(self.path) as db:
@@ -193,7 +193,7 @@ class DatabaseSafetyTests(unittest.TestCase):
 
         report = db_admin.migrate_database(self.path)
         self.assertEqual(report.previous_version, 2)
-        self.assertEqual(report.applied_versions, (3, 4))
+        self.assertEqual(report.applied_versions, (3, 4, 5))
         with sqlite3.connect(self.path) as db:
             job = db.execute(
                 """SELECT id,idempotency_key,logical_idempotency_key,
@@ -244,7 +244,7 @@ class DatabaseSafetyTests(unittest.TestCase):
             )
         report = db_admin.migrate_database(self.path)
         self.assertEqual(report.previous_version, 3)
-        self.assertEqual(report.applied_versions, (4,))
+        self.assertEqual(report.applied_versions, (4, 5))
         self.assertTrue(report.backup_path)
         with sqlite3.connect(self.path) as db:
             self.assertEqual(
@@ -257,9 +257,56 @@ class DatabaseSafetyTests(unittest.TestCase):
                 )
             }
         self.assertTrue(
-            {"source_config_versions", "ingest_runs", "raw_records", "raw_observations"}
+            {"source_config_versions", "ingest_runs", "raw_records", "raw_observations",
+             "source_time_values"}
             <= tables
         )
+
+    def test_version_four_adds_source_times_without_rewriting_raw_evidence(self):
+        stamp = "2026-09-16T00:00:00.000000Z"
+        with database.get_db(self.path) as db:
+            self.assertEqual(
+                db_admin.apply_migrations(db, db_admin.MIGRATIONS[:4]), (1, 2, 3, 4)
+            )
+            db.execute(
+                """INSERT INTO sources(key,name,channel,type)
+                   VALUES('fixture','Fixture','stock','rss')"""
+            )
+            dataset = db.execute(
+                "SELECT dataset_id,current_epoch FROM dataset_state WHERE singleton=1"
+            ).fetchone()
+            db.execute(
+                """INSERT INTO source_config_versions(
+                       id,source_id,version,config_json,config_hash,available_at
+                   ) VALUES('cfg',1,1,'{}','hash',?)""", (stamp,)
+            )
+            db.execute(
+                """INSERT INTO ingest_runs(
+                       id,source_id,config_version_id,dataset_id,dataset_epoch,
+                       scheduled_for,started_at,finished_at,status,trace_id
+                   ) VALUES('run',1,'cfg',?,?,?,?,?,'succeeded','trace')""",
+                (dataset[0], dataset[1], stamp, stamp, stamp),
+            )
+            db.execute(
+                """INSERT INTO raw_records(
+                       id,first_ingest_run_id,source_id,external_id,observed_at,ingested_at,
+                       final_url,selected_headers,media_type,encoding,payload_sha256,payload_ref,
+                       payload_kind,truncated,size_bytes,retention_class
+                   ) VALUES('raw','run',1,'entry-1',?,?,'https://example.com/1','{}',
+                            'application/json','utf-8',?,?,'feed_entry',0,2,'private')""",
+                (stamp, stamp, "a" * 64, "sha256/aa/" + "a" * 64),
+            )
+        report = db_admin.migrate_database(self.path)
+        self.assertEqual(report.previous_version, 4)
+        self.assertEqual(report.applied_versions, (5,))
+        self.assertTrue(report.backup_path)
+        with sqlite3.connect(self.path) as db:
+            raw = db.execute(
+                "SELECT external_id,payload_sha256,payload_ref FROM raw_records"
+            ).fetchone()
+            columns = {row[1] for row in db.execute("PRAGMA table_info(source_time_values)")}
+        self.assertEqual(raw, ("entry-1", "a" * 64, "sha256/aa/" + "a" * 64))
+        self.assertIn("rule_version", columns)
 
     def test_current_schema_rejects_a_missing_dataset_identity(self):
         db_admin.migrate_database(self.path)

@@ -19,6 +19,7 @@ from app.ingest import (
     store_payload,
     verify_payload,
 )
+from app.source_time import parse_source_time
 
 
 T0 = datetime(2026, 9, 16, 8, 0, tzinfo=timezone.utc)
@@ -73,6 +74,10 @@ class IngestEvidenceTests(unittest.TestCase):
                 "api_key": "payload-secret", "clientSecret": "camel-secret",
                 "safe": "kept",
             },
+            "source_time_values": [parse_source_time(
+                "2026-09-16T07:00:00Z", field_path="entry.published",
+                role="published", interpretation="RSS publisher timestamp",
+            ).to_dict()],
         }
         first_run = begin_ingest_run(self.source, started_at=T0, trace_id="trace-one")
         first = observe_candidate(first_run, candidate, ordinal=0, observed_at=T0)
@@ -99,6 +104,7 @@ class IngestEvidenceTests(unittest.TestCase):
             self.assertEqual(db.execute("SELECT COUNT(*) FROM raw_records").fetchone()[0], 1)
             self.assertEqual(db.execute("SELECT COUNT(*) FROM raw_observations").fetchone()[0], 2)
             self.assertEqual(db.execute("SELECT COUNT(*) FROM source_config_versions").fetchone()[0], 1)
+            self.assertEqual(db.execute("SELECT COUNT(*) FROM source_time_values").fetchone()[0], 1)
             row = db.execute(
                 "SELECT payload_kind,retention_class,external_id FROM raw_records"
             ).fetchone()
@@ -141,6 +147,43 @@ class IngestEvidenceTests(unittest.TestCase):
             ).fetchall()
         self.assertEqual(len(rows), 2)
         self.assertEqual(rows[0]["external_id"], rows[1]["external_id"])
+
+    def test_source_record_identity_ignores_projection_and_versions_time_rules(self):
+        source_record = {
+            "id": "entry-7", "published": "2026-09-16T07:00:00Z",
+            "callback_url": "https://api.example/callback?token=raw-secret&lang=en",
+        }
+        first_time = parse_source_time(
+            source_record["published"], field_path="published", role="published",
+            interpretation="fixture timestamp",
+        ).to_dict()
+        first_run = begin_ingest_run(self.source, started_at=T0)
+        first = observe_candidate(first_run, {
+            "url": "https://example.com/raw-entry", "title": "first projection",
+            "source_record": source_record, "payload_kind": "api_record",
+            "source_time_values": [first_time],
+        }, ordinal=0, observed_at=T0)
+        self._finish(first_run, byte_count=first.size_bytes, finished_at=T0 + timedelta(seconds=1))
+
+        second_time = {**first_time, "rule_version": "source-time-v2-test"}
+        second_run = begin_ingest_run(self.source, started_at=T0 + timedelta(minutes=1))
+        second = observe_candidate(second_run, {
+            "url": "https://example.com/raw-entry", "title": "changed projection",
+            "source_record": source_record, "payload_kind": "api_record",
+            "source_time_values": [second_time],
+        }, ordinal=0, observed_at=T0 + timedelta(minutes=1))
+        self._finish(second_run, byte_count=second.size_bytes, finished_at=T0 + timedelta(minutes=1, seconds=1))
+
+        self.assertEqual(first.raw_record_id, second.raw_record_id)
+        payload = json.loads(verify_payload(first.payload_ref, first.payload_sha256).read_text("utf-8"))
+        self.assertEqual(payload["source_record"]["id"], source_record["id"])
+        self.assertNotIn("raw-secret", json.dumps(payload))
+        self.assertNotIn("first projection", json.dumps(payload))
+        with database.get_db() as db:
+            self.assertEqual(db.execute("SELECT COUNT(*) FROM raw_records").fetchone()[0], 1)
+            self.assertEqual(db.execute("SELECT COUNT(*) FROM source_time_values").fetchone()[0], 2)
+            kinds = db.execute("SELECT payload_kind FROM raw_records").fetchone()[0]
+        self.assertEqual(kinds, "api_record")
 
     def test_corrupt_or_escaping_cas_reference_is_rejected(self):
         digest, reference = store_payload(b"trusted")
@@ -188,6 +231,20 @@ class IngestEvidenceTests(unittest.TestCase):
             ).fetchone()
         self.assertEqual(tuple(run), ("failed", 1, 0, 1))
 
+    def test_runner_preserves_connector_observation_time(self):
+        raw = {
+            "url": "https://example.com/observed-at-source",
+            "title": "connector timestamp survives the batch",
+            "published_at": "2026-09-16T07:00:00Z",
+            "observed_at": "2026-09-16T08:00:00Z",
+        }
+        with patch.dict(runner.FETCHERS, {"fixture": lambda _source: [raw]}):
+            inserted, ok, _message = runner.run_source(self.source)
+        self.assertEqual((inserted, ok), (1, True))
+        with database.get_db() as db:
+            observed_at = db.execute("SELECT observed_at FROM raw_observations").fetchone()[0]
+        self.assertEqual(observed_at, "2026-09-16T08:00:00.000000Z")
+
     def test_finished_run_is_immutable_and_config_changes_are_versioned(self):
         first_run = begin_ingest_run(self.source, started_at=T0)
         self._finish(first_run, finished_at=T0 + timedelta(seconds=1))
@@ -216,13 +273,20 @@ class IngestEvidenceTests(unittest.TestCase):
     def test_database_triggers_block_evidence_mutation_and_deletion(self):
         run = begin_ingest_run(self.source, started_at=T0)
         observed = observe_candidate(
-            run, {"url": "https://example.com/immutable", "title": "original"},
+            run, {
+                "url": "https://example.com/immutable", "title": "original",
+                "source_time_values": [parse_source_time(
+                    "2026-09-16T07:00:00Z", field_path="entry.published",
+                    role="published", interpretation="fixture timestamp",
+                ).to_dict()],
+            },
             ordinal=0, observed_at=T0,
         )
         self._finish(run, byte_count=observed.size_bytes, finished_at=T0 + timedelta(seconds=1))
         statements = (
             ("UPDATE raw_records SET external_id='changed' WHERE id=?", observed.raw_record_id),
             ("DELETE FROM raw_observations WHERE raw_record_id=?", observed.raw_record_id),
+            ("UPDATE source_time_values SET status='invalid' WHERE raw_record_id=?", observed.raw_record_id),
             ("UPDATE source_config_versions SET version=99 WHERE id=?", run.config_version_id),
             ("DELETE FROM ingest_runs WHERE id=?", run.id),
         )

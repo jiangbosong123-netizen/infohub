@@ -159,3 +159,4 @@ class CrawlerHealthTests(unittest.TestCase):
         self.assertIn('durable_job_backlog_stale', response.json()['issues'])
         self.assertEqual(response.json()['ingest']['raw_records'], 0)
         self.assertEqual(response.json()['ingest']['observations'], 0)
+        self.assertEqual(response.json()['ingest']['source_time_states'], {})

@@ -2,11 +2,10 @@ from __future__ import annotations
 
 """Immutable ingest runs, content-addressed payloads, and observations.
 
-P06a records the exact candidate object emitted by today's fetchers as
-``generated_metadata``. It does not claim that the candidate is publisher
-body text: source-specific raw entry/response capture is introduced with the
-source parsing rules in P06b. The immutable identity and CAS rules here are the
-same for both forms.
+P06a records legacy candidates as ``generated_metadata``. P06b connectors can
+instead provide a complete parsed RSS entry or JSON API record, whose canonical
+envelope is hashed independently from the legacy projection. Neither form
+claims publisher body text unless the connector actually obtained it.
 """
 
 import hashlib
@@ -35,13 +34,16 @@ _SECRET_QUERY_NAMES = {
     "password", "secret", "sign", "signature", "token",
 }
 _HASH = re.compile(r"^[0-9a-f]{64}$")
+_PAYLOAD_KINDS = {
+    "feed_entry", "api_record", "html", "pdf", "legacy_excerpt", "generated_metadata",
+}
 _SOURCE_CONFIG_FIELDS = (
     "key", "name", "channel", "tier", "type", "url", "company_slug",
     "interval_minutes",
 )
 _CANDIDATE_FIELDS = (
     "url", "title", "summary", "published_at", "event_type", "official",
-    "companies", "extra",
+    "companies", "extra", "source_time_values", "observed_at",
 )
 
 
@@ -130,6 +132,11 @@ def _is_secret_key(key: str) -> bool:
     return any(normalized.endswith(suffix) for suffix in _SECRET_KEY_SUFFIXES)
 
 
+def _is_url_key(key: str) -> bool:
+    normalized = re.sub(r"[^a-z0-9]", "", key.casefold())
+    return normalized.endswith(("url", "uri", "link", "href"))
+
+
 def _safe_value(value: object, *, key: str = "", depth: int = 0) -> object:
     if _is_secret_key(key):
         return "[redacted]"
@@ -139,7 +146,11 @@ def _safe_value(value: object, *, key: str = "", depth: int = 0) -> object:
         return value
     if isinstance(value, Mapping):
         return {
-            str(item_key): _safe_value(item, key=str(item_key), depth=depth + 1)
+            str(item_key): (
+                _safe_url(item)
+                if isinstance(item, str) and _is_url_key(str(item_key))
+                else _safe_value(item, key=str(item_key), depth=depth + 1)
+            )
             for item_key, item in sorted(value.items(), key=lambda pair: str(pair[0]))
         }
     if isinstance(value, (list, tuple)):
@@ -148,15 +159,21 @@ def _safe_value(value: object, *, key: str = "", depth: int = 0) -> object:
 
 
 def _candidate_payload(candidate: Mapping) -> bytes:
-    payload = {
-        field: (
-            _safe_url(candidate.get(field))
-            if field == "url"
-            else _safe_value(candidate.get(field), key=field)
-        )
-        for field in _CANDIDATE_FIELDS
-        if field in candidate
-    }
+    if "source_record" in candidate:
+        # JSON/RSS connectors retain the complete per-entry source record in a
+        # deterministic envelope. Normalized candidate fields do not affect
+        # the evidence hash and can be replayed from this record later.
+        payload = {"source_record": _safe_value(candidate["source_record"], key="source_record")}
+    else:
+        payload = {
+            field: (
+                _safe_url(candidate.get(field))
+                if field == "url"
+                else _safe_value(candidate.get(field), key=field)
+            )
+            for field in _CANDIDATE_FIELDS
+            if field in candidate
+        }
     return json.dumps(
         payload, ensure_ascii=False, sort_keys=True, separators=(",", ":"),
         allow_nan=False,
@@ -336,12 +353,15 @@ def observe_candidate(
     *,
     ordinal: int,
     observed_at: datetime | str | None = None,
-    payload_kind: str = "generated_metadata",
+    payload_kind: str | None = None,
     retention_class: str = "private-metadata",
 ) -> RawObservation:
     if ordinal < 0:
         raise ValueError("observation ordinal must be non-negative")
     observed = _canonical_time(observed_at)
+    payload_kind = payload_kind or str(candidate.get("payload_kind") or "generated_metadata")
+    if payload_kind not in _PAYLOAD_KINDS:
+        raise ValueError(f"unsupported payload kind: {payload_kind}")
     payload = _candidate_payload(candidate)
     digest, reference = store_payload(payload)
     external_id = _safe_url(candidate.get("url")) or str(candidate.get("external_id") or "")
@@ -377,6 +397,47 @@ def observe_candidate(
             record_id = row["id"]
             if row["payload_ref"] != reference or row["size_bytes"] != len(payload):
                 raise PayloadIntegrityError("raw record metadata disagrees with CAS content")
+        for time_ordinal, value in enumerate(candidate.get("source_time_values") or []):
+            existing_time = db.execute(
+                """SELECT field_path,raw_value,role,source_timezone,utc,
+                          range_start_utc,range_end_utc,precision,interpretation,
+                          status,tzdb_version
+                   FROM source_time_values
+                   WHERE raw_record_id=? AND rule_version=? AND tzdb_version=?
+                     AND ordinal=?""",
+                (
+                    record_id, value["rule_version"], value["tzdb_version"],
+                    time_ordinal,
+                ),
+            ).fetchone()
+            expected_time = (
+                value["field_path"], value.get("raw_value"), value["role"],
+                value.get("timezone"), value.get("utc"),
+                value.get("range_start_utc"), value.get("range_end_utc"),
+                value["precision"], value["interpretation"], value["status"],
+                value["tzdb_version"],
+            )
+            if existing_time:
+                if tuple(existing_time) != expected_time:
+                    raise IngestEvidenceError(
+                        "same time rule produced different output for one raw record"
+                    )
+            else:
+                db.execute(
+                    """INSERT INTO source_time_values(
+                           id,raw_record_id,ordinal,field_path,raw_value,role,
+                           source_timezone,utc,range_start_utc,range_end_utc,precision,
+                           interpretation,status,rule_version,tzdb_version
+                       ) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+                    (
+                        f"source_time_{uuid4().hex}", record_id, time_ordinal,
+                        value["field_path"], value.get("raw_value"), value["role"],
+                        value.get("timezone"), value.get("utc"),
+                        value.get("range_start_utc"), value.get("range_end_utc"),
+                        value["precision"], value["interpretation"], value["status"],
+                        value["rule_version"], value["tzdb_version"],
+                    ),
+                )
         existing = db.execute(
             """SELECT id,raw_record_id FROM raw_observations
                WHERE ingest_run_id=? AND ordinal=?""",

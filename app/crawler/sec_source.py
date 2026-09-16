@@ -11,6 +11,7 @@ from datetime import datetime, timezone
 
 from .. import config
 from ..database import get_db
+from ..source_time import parse_source_time
 from . import http
 
 TICKERS_URL = "https://www.sec.gov/files/company_tickers.json"
@@ -43,20 +44,29 @@ def _sec_headers() -> dict:
     return {"User-Agent": config.SEC_USER_AGENT, "Accept": "application/json"}
 
 
-def _parse_ts(raw: str) -> str:
-    raw = (raw or "").strip()
-    if not raw:
-        return datetime.now(timezone.utc).isoformat()
-    iso = raw.replace(" ", "T")
-    if iso.endswith("Z"):
-        iso = iso[:-1] + "+00:00"
-    try:
-        return datetime.fromisoformat(iso).astimezone(timezone.utc).isoformat()
-    except ValueError:
-        try:
-            return datetime.strptime(raw[:10], "%Y-%m-%d").replace(tzinfo=timezone.utc).isoformat()
-        except ValueError:
-            return datetime.now(timezone.utc).isoformat()
+def _at(values: dict, key: str, index: int):
+    items = values.get(key)
+    return items[index] if isinstance(items, list) and index < len(items) else None
+
+
+def _source_times(values: dict, index: int) -> list[dict]:
+    return [
+        parse_source_time(
+            _at(values, "acceptanceDateTime", index),
+            field_path="filings.recent.acceptanceDateTime", role="accepted",
+            interpretation="SEC submission acceptance time",
+        ).to_dict(),
+        parse_source_time(
+            _at(values, "filingDate", index), field_path="filings.recent.filingDate",
+            role="filing_date", interpretation="SEC filing calendar date",
+            calendar_date=True,
+        ).to_dict(),
+        parse_source_time(
+            _at(values, "reportDate", index), field_path="filings.recent.reportDate",
+            role="report_period", interpretation="SEC report period end date",
+            calendar_date=True,
+        ).to_dict(),
+    ]
 
 
 def resolve_missing_ciks(companies: list[dict]) -> None:
@@ -108,6 +118,7 @@ def fetch_sec(source: dict) -> list[dict]:
                 f"https://data.sec.gov/submissions/CIK{c['cik']}.json",
                 headers=_sec_headers(),
             )
+            response_observed_at = datetime.now(timezone.utc)
             data = json.loads(resp.text)
         except Exception as exc:  # noqa: BLE001 - 单家公司失败不影响其他家
             out.append(dict(_error=f"{c['slug']}: {exc}"))
@@ -117,22 +128,40 @@ def fetch_sec(source: dict) -> list[dict]:
         zh = c["name_zh"] or c["name"]
         for i in range(min(len(forms), 40)):
             form = forms[i]
-            accession = recent["accessionNumber"][i]
-            doc = (recent.get("primaryDocument") or [""])[i] if isinstance(recent.get("primaryDocument"), list) else ""
-            items = (recent.get("items") or [""])[i] if isinstance(recent.get("items"), list) else ""
+            accession = _at(recent, "accessionNumber", i)
+            doc = _at(recent, "primaryDocument", i) or ""
+            items = _at(recent, "items", i) or ""
+            if not accession:
+                continue
             if not doc:
                 continue
             desc, etype = _classify(form, items)
             url = (f"https://www.sec.gov/Archives/edgar/data/{int(c['cik'])}/"
                    f"{accession.replace('-', '')}/{doc}")
+            filing_date = _at(recent, "filingDate", i)
+            report_date = _at(recent, "reportDate", i)
+            source_times = _source_times(recent, i)
+            source_record = {
+                key: _at(recent, key, i)
+                for key, values in recent.items()
+                if isinstance(values, list)
+            }
             out.append(dict(
                 url=url,
                 title=f"{zh} · SEC {desc}" + (f"（{items}）" if items and "·" in desc else ""),
                 summary=f"{c['name']}（{c['ticker']}）向 SEC 提交 {form}"
                         + (f"，条目 {items}" if items else "") + "。",
-                published_at=_parse_ts(recent["acceptanceDateTime"][i]),
+                # Acceptance is not verified public dissemination time.
+                published_at=None,
                 event_type=etype, official=1, companies=[c["slug"]],
-                extra=dict(form=form, cik=c["cik"]),
+                extra=dict(
+                    form=form, cik=c["cik"], accession=accession,
+                    primary_document=doc, filing_date=filing_date,
+                    report_date=report_date,
+                ),
+                source_time_values=source_times,
+                observed_at=response_observed_at.isoformat(),
+                source_record=source_record, payload_kind="api_record",
             ))
         time.sleep(0.2)  # SEC 限速要求：≤10 req/s，留足余量
     return out

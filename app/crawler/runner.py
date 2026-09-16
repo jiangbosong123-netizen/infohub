@@ -46,6 +46,34 @@ def _normalize_url(url: str) -> str:
                        urlencode(query), ""))
 
 
+def _legacy_publication_projection(raw: dict) -> tuple[str, str]:
+    """Keep the NOT NULL legacy page sortable without inventing source truth."""
+    inserted = datetime.now(timezone.utc)
+    observed = inserted
+    try:
+        candidate_observed = datetime.fromisoformat(
+            str(raw.get("observed_at") or "").replace("Z", "+00:00")
+        )
+        if candidate_observed.tzinfo is None:
+            raise ValueError("naive observed_at")
+        observed = candidate_observed.astimezone(timezone.utc)
+    except (TypeError, ValueError):
+        pass
+    try:
+        published = datetime.fromisoformat(
+            str(raw.get("published_at") or "").replace("Z", "+00:00")
+        )
+        if published.tzinfo is None:
+            raise ValueError("naive source timestamp")
+        published = published.astimezone(timezone.utc)
+        if published > observed + timedelta(minutes=10):
+            raise ValueError("future source timestamp")
+        return published.isoformat(), "source_published"
+    except (TypeError, ValueError):
+        basis = "connector_observed" if observed != inserted else "item_inserted"
+        return observed.isoformat(), basis
+
+
 def insert_item(source_key: str, raw: dict, via: str = "normal") -> bool:
     """入库一条（去重）。返回是否新插入。raw 带 _error 时只记日志。"""
     if "_error" in raw:
@@ -55,22 +83,15 @@ def insert_item(source_key: str, raw: dict, via: str = "normal") -> bool:
     title = (raw.get("title") or "").strip()
     if not url or not title:
         return False
-    try:
-        published = datetime.fromisoformat(raw.get("published_at") or "")
-        if published.tzinfo is None:
-            published = published.replace(tzinfo=timezone.utc)
-        published = published.astimezone(timezone.utc)
-        if published > datetime.now(timezone.utc) + timedelta(minutes=10):
-            published = datetime.now(timezone.utc)
-    except (ValueError, TypeError):
-        published = datetime.now(timezone.utc)
-    published_at = published.isoformat()
+    published_at, legacy_time_basis = _legacy_publication_projection(raw)
     with get_db() as db:
         src = db.execute("SELECT id, channel, tier FROM sources WHERE key=?", (source_key,)).fetchone()
         if not src:
             return False
         text = f"{title} {raw.get('summary') or ''}"
         slugs = list(dict.fromkeys((raw.get("companies") or []) + company_match.match_companies(text)))
+        legacy_extra = dict(raw.get("extra") or {})
+        legacy_extra["_legacy_time_basis"] = legacy_time_basis
         cur = db.execute(
             """INSERT OR IGNORE INTO items (source_id, url, title, title_en, summary, raw_summary, channel, event_type,
                                   score, heat, companies, official, via, published_at, fetched_at, extra)
@@ -78,7 +99,7 @@ def insert_item(source_key: str, raw: dict, via: str = "normal") -> bool:
             (src["id"], url, title, raw.get("title_en") or "", raw.get("summary") or "", raw.get("summary") or "",
              raw.get("channel") or src["channel"], raw.get("event_type") or "", None, 0,
              json.dumps(slugs, ensure_ascii=False), 1 if raw.get("official") or src["tier"] == "official" else 0,
-             via, published_at, _now(), json.dumps(raw.get("extra") or {}, ensure_ascii=False)),
+             via, published_at, _now(), json.dumps(legacy_extra, ensure_ascii=False)),
         )
         inserted = bool(cur.rowcount)
         if inserted:
@@ -137,7 +158,9 @@ def run_source(source: dict) -> tuple[int, bool, str]:
         if "_error" in raw:
             continue
         try:
-            observation = observe_candidate(ingest_run, raw, ordinal=ordinal)
+            observation = observe_candidate(
+                ingest_run, raw, ordinal=ordinal, observed_at=raw.get("observed_at")
+            )
             observed_bytes += observation.size_bytes
             if insert_item(source["key"], raw):
                 inserted += 1

@@ -413,6 +413,47 @@ BEFORE DELETE ON ingest_runs
 BEGIN SELECT RAISE(ABORT, 'ingest runs are immutable'); END;
 """
 
+SOURCE_TIME_SCHEMA_SQL = """
+CREATE TABLE source_time_values (
+    id TEXT PRIMARY KEY,
+    raw_record_id TEXT NOT NULL REFERENCES raw_records(id),
+    ordinal INTEGER NOT NULL CHECK(ordinal >= 0),
+    field_path TEXT NOT NULL,
+    raw_value TEXT,
+    role TEXT NOT NULL CHECK(role IN (
+        'published','updated','accepted','filing_date','report_period','other'
+    )),
+    source_timezone TEXT,
+    utc TEXT CHECK(utc IS NULL OR (length(utc)=27 AND substr(utc,27,1)='Z')),
+    range_start_utc TEXT CHECK(
+        range_start_utc IS NULL OR (length(range_start_utc)=27 AND substr(range_start_utc,27,1)='Z')
+    ),
+    range_end_utc TEXT CHECK(
+        range_end_utc IS NULL OR (length(range_end_utc)=27 AND substr(range_end_utc,27,1)='Z')
+    ),
+    precision TEXT NOT NULL CHECK(precision IN (
+        'second','minute','date','month','unknown'
+    )),
+    interpretation TEXT NOT NULL,
+    status TEXT NOT NULL CHECK(status IN (
+        'valid','missing','invalid','missing_timezone','ambiguous_local_time',
+        'nonexistent_local_time','future_suspect'
+    )),
+    rule_version TEXT NOT NULL,
+    tzdb_version TEXT NOT NULL,
+    CHECK((range_start_utc IS NULL) = (range_end_utc IS NULL)),
+    UNIQUE(raw_record_id, rule_version, tzdb_version, ordinal)
+);
+CREATE INDEX idx_source_time_record_role
+    ON source_time_values(raw_record_id, role, ordinal);
+CREATE TRIGGER source_time_values_no_update
+BEFORE UPDATE ON source_time_values
+BEGIN SELECT RAISE(ABORT, 'source time values are immutable'); END;
+CREATE TRIGGER source_time_values_no_delete
+BEFORE DELETE ON source_time_values
+BEGIN SELECT RAISE(ABORT, 'source time values are immutable'); END;
+"""
+
 
 def _execute_script(db: sqlite3.Connection, script: str) -> None:
     """Execute a SQL script without sqlite3.executescript's implicit COMMIT."""
@@ -492,6 +533,10 @@ def _ingest_evidence_foundation(db: sqlite3.Connection) -> None:
     _execute_script(db, INGEST_EVIDENCE_SCHEMA_SQL)
 
 
+def _source_time_foundation(db: sqlite3.Connection) -> None:
+    _execute_script(db, SOURCE_TIME_SCHEMA_SQL)
+
+
 # Migration 1 freezes the exact legacy schema at main@88a2a1e. Future schema
 # changes must append a new Migration instead of editing this definition.
 MIGRATIONS = (
@@ -522,6 +567,12 @@ MIGRATIONS = (
         INGEST_EVIDENCE_SCHEMA_SQL,
         _ingest_evidence_foundation,
     ),
+    Migration(
+        5,
+        "source time evidence foundation",
+        SOURCE_TIME_SCHEMA_SQL,
+        _source_time_foundation,
+    ),
 )
 CURRENT_SCHEMA_VERSION = MIGRATIONS[-1].version
 REQUIRED_MIGRATION_COLUMNS = {
@@ -535,6 +586,7 @@ EXPECTED_TABLES = LEGACY_ANCHORS | {
     "dataset_epochs", "dataset_state", "change_log", "clock_checks",
     "knowledge_checkpoints",
     "source_config_versions", "ingest_runs", "raw_records", "raw_observations",
+    "source_time_values",
 }
 EXPECTED_ITEM_COLUMNS = {
     "id", "source_id", "url", "title", "title_zh", "summary", "raw_summary",
@@ -598,11 +650,17 @@ EXPECTED_RAW_RECORD_COLUMNS = {
 EXPECTED_RAW_OBSERVATION_COLUMNS = {
     "id", "raw_record_id", "ingest_run_id", "ordinal", "observed_at",
 }
+EXPECTED_SOURCE_TIME_COLUMNS = {
+    "id", "raw_record_id", "ordinal", "field_path", "raw_value", "role",
+    "source_timezone", "utc", "range_start_utc", "range_end_utc", "precision",
+    "interpretation", "status", "rule_version", "tzdb_version",
+}
 EXPECTED_INGEST_TRIGGERS = {
     "source_config_versions_no_update", "source_config_versions_no_delete",
     "raw_records_no_update", "raw_records_no_delete",
     "raw_observations_no_update", "raw_observations_no_delete",
     "ingest_runs_valid_transition", "ingest_runs_no_delete",
+    "source_time_values_no_update", "source_time_values_no_delete",
 }
 
 
@@ -790,6 +848,10 @@ def _assert_current_schema(db: sqlite3.Connection) -> None:
     missing_raw_observation_columns = (
         EXPECTED_RAW_OBSERVATION_COLUMNS - raw_observation_columns
     )
+    source_time_columns = {
+        row["name"] for row in db.execute("PRAGMA table_info(source_time_values)")
+    }
+    missing_source_time_columns = EXPECTED_SOURCE_TIME_COLUMNS - source_time_columns
     ingest_triggers = {
         row["name"] for row in db.execute(
             "SELECT name FROM sqlite_master WHERE type='trigger'"
@@ -811,6 +873,7 @@ def _assert_current_schema(db: sqlite3.Connection) -> None:
         or missing_ingest_run_columns
         or missing_raw_record_columns
         or missing_raw_observation_columns
+        or missing_source_time_columns
         or missing_ingest_triggers
         or "title_zh" not in fts_columns
     ):
@@ -829,6 +892,7 @@ def _assert_current_schema(db: sqlite3.Connection) -> None:
             f"ingest_run_columns={sorted(missing_ingest_run_columns)}, "
             f"raw_record_columns={sorted(missing_raw_record_columns)}, "
             f"raw_observation_columns={sorted(missing_raw_observation_columns)}, "
+            f"source_time_columns={sorted(missing_source_time_columns)}, "
             f"ingest_triggers={sorted(missing_ingest_triggers)}, "
             f"fts_title_zh={'title_zh' in fts_columns}"
         )

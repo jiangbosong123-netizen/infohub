@@ -68,7 +68,11 @@ class RegressionTests(unittest.TestCase):
             row = db.execute('SELECT * FROM items').fetchone()
         self.assertEqual(row['published_at'], '2026-09-11T16:00:00+00:00')
         self.assertEqual(row['official'], 1)
-        self.item('naive', published_at='2026-09-12T00:00:00')
+        naive_id = self.item('naive', published_at='2026-09-12T00:00:00')
+        with database.get_db() as db:
+            naive = db.execute('SELECT published_at,extra FROM items WHERE id=?', (naive_id,)).fetchone()
+        self.assertNotEqual(naive['published_at'], '2026-09-12T00:00:00+00:00')
+        self.assertEqual(__import__('json').loads(naive['extra'])['_legacy_time_basis'], 'item_inserted')
         self.assertFalse(runner.insert_item('test', dict(url='javascript:alert(1)', title='bad')))
 
     def test_concurrent_dedup(self):

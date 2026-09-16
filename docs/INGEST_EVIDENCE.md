@@ -1,16 +1,16 @@
 # 不可变采集证据与 CAS
 
-P06a 建立采集运行、来源配置快照、不可变载荷和重复观察的基础层。它先解决“取得过什么、何时又
-看见一次、载荷是否还在”这三个问题；文档版本、来源时间解析和全文/原始响应规则分别由 P06b、
-P06c 接续，不能把本层记录直接当作已经标准化的文章。
+P06a 建立采集运行、来源配置快照、不可变载荷和重复观察的基础层。P06b 在同一基础上为 JSON/RSS
+连接器保存逐条 API record / 解析 entry 和来源时间；HTML 列表仍是 generated metadata。文档版本和
+正文提取由 P06c 接续，不能把本层记录直接当作已经标准化的文章或发布方全文。
 
 ## 当前写入链路
 
 1. worker 为一次来源执行创建 `ingest_runs`，记录当时的 dataset epoch，并引用不可变的
    `source_config_versions`。配置内容经过 allowlist 和秘密参数脱敏；配置 hash 不变时复用同一版本。
-2. 现有 fetcher 产生的候选对象先按稳定 JSON 编码。P06a 将它标为
-   `payload_kind=generated_metadata`、`retention_class=private-metadata`，明确表示它可能已经被旧解析器
-   截断或生成，不能冒充发布方全文。
+2. fetcher 有逐条来源记录时，只把该 record 放入稳定 JSON envelope，标为 `feed_entry` 或
+   `api_record`；没有时继续保存 allowlist 后的候选并标 `generated_metadata`。两者均为
+   `retention_class=private-metadata`，不能冒充未取得的发布方全文。
 3. 字节先写到 `BLOB_PATH/sha256/<前两位>/<sha256>` 临时文件，`fsync` 后在同目录原子改名；已有
    同 hash 文件会重新校验大小和 SHA-256。
 4. 只有 CAS 文件通过校验后，事务才写 `raw_records` 和 `raw_observations`。证据写入失败时旧
@@ -24,7 +24,7 @@ P06c 接续，不能把本层记录直接当作已经标准化的文章。
 `running` 一次性转为终态，避免应用之外的误操作悄悄改写证据历史。
 
 常规抓取与 Google News 对账均经过这条路径。当前 `request_count` 对普通来源按一次来源调用记录，
-对账按公司调用数记录；SEC/HKEX 的逐请求和分页水位要在 P06b 的来源适配器中细化。
+对账按公司调用数记录；SEC/HKEX 的分页水位仍要在后续连接器增量工作中细化。
 
 ## 完整性与秘密边界
 

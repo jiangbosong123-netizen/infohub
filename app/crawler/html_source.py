@@ -8,13 +8,10 @@ from urllib.parse import urljoin
 from bs4 import BeautifulSoup
 
 from . import http
+from ..source_time import parse_source_time
 
 
-def _now() -> str:
-    return datetime.now(timezone.utc).isoformat()
-
-
-def _parse_jiqizhixin(resp) -> list[dict]:
+def _parse_jiqizhixin(resp, observed_at: datetime) -> list[dict]:
     """机器之心：首页文章链接 /articles/YYYY-MM-DD-xxx。"""
     soup = BeautifulSoup(resp.text, "lxml")
     out, seen = [], set()
@@ -30,8 +27,14 @@ def _parse_jiqizhixin(resp) -> list[dict]:
         if url in seen:
             continue
         seen.add(url)
-        out.append(dict(url=url, title=title, summary="", published_at=_now(),
-                        event_type="", official=0, companies=None, extra={}))
+        source_time = parse_source_time(
+            None, field_path="article.published", role="published",
+            interpretation="listing page exposes no publication timestamp",
+        )
+        out.append(dict(url=url, title=title, summary="", published_at=None,
+                        event_type="", official=0, companies=None, extra={},
+                        source_time_values=[source_time.to_dict()],
+                        observed_at=observed_at.isoformat()))
     return out[:40]
 
 
@@ -46,4 +49,4 @@ def fetch_html(source: dict) -> list[dict]:
     if parser is None:
         raise RuntimeError(f"html 源 {source['key']} 没有注册解析函数")
     resp = http.fetch(source["url"])
-    return parser(resp)
+    return parser(resp, datetime.now(timezone.utc))

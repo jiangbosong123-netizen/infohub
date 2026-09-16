@@ -140,6 +140,11 @@ def _system_snapshot() -> dict:
                    (SELECT COUNT(*) FROM raw_observations) AS observations,
                    (SELECT MAX(finished_at) FROM ingest_runs) AS last_finished_at"""
         ).fetchone()
+        source_time_states = {}
+        for row in db.execute(
+            "SELECT status,COUNT(*) AS n FROM source_time_values GROUP BY status"
+        ):
+            source_time_states[row["status"]] = row["n"]
     source_states = [_source_status(row, now) for row in source_rows]
     issues = sum(state != "ok" for state in source_states)
     oldest_ready_age = (
@@ -211,6 +216,7 @@ def _system_snapshot() -> dict:
             "raw_records": ingest_evidence["records"],
             "observations": ingest_evidence["observations"],
             "last_finished_at": ingest_evidence["last_finished_at"],
+            "source_time_states": source_time_states,
         },
         "dataset": {
             "dataset_id": dataset_row["dataset_id"],
