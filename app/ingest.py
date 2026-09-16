@@ -359,6 +359,7 @@ def observe_candidate(
     if ordinal < 0:
         raise ValueError("observation ordinal must be non-negative")
     observed = _canonical_time(observed_at)
+    ingested = _canonical_time()
     payload_kind = payload_kind or str(candidate.get("payload_kind") or "generated_metadata")
     if payload_kind not in _PAYLOAD_KINDS:
         raise ValueError(f"unsupported payload kind: {payload_kind}")
@@ -382,7 +383,7 @@ def observe_candidate(
                    payload_sha256,payload_ref,payload_kind,truncated,size_bytes,retention_class
                ) VALUES(?,?,?,?,?,?,?,?,NULL,'{}','application/json','utf-8',?,?,?,?,?,?)""",
             (
-                record_id, run.id, run.source_id, external_id, observed, observed,
+                record_id, run.id, run.source_id, external_id, observed, ingested,
                 None, final_url, digest, reference, payload_kind, 0, len(payload), retention_class,
             ),
         ).rowcount

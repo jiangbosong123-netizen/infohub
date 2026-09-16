@@ -106,11 +106,14 @@ class IngestEvidenceTests(unittest.TestCase):
             self.assertEqual(db.execute("SELECT COUNT(*) FROM source_config_versions").fetchone()[0], 1)
             self.assertEqual(db.execute("SELECT COUNT(*) FROM source_time_values").fetchone()[0], 1)
             row = db.execute(
-                "SELECT payload_kind,retention_class,external_id FROM raw_records"
+                """SELECT payload_kind,retention_class,external_id,observed_at,ingested_at
+                   FROM raw_records"""
             ).fetchone()
         self.assertEqual(row["payload_kind"], "generated_metadata")
         self.assertEqual(row["retention_class"], "private-metadata")
         self.assertNotIn("item-secret", row["external_id"])
+        self.assertEqual(row["observed_at"], "2026-09-16T08:00:00.000000Z")
+        self.assertNotEqual(row["ingested_at"], row["observed_at"])
         with database.get_db() as db:
             source_config = db.execute(
                 "SELECT config_json FROM source_config_versions"
