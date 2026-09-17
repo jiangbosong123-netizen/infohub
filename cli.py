@@ -23,6 +23,7 @@ from __future__ import annotations
   python cli.py prepare-release        # 安全迁移、同步静态配置并清除旧心跳
   python cli.py raw-verify             # 全量校验原始载荷 CAS 引用和哈希
   python cli.py legacy-backfill [N]    # 可续跑迁移旧记录，每事务批 N 条（maintenance only）
+  python cli.py legacy-event-project   # 将旧 story 映射为 shadow candidate event（maintenance only）
 """
 import json
 import logging
@@ -233,6 +234,20 @@ def cmd_legacy_backfill(batch_size: int) -> None:
     print(json.dumps(report.to_dict(), ensure_ascii=False, indent=2))
 
 
+def cmd_legacy_event_project() -> None:
+    if config.PROCESS_ROLE != "maintenance":
+        raise config.RuntimeConfigurationError(
+            "legacy-event-project requires INFOHUB_PROCESS_ROLE=maintenance"
+        )
+    from app.db_admin import verify_database
+    from app.event_candidates import project_legacy_stories
+    verify_database(config.DB_PATH, require_current=True)
+    with get_db() as db:
+        db.execute("BEGIN IMMEDIATE")
+        report = project_legacy_stories(db)
+    print(json.dumps(report.to_dict(), ensure_ascii=False, indent=2))
+
+
 def main() -> None:
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
     cmd = sys.argv[1] if len(sys.argv) > 1 else ""
@@ -279,6 +294,8 @@ def main() -> None:
         cmd_raw_verify()
     elif cmd == "legacy-backfill":
         cmd_legacy_backfill(int(sys.argv[2]) if len(sys.argv) > 2 else 250)
+    elif cmd == "legacy-event-project":
+        cmd_legacy_event_project()
     else:
         print(__doc__)
         sys.exit(1)

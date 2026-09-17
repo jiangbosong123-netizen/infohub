@@ -1264,6 +1264,162 @@ def _sec_identity_foundation(db: sqlite3.Connection) -> None:
     _execute_script(db, SEC_IDENTITY_SCHEMA_SQL)
 
 
+EVENT_FOUNDATION_SCHEMA_SQL = """
+CREATE TABLE events (
+    id TEXT PRIMARY KEY,
+    dataset_id TEXT NOT NULL,
+    first_seen_at TEXT NOT NULL,
+    latest_report_at TEXT NOT NULL,
+    last_fact_change_at TEXT,
+    current_version_id TEXT UNIQUE REFERENCES event_versions(id),
+    status TEXT NOT NULL CHECK(status IN (
+        'candidate','active','resolved','retracted','merged','split'
+    )),
+    CHECK(latest_report_at>=first_seen_at),
+    CHECK(last_fact_change_at IS NULL OR last_fact_change_at>=first_seen_at)
+);
+CREATE INDEX idx_events_recent ON events(latest_report_at,status);
+
+CREATE TABLE event_versions (
+    id TEXT PRIMARY KEY,
+    event_id TEXT NOT NULL REFERENCES events(id),
+    version INTEGER NOT NULL CHECK(version>0),
+    previous_version_id TEXT REFERENCES event_versions(id),
+    schema_version TEXT NOT NULL,
+    title TEXT NOT NULL,
+    event_type TEXT NOT NULL CHECK(event_type IN (
+        'model_release','product_update','research_result','earnings','financing',
+        'ma','personnel','buyback','regulation','litigation','macro_release',
+        'monetary_policy','other'
+    )),
+    event_time_start TEXT,
+    event_time_end TEXT,
+    time_precision TEXT NOT NULL CHECK(time_precision IN (
+        'unknown','year','month','day','minute','second','range'
+    )),
+    primary_entities_json TEXT NOT NULL DEFAULT '[]',
+    object_entities_json TEXT NOT NULL DEFAULT '[]',
+    facts_json TEXT NOT NULL DEFAULT '[]',
+    topics_json TEXT NOT NULL DEFAULT '[]',
+    knowledge_status TEXT NOT NULL CHECK(knowledge_status IN (
+        'reported','corroborated','disputed','confirmed_by_primary',
+        'retracted','unknown'
+    )),
+    version_sha256 TEXT NOT NULL CHECK(length(version_sha256)=64),
+    available_at TEXT NOT NULL,
+    created_by TEXT NOT NULL,
+    method_version TEXT NOT NULL,
+    UNIQUE(event_id,version),
+    CHECK((version=1 AND previous_version_id IS NULL)
+       OR (version>1 AND previous_version_id IS NOT NULL)),
+    CHECK(event_time_end IS NULL OR event_time_start IS NOT NULL),
+    CHECK(event_time_end IS NULL OR event_time_end>=event_time_start)
+);
+
+CREATE TABLE match_decisions (
+    id TEXT PRIMARY KEY,
+    dataset_id TEXT NOT NULL,
+    decision_key TEXT NOT NULL UNIQUE,
+    input_versions_json TEXT NOT NULL,
+    candidate_event_versions_json TEXT NOT NULL,
+    matcher_version TEXT NOT NULL,
+    features_json TEXT NOT NULL,
+    score REAL,
+    decision TEXT NOT NULL CHECK(decision IN (
+        'new_candidate','candidate_link','no_match','needs_review'
+    )),
+    reason TEXT NOT NULL,
+    review_status TEXT NOT NULL CHECK(review_status IN (
+        'pending','accepted','rejected','superseded'
+    )),
+    available_at TEXT NOT NULL,
+    CHECK(score IS NULL OR (score>=0 AND score<=1))
+);
+
+CREATE TABLE event_evidence (
+    id TEXT PRIMARY KEY,
+    event_version_id TEXT NOT NULL REFERENCES event_versions(id),
+    document_version_id TEXT NOT NULL REFERENCES document_versions(id),
+    evidence_id TEXT NOT NULL REFERENCES raw_records(id),
+    fact_id TEXT,
+    role TEXT NOT NULL CHECK(role IN ('supports','contradicts','context')),
+    available_at TEXT NOT NULL,
+    UNIQUE(event_version_id,document_version_id,evidence_id,fact_id,role)
+);
+CREATE INDEX idx_event_evidence_document
+    ON event_evidence(document_version_id,event_version_id);
+
+CREATE TABLE document_event_links (
+    id TEXT PRIMARY KEY,
+    document_version_id TEXT NOT NULL REFERENCES document_versions(id),
+    event_id TEXT NOT NULL REFERENCES events(id),
+    event_version_id TEXT NOT NULL REFERENCES event_versions(id),
+    role TEXT NOT NULL CHECK(role IN ('primary','supporting','context','candidate')),
+    decision_id TEXT NOT NULL REFERENCES match_decisions(id),
+    available_at TEXT NOT NULL,
+    supersedes_link_id TEXT REFERENCES document_event_links(id),
+    UNIQUE(document_version_id,event_id,event_version_id,role)
+);
+CREATE INDEX idx_document_event_links_event
+    ON document_event_links(event_id,event_version_id,document_version_id);
+
+CREATE TABLE legacy_story_events (
+    story_id TEXT PRIMARY KEY REFERENCES stories(id),
+    event_id TEXT NOT NULL REFERENCES events(id),
+    canonical_story_id TEXT NOT NULL REFERENCES stories(id),
+    mapping_status TEXT NOT NULL CHECK(mapping_status='candidate'),
+    available_at TEXT NOT NULL
+);
+CREATE INDEX idx_legacy_story_events_event ON legacy_story_events(event_id,story_id);
+
+CREATE TRIGGER event_versions_valid_append BEFORE INSERT ON event_versions
+WHEN NEW.version != COALESCE(
+         (SELECT MAX(version)+1 FROM event_versions WHERE event_id=NEW.event_id),1
+     )
+  OR (NEW.version=1 AND NEW.previous_version_id IS NOT NULL)
+  OR (NEW.version>1 AND NEW.previous_version_id IS NOT (
+         SELECT id FROM event_versions
+         WHERE event_id=NEW.event_id AND version=NEW.version-1
+     ))
+BEGIN SELECT RAISE(ABORT,'event versions must form a contiguous append-only chain'); END;
+CREATE TRIGGER event_versions_no_update BEFORE UPDATE ON event_versions
+BEGIN SELECT RAISE(ABORT,'event versions are immutable'); END;
+CREATE TRIGGER event_versions_no_delete BEFORE DELETE ON event_versions
+BEGIN SELECT RAISE(ABORT,'event versions are immutable'); END;
+CREATE TRIGGER events_identity_immutable BEFORE UPDATE ON events
+WHEN NEW.id IS NOT OLD.id OR NEW.dataset_id IS NOT OLD.dataset_id
+  OR NEW.first_seen_at IS NOT OLD.first_seen_at
+BEGIN SELECT RAISE(ABORT,'event identity is immutable'); END;
+CREATE TRIGGER events_current_version_valid BEFORE UPDATE OF current_version_id ON events
+WHEN NEW.current_version_id IS NULL OR NOT EXISTS(
+    SELECT 1 FROM event_versions WHERE id=NEW.current_version_id AND event_id=NEW.id
+)
+BEGIN SELECT RAISE(ABORT,'event current version must belong to the event'); END;
+CREATE TRIGGER events_no_delete BEFORE DELETE ON events
+BEGIN SELECT RAISE(ABORT,'events are stable identities'); END;
+CREATE TRIGGER match_decisions_no_update BEFORE UPDATE ON match_decisions
+BEGIN SELECT RAISE(ABORT,'match decisions are immutable'); END;
+CREATE TRIGGER match_decisions_no_delete BEFORE DELETE ON match_decisions
+BEGIN SELECT RAISE(ABORT,'match decisions are immutable'); END;
+CREATE TRIGGER event_evidence_no_update BEFORE UPDATE ON event_evidence
+BEGIN SELECT RAISE(ABORT,'event evidence is immutable'); END;
+CREATE TRIGGER event_evidence_no_delete BEFORE DELETE ON event_evidence
+BEGIN SELECT RAISE(ABORT,'event evidence is immutable'); END;
+CREATE TRIGGER document_event_links_no_update BEFORE UPDATE ON document_event_links
+BEGIN SELECT RAISE(ABORT,'document event links are immutable'); END;
+CREATE TRIGGER document_event_links_no_delete BEFORE DELETE ON document_event_links
+BEGIN SELECT RAISE(ABORT,'document event links are immutable'); END;
+CREATE TRIGGER legacy_story_events_no_update BEFORE UPDATE ON legacy_story_events
+BEGIN SELECT RAISE(ABORT,'legacy story mappings are immutable'); END;
+CREATE TRIGGER legacy_story_events_no_delete BEFORE DELETE ON legacy_story_events
+BEGIN SELECT RAISE(ABORT,'legacy story mappings are immutable'); END;
+"""
+
+
+def _event_foundation(db: sqlite3.Connection) -> None:
+    _execute_script(db, EVENT_FOUNDATION_SCHEMA_SQL)
+
+
 # Migration 1 freezes the exact legacy schema at main@88a2a1e. Future schema
 # changes must append a new Migration instead of editing this definition.
 MIGRATIONS = (
@@ -1324,6 +1480,12 @@ MIGRATIONS = (
         SEC_IDENTITY_SCHEMA_SQL,
         _sec_identity_foundation,
     ),
+    Migration(
+        10,
+        "stable event candidate foundation",
+        EVENT_FOUNDATION_SCHEMA_SQL,
+        _event_foundation,
+    ),
 )
 CURRENT_SCHEMA_VERSION = MIGRATIONS[-1].version
 REQUIRED_MIGRATION_COLUMNS = {
@@ -1348,6 +1510,8 @@ EXPECTED_TABLES = LEGACY_ANCHORS | {
     "document_attributions", "topic_catalog", "topic_versions",
     "topic_slug_aliases", "document_topic_assignments",
     "sec_security_keys", "sec_filings", "sec_filing_versions",
+    "events", "event_versions", "match_decisions", "event_evidence",
+    "document_event_links", "legacy_story_events",
 }
 EXPECTED_ITEM_COLUMNS = {
     "id", "source_id", "url", "title", "title_zh", "summary", "raw_summary",
@@ -1529,6 +1693,33 @@ EXPECTED_IDENTITY_AUXILIARY_COLUMNS = {
         "amendment_status", "primary_document", "filing_date", "report_period_end",
         "accepted_at", "items_json", "metadata_sha256", "available_at",
     },
+    "events": {
+        "id", "dataset_id", "first_seen_at", "latest_report_at",
+        "last_fact_change_at", "current_version_id", "status",
+    },
+    "event_versions": {
+        "id", "event_id", "version", "previous_version_id", "schema_version",
+        "title", "event_type", "event_time_start", "event_time_end",
+        "time_precision", "primary_entities_json", "object_entities_json",
+        "facts_json", "topics_json", "knowledge_status", "version_sha256",
+        "available_at", "created_by", "method_version",
+    },
+    "match_decisions": {
+        "id", "dataset_id", "decision_key", "input_versions_json",
+        "candidate_event_versions_json", "matcher_version", "features_json",
+        "score", "decision", "reason", "review_status", "available_at",
+    },
+    "event_evidence": {
+        "id", "event_version_id", "document_version_id", "evidence_id",
+        "fact_id", "role", "available_at",
+    },
+    "document_event_links": {
+        "id", "document_version_id", "event_id", "event_version_id", "role",
+        "decision_id", "available_at", "supersedes_link_id",
+    },
+    "legacy_story_events": {
+        "story_id", "event_id", "canonical_story_id", "mapping_status", "available_at",
+    },
 }
 EXPECTED_DOCUMENT_INPUT_COLUMNS = {"version_id", "raw_record_id", "role"}
 EXPECTED_DOCUMENT_LOCATOR_COLUMNS = {
@@ -1572,6 +1763,12 @@ EXPECTED_INGEST_TRIGGERS = {
     "sec_filing_versions_valid_append", "sec_filing_versions_no_update",
     "sec_filing_versions_no_delete", "sec_filings_identity_immutable",
     "sec_filings_current_version_valid", "sec_filings_no_delete",
+    "event_versions_valid_append", "event_versions_no_update", "event_versions_no_delete",
+    "events_identity_immutable", "events_current_version_valid", "events_no_delete",
+    "match_decisions_no_update", "match_decisions_no_delete",
+    "event_evidence_no_update", "event_evidence_no_delete",
+    "document_event_links_no_update", "document_event_links_no_delete",
+    "legacy_story_events_no_update", "legacy_story_events_no_delete",
 }
 
 
@@ -2017,6 +2214,33 @@ def _assert_current_schema(db: sqlite3.Connection) -> None:
         raise DatabaseVerificationError(
             "SEC filing projections are invalid: "
             f"filings={invalid_sec_filings}, amendment_links={invalid_sec_links}"
+        )
+    invalid_events = db.execute(
+        """SELECT COUNT(*) FROM events AS event
+           LEFT JOIN event_versions AS version ON version.id=event.current_version_id
+           JOIN dataset_state AS state ON state.singleton=1
+           WHERE event.dataset_id<>state.dataset_id
+              OR event.current_version_id IS NULL
+              OR version.id IS NULL OR version.event_id<>event.id"""
+    ).fetchone()[0]
+    invalid_event_links = db.execute(
+        """SELECT COUNT(*) FROM document_event_links AS link
+           LEFT JOIN event_versions AS version ON version.id=link.event_version_id
+           WHERE version.id IS NULL OR version.event_id<>link.event_id"""
+    ).fetchone()[0]
+    invalid_event_evidence = db.execute(
+        """SELECT COUNT(*) FROM event_evidence AS evidence
+           WHERE NOT EXISTS(
+               SELECT 1 FROM document_version_inputs AS input
+               WHERE input.version_id=evidence.document_version_id
+                 AND input.raw_record_id=evidence.evidence_id
+           )"""
+    ).fetchone()[0]
+    if invalid_events or invalid_event_links or invalid_event_evidence:
+        raise DatabaseVerificationError(
+            "event projections are invalid: "
+            f"events={invalid_events}, links={invalid_event_links}, "
+            f"evidence={invalid_event_evidence}"
         )
     invalid_jobs = db.execute(
         """SELECT COUNT(*) FROM jobs AS job
