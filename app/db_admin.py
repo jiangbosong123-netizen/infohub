@@ -1420,6 +1420,81 @@ def _event_foundation(db: sqlite3.Connection) -> None:
     _execute_script(db, EVENT_FOUNDATION_SCHEMA_SQL)
 
 
+EVENT_RELATION_SCHEMA_SQL = """
+CREATE TABLE event_relations (
+    id TEXT PRIMARY KEY,
+    from_event_id TEXT NOT NULL REFERENCES events(id),
+    to_event_id TEXT NOT NULL REFERENCES events(id),
+    relation TEXT NOT NULL CHECK(relation IN (
+        'follows','implements','corrects','denies','related_to'
+    )),
+    evidence_ids_json TEXT NOT NULL,
+    reason TEXT NOT NULL CHECK(length(trim(reason))>0),
+    available_at TEXT NOT NULL,
+    supersedes_relation_id TEXT UNIQUE REFERENCES event_relations(id),
+    publication_seq INTEGER NOT NULL UNIQUE REFERENCES change_log(seq),
+    CHECK(from_event_id<>to_event_id)
+);
+CREATE INDEX idx_event_relations_from
+    ON event_relations(from_event_id,to_event_id,available_at);
+CREATE INDEX idx_event_relations_to
+    ON event_relations(to_event_id,from_event_id,available_at);
+
+CREATE TABLE event_merges (
+    id TEXT PRIMARY KEY,
+    absorbed_event_id TEXT NOT NULL UNIQUE REFERENCES events(id),
+    survivor_event_id TEXT NOT NULL REFERENCES events(id),
+    evidence_ids_json TEXT NOT NULL,
+    reason TEXT NOT NULL CHECK(length(trim(reason))>0),
+    available_at TEXT NOT NULL,
+    publication_seq INTEGER NOT NULL UNIQUE REFERENCES change_log(seq),
+    CHECK(absorbed_event_id<>survivor_event_id)
+);
+CREATE INDEX idx_event_merges_survivor
+    ON event_merges(survivor_event_id,absorbed_event_id);
+
+CREATE TRIGGER event_relations_supersedes_valid BEFORE INSERT ON event_relations
+WHEN NEW.supersedes_relation_id IS NOT NULL AND NOT EXISTS(
+    SELECT 1 FROM event_relations AS previous
+    WHERE previous.id=NEW.supersedes_relation_id
+      AND previous.from_event_id=NEW.from_event_id
+      AND previous.to_event_id=NEW.to_event_id
+) BEGIN
+    SELECT RAISE(ABORT,'superseded event relation must have the same endpoints');
+END;
+CREATE TRIGGER event_relations_no_update BEFORE UPDATE ON event_relations
+BEGIN SELECT RAISE(ABORT,'event relations are immutable'); END;
+CREATE TRIGGER event_relations_no_delete BEFORE DELETE ON event_relations
+BEGIN SELECT RAISE(ABORT,'event relations are immutable'); END;
+
+CREATE TRIGGER event_merges_no_cycle BEFORE INSERT ON event_merges
+WHEN EXISTS(
+    WITH RECURSIVE successors(event_id) AS (
+        SELECT NEW.survivor_event_id
+        UNION
+        SELECT merge.survivor_event_id
+        FROM event_merges AS merge
+        JOIN successors ON merge.absorbed_event_id=successors.event_id
+    )
+    SELECT 1 FROM successors WHERE event_id=NEW.absorbed_event_id
+) BEGIN
+    SELECT RAISE(ABORT,'event merge would create a cycle');
+END;
+CREATE TRIGGER event_merges_status_guard BEFORE INSERT ON event_merges
+WHEN (SELECT status FROM events WHERE id=NEW.absorbed_event_id) IN ('merged','split','retracted')
+  OR (SELECT status FROM events WHERE id=NEW.survivor_event_id) IN ('merged','split','retracted')
+BEGIN SELECT RAISE(ABORT,'event merge endpoints are not mergeable'); END;
+CREATE TRIGGER event_merges_no_update BEFORE UPDATE ON event_merges
+BEGIN SELECT RAISE(ABORT,'event merges are immutable'); END;
+CREATE TRIGGER event_merges_no_delete BEFORE DELETE ON event_merges
+BEGIN SELECT RAISE(ABORT,'event merges are immutable'); END;
+"""
+
+
+def _event_relation_foundation(db: sqlite3.Connection) -> None:
+    _execute_script(db, EVENT_RELATION_SCHEMA_SQL)
+
+
 # Migration 1 freezes the exact legacy schema at main@88a2a1e. Future schema
 # changes must append a new Migration instead of editing this definition.
 MIGRATIONS = (
@@ -1486,6 +1561,12 @@ MIGRATIONS = (
         EVENT_FOUNDATION_SCHEMA_SQL,
         _event_foundation,
     ),
+    Migration(
+        11,
+        "event relation and merge foundation",
+        EVENT_RELATION_SCHEMA_SQL,
+        _event_relation_foundation,
+    ),
 )
 CURRENT_SCHEMA_VERSION = MIGRATIONS[-1].version
 REQUIRED_MIGRATION_COLUMNS = {
@@ -1511,7 +1592,7 @@ EXPECTED_TABLES = LEGACY_ANCHORS | {
     "topic_slug_aliases", "document_topic_assignments",
     "sec_security_keys", "sec_filings", "sec_filing_versions",
     "events", "event_versions", "match_decisions", "event_evidence",
-    "document_event_links", "legacy_story_events",
+    "document_event_links", "legacy_story_events", "event_relations", "event_merges",
 }
 EXPECTED_ITEM_COLUMNS = {
     "id", "source_id", "url", "title", "title_zh", "summary", "raw_summary",
@@ -1720,6 +1801,14 @@ EXPECTED_IDENTITY_AUXILIARY_COLUMNS = {
     "legacy_story_events": {
         "story_id", "event_id", "canonical_story_id", "mapping_status", "available_at",
     },
+    "event_relations": {
+        "id", "from_event_id", "to_event_id", "relation", "evidence_ids_json",
+        "reason", "available_at", "supersedes_relation_id", "publication_seq",
+    },
+    "event_merges": {
+        "id", "absorbed_event_id", "survivor_event_id", "evidence_ids_json",
+        "reason", "available_at", "publication_seq",
+    },
 }
 EXPECTED_DOCUMENT_INPUT_COLUMNS = {"version_id", "raw_record_id", "role"}
 EXPECTED_DOCUMENT_LOCATOR_COLUMNS = {
@@ -1769,6 +1858,9 @@ EXPECTED_INGEST_TRIGGERS = {
     "event_evidence_no_update", "event_evidence_no_delete",
     "document_event_links_no_update", "document_event_links_no_delete",
     "legacy_story_events_no_update", "legacy_story_events_no_delete",
+    "event_relations_supersedes_valid", "event_relations_no_update",
+    "event_relations_no_delete", "event_merges_no_cycle",
+    "event_merges_status_guard", "event_merges_no_update", "event_merges_no_delete",
 }
 
 
@@ -2276,19 +2368,102 @@ def _assert_current_schema(db: sqlite3.Connection) -> None:
             or row["event_version_id"] not in references[1]
         ):
             invalid_link_decisions += 1
+    raw_record_ids = {row[0] for row in db.execute("SELECT id FROM raw_records")}
+    change_rows = {
+        row["seq"]: row for row in db.execute(
+            "SELECT seq,resource_type,resource_id,version_id,operation FROM change_log"
+        )
+    }
+    invalid_event_relations = 0
+    relation_rows = {
+        row["id"]: row for row in db.execute("SELECT * FROM event_relations")
+    }
+    for row in relation_rows.values():
+        try:
+            evidence_ids = json.loads(row["evidence_ids_json"])
+        except (TypeError, json.JSONDecodeError):
+            invalid_event_relations += 1
+            continue
+        previous = (
+            relation_rows.get(row["supersedes_relation_id"])
+            if row["supersedes_relation_id"]
+            else None
+        )
+        change = change_rows.get(row["publication_seq"])
+        if (
+            not isinstance(evidence_ids, list)
+            or not evidence_ids
+            or not all(isinstance(item, str) and item in raw_record_ids for item in evidence_ids)
+            or (previous is not None and (
+                previous["from_event_id"] != row["from_event_id"]
+                or previous["to_event_id"] != row["to_event_id"]
+            ))
+            or (row["supersedes_relation_id"] and previous is None)
+            or change is None
+            or change["resource_type"] != "event"
+            or change["resource_id"] != row["from_event_id"]
+            or change["version_id"] != row["id"]
+            or change["operation"] != "update"
+        ):
+            invalid_event_relations += 1
+    event_statuses = {
+        row["id"]: row["status"] for row in db.execute("SELECT id,status FROM events")
+    }
+    merge_rows = {
+        row["absorbed_event_id"]: row for row in db.execute("SELECT * FROM event_merges")
+    }
+    invalid_event_merges = 0
+    for absorbed_id, row in merge_rows.items():
+        try:
+            evidence_ids = json.loads(row["evidence_ids_json"])
+        except (TypeError, json.JSONDecodeError):
+            invalid_event_merges += 1
+            continue
+        change = change_rows.get(row["publication_seq"])
+        if (
+            event_statuses.get(absorbed_id) != "merged"
+            or row["survivor_event_id"] not in event_statuses
+            or not isinstance(evidence_ids, list)
+            or not evidence_ids
+            or not all(isinstance(item, str) and item in raw_record_ids for item in evidence_ids)
+            or change is None
+            or change["resource_type"] != "event"
+            or change["resource_id"] != absorbed_id
+            or change["version_id"] != row["id"]
+            or change["operation"] != "merge"
+        ):
+            invalid_event_merges += 1
+            continue
+        seen = {absorbed_id}
+        current = row["survivor_event_id"]
+        while current in merge_rows:
+            if current in seen:
+                invalid_event_merges += 1
+                break
+            seen.add(current)
+            current = merge_rows[current]["survivor_event_id"]
+        if current in seen or event_statuses.get(current) == "merged":
+            invalid_event_merges += 1
+    invalid_event_merges += sum(
+        1 for event_id, status in event_statuses.items()
+        if status == "merged" and event_id not in merge_rows
+    )
     if (
         invalid_events
         or invalid_event_links
         or invalid_event_evidence
         or invalid_match_decisions
         or invalid_link_decisions
+        or invalid_event_relations
+        or invalid_event_merges
     ):
         raise DatabaseVerificationError(
             "event projections are invalid: "
             f"events={invalid_events}, links={invalid_event_links}, "
             f"evidence={invalid_event_evidence}, "
             f"match_decisions={invalid_match_decisions}, "
-            f"link_decisions={invalid_link_decisions}"
+            f"link_decisions={invalid_link_decisions}, "
+            f"relations={invalid_event_relations}, merges={invalid_event_merges}"
         )
     invalid_jobs = db.execute(
         """SELECT COUNT(*) FROM jobs AS job
