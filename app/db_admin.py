@@ -1495,6 +1495,73 @@ def _event_relation_foundation(db: sqlite3.Connection) -> None:
     _execute_script(db, EVENT_RELATION_SCHEMA_SQL)
 
 
+EVENT_TERMINAL_SCHEMA_SQL = """
+ALTER TABLE event_merges ADD COLUMN previous_status TEXT
+    CHECK(previous_status IS NULL OR previous_status IN ('candidate','active','resolved'));
+
+CREATE TABLE event_splits (
+    id TEXT PRIMARY KEY,
+    original_event_id TEXT NOT NULL UNIQUE REFERENCES events(id),
+    previous_status TEXT NOT NULL CHECK(previous_status IN ('candidate','active','resolved')),
+    evidence_ids_json TEXT NOT NULL,
+    reason TEXT NOT NULL CHECK(length(trim(reason))>0),
+    available_at TEXT NOT NULL,
+    publication_seq INTEGER NOT NULL UNIQUE REFERENCES change_log(seq)
+);
+CREATE TABLE event_split_replacements (
+    split_id TEXT NOT NULL REFERENCES event_splits(id),
+    replacement_event_id TEXT NOT NULL REFERENCES events(id),
+    replacement_event_version_id TEXT NOT NULL REFERENCES event_versions(id),
+    ordinal INTEGER NOT NULL CHECK(ordinal>=0),
+    PRIMARY KEY(split_id,replacement_event_id),
+    UNIQUE(split_id,ordinal)
+);
+CREATE TABLE event_split_assignments (
+    split_id TEXT NOT NULL REFERENCES event_splits(id),
+    document_version_id TEXT NOT NULL REFERENCES document_versions(id),
+    evidence_id TEXT NOT NULL REFERENCES raw_records(id),
+    replacement_event_id TEXT NOT NULL REFERENCES events(id),
+    replacement_event_version_id TEXT NOT NULL REFERENCES event_versions(id),
+    available_at TEXT NOT NULL,
+    PRIMARY KEY(split_id,document_version_id,evidence_id,replacement_event_id)
+);
+CREATE INDEX idx_event_split_assignments_replacement
+    ON event_split_assignments(replacement_event_id,document_version_id);
+
+CREATE TABLE event_retractions (
+    id TEXT PRIMARY KEY,
+    event_id TEXT NOT NULL UNIQUE REFERENCES events(id),
+    previous_status TEXT NOT NULL CHECK(previous_status IN ('candidate','active','resolved')),
+    retracted_event_version_id TEXT NOT NULL UNIQUE REFERENCES event_versions(id),
+    evidence_ids_json TEXT NOT NULL,
+    reason TEXT NOT NULL CHECK(length(trim(reason))>0),
+    available_at TEXT NOT NULL,
+    publication_seq INTEGER NOT NULL UNIQUE REFERENCES change_log(seq)
+);
+
+CREATE TRIGGER event_splits_no_update BEFORE UPDATE ON event_splits
+BEGIN SELECT RAISE(ABORT,'event splits are immutable'); END;
+CREATE TRIGGER event_splits_no_delete BEFORE DELETE ON event_splits
+BEGIN SELECT RAISE(ABORT,'event splits are immutable'); END;
+CREATE TRIGGER event_split_replacements_no_update BEFORE UPDATE ON event_split_replacements
+BEGIN SELECT RAISE(ABORT,'event split replacements are immutable'); END;
+CREATE TRIGGER event_split_replacements_no_delete BEFORE DELETE ON event_split_replacements
+BEGIN SELECT RAISE(ABORT,'event split replacements are immutable'); END;
+CREATE TRIGGER event_split_assignments_no_update BEFORE UPDATE ON event_split_assignments
+BEGIN SELECT RAISE(ABORT,'event split assignments are immutable'); END;
+CREATE TRIGGER event_split_assignments_no_delete BEFORE DELETE ON event_split_assignments
+BEGIN SELECT RAISE(ABORT,'event split assignments are immutable'); END;
+CREATE TRIGGER event_retractions_no_update BEFORE UPDATE ON event_retractions
+BEGIN SELECT RAISE(ABORT,'event retractions are immutable'); END;
+CREATE TRIGGER event_retractions_no_delete BEFORE DELETE ON event_retractions
+BEGIN SELECT RAISE(ABORT,'event retractions are immutable'); END;
+"""
+
+
+def _event_terminal_foundation(db: sqlite3.Connection) -> None:
+    _execute_script(db, EVENT_TERMINAL_SCHEMA_SQL)
+
+
 # Migration 1 freezes the exact legacy schema at main@88a2a1e. Future schema
 # changes must append a new Migration instead of editing this definition.
 MIGRATIONS = (
@@ -1567,6 +1634,12 @@ MIGRATIONS = (
         EVENT_RELATION_SCHEMA_SQL,
         _event_relation_foundation,
     ),
+    Migration(
+        12,
+        "event split and retraction foundation",
+        EVENT_TERMINAL_SCHEMA_SQL,
+        _event_terminal_foundation,
+    ),
 )
 CURRENT_SCHEMA_VERSION = MIGRATIONS[-1].version
 REQUIRED_MIGRATION_COLUMNS = {
@@ -1593,6 +1666,8 @@ EXPECTED_TABLES = LEGACY_ANCHORS | {
     "sec_security_keys", "sec_filings", "sec_filing_versions",
     "events", "event_versions", "match_decisions", "event_evidence",
     "document_event_links", "legacy_story_events", "event_relations", "event_merges",
+    "event_splits", "event_split_replacements", "event_split_assignments",
+    "event_retractions",
 }
 EXPECTED_ITEM_COLUMNS = {
     "id", "source_id", "url", "title", "title_zh", "summary", "raw_summary",
@@ -1807,7 +1882,22 @@ EXPECTED_IDENTITY_AUXILIARY_COLUMNS = {
     },
     "event_merges": {
         "id", "absorbed_event_id", "survivor_event_id", "evidence_ids_json",
+        "reason", "available_at", "publication_seq", "previous_status",
+    },
+    "event_splits": {
+        "id", "original_event_id", "previous_status", "evidence_ids_json",
         "reason", "available_at", "publication_seq",
+    },
+    "event_split_replacements": {
+        "split_id", "replacement_event_id", "replacement_event_version_id", "ordinal",
+    },
+    "event_split_assignments": {
+        "split_id", "document_version_id", "evidence_id", "replacement_event_id",
+        "replacement_event_version_id", "available_at",
+    },
+    "event_retractions": {
+        "id", "event_id", "previous_status", "retracted_event_version_id",
+        "evidence_ids_json", "reason", "available_at", "publication_seq",
     },
 }
 EXPECTED_DOCUMENT_INPUT_COLUMNS = {"version_id", "raw_record_id", "role"}
@@ -1861,6 +1951,10 @@ EXPECTED_INGEST_TRIGGERS = {
     "event_relations_supersedes_valid", "event_relations_no_update",
     "event_relations_no_delete", "event_merges_no_cycle",
     "event_merges_status_guard", "event_merges_no_update", "event_merges_no_delete",
+    "event_splits_no_update", "event_splits_no_delete",
+    "event_split_replacements_no_update", "event_split_replacements_no_delete",
+    "event_split_assignments_no_update", "event_split_assignments_no_delete",
+    "event_retractions_no_update", "event_retractions_no_delete",
 }
 
 
@@ -2448,6 +2542,153 @@ def _assert_current_schema(db: sqlite3.Connection) -> None:
         1 for event_id, status in event_statuses.items()
         if status == "merged" and event_id not in merge_rows
     )
+    split_rows = {
+        row["original_event_id"]: row for row in db.execute("SELECT * FROM event_splits")
+    }
+    invalid_event_splits = 0
+    for original_id, row in split_rows.items():
+        try:
+            evidence_ids = json.loads(row["evidence_ids_json"])
+        except (TypeError, json.JSONDecodeError):
+            invalid_event_splits += 1
+            continue
+        change = change_rows.get(row["publication_seq"])
+        replacements = db.execute(
+            """SELECT replacement_event_id,replacement_event_version_id
+               FROM event_split_replacements WHERE split_id=?""",
+            (row["id"],),
+        ).fetchall()
+        replacement_pairs = {
+            (item["replacement_event_id"], item["replacement_event_version_id"])
+            for item in replacements
+        }
+        assignments = db.execute(
+            """SELECT document_version_id,evidence_id,replacement_event_id,
+                      replacement_event_version_id
+               FROM event_split_assignments WHERE split_id=?""",
+            (row["id"],),
+        ).fetchall()
+        original_version = db.execute(
+            "SELECT current_version_id FROM events WHERE id=?", (original_id,)
+        ).fetchone()
+        original_evidence = set()
+        if original_version:
+            original_evidence = {
+                (item["document_version_id"], item["evidence_id"])
+                for item in db.execute(
+                    """SELECT document_version_id,evidence_id FROM event_evidence
+                       WHERE event_version_id=?""",
+                    (original_version["current_version_id"],),
+                )
+            }
+        assigned_evidence = {
+            (item["document_version_id"], item["evidence_id"])
+            for item in assignments
+        }
+        assigned_replacements = {
+            (item["replacement_event_id"], item["replacement_event_version_id"])
+            for item in assignments
+        }
+        if (
+            event_statuses.get(original_id) != "split"
+            or not isinstance(evidence_ids, list)
+            or not evidence_ids
+            or len(replacement_pairs) < 2
+            or not assignments
+            or assigned_evidence != original_evidence
+            or assigned_replacements != replacement_pairs
+            or set(evidence_ids) != {item[1] for item in assigned_evidence}
+            or change is None
+            or change["resource_type"] != "event"
+            or change["resource_id"] != original_id
+            or change["version_id"] != row["id"]
+            or change["operation"] != "split"
+        ):
+            invalid_event_splits += 1
+            continue
+        for event_id, version_id in replacement_pairs:
+            owner = db.execute(
+                "SELECT event_id FROM event_versions WHERE id=?", (version_id,)
+            ).fetchone()
+            if not owner or owner["event_id"] != event_id:
+                invalid_event_splits += 1
+        for assignment in assignments:
+            pair = (
+                assignment["replacement_event_id"],
+                assignment["replacement_event_version_id"],
+            )
+            if (
+                pair not in replacement_pairs
+                or assignment["evidence_id"] not in evidence_ids
+                or not db.execute(
+                    """SELECT 1 FROM document_version_inputs
+                       WHERE version_id=? AND raw_record_id=?""",
+                    (assignment["document_version_id"], assignment["evidence_id"]),
+                ).fetchone()
+                or not original_version
+                or not db.execute(
+                    """SELECT 1 FROM event_evidence
+                       WHERE event_version_id=? AND document_version_id=? AND evidence_id=?""",
+                    (
+                        original_version["current_version_id"],
+                        assignment["document_version_id"], assignment["evidence_id"],
+                    ),
+                ).fetchone()
+            ):
+                invalid_event_splits += 1
+    retraction_rows = {
+        row["event_id"]: row for row in db.execute("SELECT * FROM event_retractions")
+    }
+    invalid_event_retractions = 0
+    for event_id, row in retraction_rows.items():
+        try:
+            evidence_ids = json.loads(row["evidence_ids_json"])
+        except (TypeError, json.JSONDecodeError):
+            invalid_event_retractions += 1
+            continue
+        change = change_rows.get(row["publication_seq"])
+        current = db.execute(
+            """SELECT event.current_version_id,version.event_id,version.knowledge_status
+               FROM events AS event
+               LEFT JOIN event_versions AS version
+                 ON version.id=event.current_version_id
+               WHERE event.id=?""",
+            (event_id,),
+        ).fetchone()
+        linked_evidence_ids = {
+            item["evidence_id"] for item in db.execute(
+                """SELECT evidence_id FROM event_evidence
+                   WHERE event_version_id=?""",
+                (row["retracted_event_version_id"],),
+            )
+        }
+        if (
+            event_statuses.get(event_id) != "retracted"
+            or not current
+            or current["current_version_id"] != row["retracted_event_version_id"]
+            or current["event_id"] != event_id
+            or current["knowledge_status"] != "retracted"
+            or not isinstance(evidence_ids, list)
+            or not evidence_ids
+            or not all(item in raw_record_ids for item in evidence_ids)
+            or set(evidence_ids) != linked_evidence_ids
+            or change is None
+            or change["resource_type"] != "event"
+            or change["resource_id"] != event_id
+            or change["version_id"] != row["retracted_event_version_id"]
+            or change["operation"] != "withdraw"
+        ):
+            invalid_event_retractions += 1
+    terminal_ids = list(merge_rows) + list(split_rows) + list(retraction_rows)
+    invalid_terminal_overlap = len(terminal_ids) - len(set(terminal_ids))
+    invalid_event_splits += sum(
+        1 for event_id, status in event_statuses.items()
+        if status == "split" and event_id not in split_rows
+    )
+    invalid_event_retractions += sum(
+        1 for event_id, status in event_statuses.items()
+        if status == "retracted" and event_id not in retraction_rows
+    )
     if (
         invalid_events
         or invalid_event_links
@@ -2456,6 +2697,9 @@ def _assert_current_schema(db: sqlite3.Connection) -> None:
         or invalid_link_decisions
         or invalid_event_relations
         or invalid_event_merges
+        or invalid_event_splits
+        or invalid_event_retractions
+        or invalid_terminal_overlap
     ):
         raise DatabaseVerificationError(
             "event projections are invalid: "
@@ -2463,7 +2707,9 @@ def _assert_current_schema(db: sqlite3.Connection) -> None:
             f"evidence={invalid_event_evidence}, "
             f"match_decisions={invalid_match_decisions}, "
             f"link_decisions={invalid_link_decisions}, "
-            f"relations={invalid_event_relations}, merges={invalid_event_merges}"
+            f"relations={invalid_event_relations}, merges={invalid_event_merges}, "
+            f"splits={invalid_event_splits}, retractions={invalid_event_retractions}, "
+            f"terminal_overlap={invalid_terminal_overlap}"
         )
     invalid_jobs = db.execute(
         """SELECT COUNT(*) FROM jobs AS job

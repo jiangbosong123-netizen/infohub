@@ -234,11 +234,12 @@ def publish_event_merge(
         db.execute(
             """INSERT INTO event_merges(
                    id,absorbed_event_id,survivor_event_id,evidence_ids_json,
-                   reason,available_at,publication_seq
-               ) VALUES(?,?,?,?,?,?,?)""",
+                   reason,available_at,publication_seq,previous_status
+               ) VALUES(?,?,?,?,?,?,?,?)""",
             (
                 merge_id, absorbed_event_id, target, _json(persisted_evidence),
                 clean_reason, changes[0].available_at, changes[0].seq,
+                absorbed["status"],
             ),
         )
         updated = db.execute(

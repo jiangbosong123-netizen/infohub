@@ -172,6 +172,11 @@ python cli.py dataset-status            # 显示数据集身份、epoch 与变�
 python cli.py legacy-backfill 250       # maintenance 下可续跑迁移历史记录
 ```
 
+稳定事件的关系、无环合并、拆分和撤回规则分别见
+[事件关系与合并](docs/EVENT_RELATIONS.md) 和
+[事件拆分与撤回](docs/EVENT_TRANSITIONS.md)。这些能力当前属于 shadow 数据模型，尚未替换门户所读取的
+旧 `stories`。
+
 命令输出中的 `file_sha256` 是指定 `.db` 文件的校验值；`db-backup` 生成的是单文件备份，
 可用该值核对传输。运行中的 WAL 数据库还可能有 `-wal` 内容，不能仅凭主文件校验值代表
 整个实时数据集。

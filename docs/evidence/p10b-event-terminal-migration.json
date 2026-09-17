@@ -1,0 +1,68 @@
+{
+  "checked_at": "2026-09-17",
+  "scope": "P10b event split and retraction schema rehearsal",
+  "source": {
+    "path_class": "local development database",
+    "access": "read-only consistent SQLite backup",
+    "size_bytes": 82362368,
+    "production_or_windows_accessed": false
+  },
+  "migration": {
+    "previous_state": "legacy_unversioned",
+    "result_schema_version": 12,
+    "legacy_core_unchanged": true,
+    "new_table_counts": {
+      "event_splits": 0,
+      "event_split_replacements": 0,
+      "event_split_assignments": 0,
+      "event_retractions": 0
+    },
+    "existing_merges_with_known_previous_status": 0
+  },
+  "legacy_core": {
+    "companies": {
+      "rows": 23,
+      "sha256": "84a8b255408ee72d72b1360fec2b8796f767c920e62d4c639773596c163567fc"
+    },
+    "sources": {
+      "rows": 57,
+      "sha256": "9356dd84df1ecbd0db4c3414fd40b750b30ed2a67a543b923d8bebcee1162af3"
+    },
+    "items": {
+      "rows": 25109,
+      "sha256": "a5c2b72c24cd3a9bba961a7467e07de061512ab65ac4083e8db14b3e394e1edc"
+    },
+    "item_discoveries": {
+      "rows": 26400,
+      "sha256": "8b9b989459ae8f8e49aebcebca3662caa278d1ba8223e02b3a730d2f797b5ed2"
+    },
+    "item_companies": {
+      "rows": 14514,
+      "sha256": "ee63853792bd46b4c4cea37e244128e3c5124e83fd44e9d70bdf587977d3bdd1"
+    },
+    "daily_reports": {
+      "rows": 6,
+      "sha256": "a13a98bdb2e88956f90518f08e3ba476723a0a9ca83e245c7f3f1e3d06fb86f7"
+    },
+    "stories": {
+      "rows": 21611,
+      "sha256": "5b2bab36433690d1ac79501799d791323bb2430f82de4f46d9d4d2c7bd44a151"
+    },
+    "story_items": {
+      "rows": 17699,
+      "sha256": "2fc10923d93d5e405800c396230e0fe420c2a7f2cc6d35438a13fce6aa9ed9bf"
+    }
+  },
+  "verification": {
+    "integrity_before": "ok",
+    "integrity_after": "ok",
+    "foreign_key_violations": 0,
+    "source_written": false,
+    "temporary_copy_deleted": true
+  },
+  "limits": [
+    "This rehearsal used the local development database, not the Windows production database.",
+    "Migration 12 leaves previous_status null on any pre-existing migration-11 merge because its historical source status cannot be reconstructed safely.",
+    "The new terminal-transition tables are intentionally empty; atomic domain writes are covered by unit tests."
+  ]
+}
