@@ -1,9 +1,9 @@
 from __future__ import annotations
 
-"""SEC EDGAR 抓取器：美股官方文件（8-K 重大事件 / 10-Q 季报 / Form 4 内部人交易等）。
+"""SEC EDGAR 抓取器：保留申报、发行人和交易代码的官方来源记录。
 
 文档地址：https://www.sec.gov/submissions JSON（无需 Key，需声明 User-Agent）。
-CIK 缺失时自动从 SEC 官方 ticker 映射表解析并回填数据库。
+CIK 缺失时从 SEC 官方 ticker/exchange 关联文件解析并回填数据库。
 """
 import json
 import time
@@ -14,12 +14,15 @@ from ..database import get_db
 from ..source_time import parse_source_time
 from . import http
 
-TICKERS_URL = "https://www.sec.gov/files/company_tickers.json"
+TICKERS_URL = "https://www.sec.gov/files/company_tickers_exchange.json"
 
 _FORM_DESC = {
     "8-K": ("重大事件报告", ""),
     "10-Q": ("季报", "earnings"),
     "10-K": ("年报", "earnings"),
+    "20-F": ("外国发行人年报", "earnings"),
+    "40-F": ("加拿大外国发行人年报", "earnings"),
+    "6-K": ("外国发行人临时报告", "other"),
     "4": ("内部人持股变动", "insider"),
     "144": ("内部人拟出售通知", "insider"),
     "S-1": ("IPO 注册", "offering"),
@@ -69,34 +72,73 @@ def _source_times(values: dict, index: int) -> list[dict]:
     ]
 
 
-def resolve_missing_ciks(companies: list[dict]) -> None:
-    """从 SEC 官方映射表解析缺失的 CIK 并写回 companies 表。"""
-    missing = [c for c in companies if not c.get("cik")]
-    if not missing:
-        return
+def _parse_associations(payload: object) -> list[dict]:
+    """Parse SEC's column-oriented ticker/exchange association file."""
+    if not isinstance(payload, dict):
+        raise RuntimeError("SEC ticker/exchange association payload is not an object")
+    fields = payload.get("fields")
+    data = payload.get("data")
+    if not isinstance(fields, list) or not isinstance(data, list):
+        raise RuntimeError("SEC ticker/exchange association payload has an unknown shape")
+    required = {"cik", "name", "ticker", "exchange"}
+    if not required.issubset(fields):
+        raise RuntimeError("SEC ticker/exchange association fields are incomplete")
+    out = []
+    for values in data:
+        if not isinstance(values, list) or len(values) != len(fields):
+            continue
+        row = dict(zip(fields, values))
+        if row.get("cik") is None or not row.get("ticker") or not row.get("exchange"):
+            continue
+        out.append({
+            "cik": str(row["cik"]).zfill(10),
+            "name": str(row.get("name") or "").strip(),
+            "ticker": str(row["ticker"]).strip().upper(),
+            "exchange": str(row["exchange"]).strip().upper(),
+        })
+    return out
+
+
+def resolve_missing_ciks(companies: list[dict]) -> dict[str, list[dict]]:
+    """Resolve CIKs and return all SEC-asserted listings for each CIK."""
     resp = http.fetch(TICKERS_URL, headers=_sec_headers())
-    mapping = {
-        row["ticker"].upper(): str(row["cik_str"]).zfill(10)
-        for row in json.loads(resp.text).values()
+    associations = _parse_associations(json.loads(resp.text))
+    ticker_ciks: dict[str, set[str]] = {}
+    for row in associations:
+        ticker_ciks.setdefault(row["ticker"], set()).add(row["cik"])
+    by_ticker = {
+        ticker: next(iter(ciks)) for ticker, ciks in ticker_ciks.items() if len(ciks) == 1
     }
+    by_cik: dict[str, list[dict]] = {}
+    for row in associations:
+        by_cik.setdefault(row["cik"], []).append(row)
     with get_db() as db:
-        for c in missing:
-            cik = mapping.get(c["ticker"].upper())
+        for c in companies:
+            cik = str(c.get("cik") or "").zfill(10) if c.get("cik") else ""
+            if not cik:
+                cik = by_ticker.get(c["ticker"].upper(), "")
             if cik:
-                db.execute("UPDATE companies SET cik=? WHERE slug=?", (cik, c["slug"]))
+                if not c.get("cik"):
+                    db.execute("UPDATE companies SET cik=? WHERE slug=?", (cik, c["slug"]))
                 c["cik"] = cik
+    return by_cik
 
 
 def _classify(form: str, items: str) -> tuple[str, str]:
     """返回 (事件描述, event_type)。"""
-    desc, etype = _FORM_DESC.get(form, ("提交文件", ""))
-    if form.startswith("8-K") and items:
+    base_form = form.upper()[:-2] if form.upper().endswith("/A") else form.upper()
+    desc, etype = _FORM_DESC.get(base_form, ("提交文件", ""))
+    if base_form == "8-K" and items:
         for code, d, t in _ITEM_MAP:
             if code in items:
-                return f"8-K · {d}", t or "other"
-        return "8-K · 重大事件", "other"
-    if form.startswith(("S-", "424B", "F-1")):
-        return _FORM_DESC.get(form, ("证券发行", "offering"))
+                desc, etype = f"8-K · {d}", t or "other"
+                break
+        else:
+            desc, etype = "8-K · 重大事件", "other"
+    elif base_form.startswith(("S-", "424B", "F-1")):
+        desc, etype = _FORM_DESC.get(base_form, ("证券发行", "offering"))
+    if form.upper().endswith("/A"):
+        desc = f"{desc}修订"
     return desc, etype
 
 
@@ -106,7 +148,7 @@ def fetch_sec(source: dict) -> list[dict]:
             "SELECT slug, name, name_zh, ticker, cik FROM companies WHERE market='US' AND ticker != ''"
         ).fetchall()
     companies = [dict(r) for r in rows]
-    resolve_missing_ciks(companies)
+    associations_by_cik = resolve_missing_ciks(companies)
 
     out: list[dict] = []
     for c in companies:
@@ -146,6 +188,15 @@ def fetch_sec(source: dict) -> list[dict]:
                 for key, values in recent.items()
                 if isinstance(values, list)
             }
+            associations = associations_by_cik.get(c["cik"], [])
+            issuer_record = {
+                "cik": str(data.get("cik") or c["cik"]).zfill(10),
+                "name": data.get("name"),
+                "formerNames": data.get("formerNames"),
+                "tickers": data.get("tickers"),
+                "exchanges": data.get("exchanges"),
+                "tickerExchangeAssociations": associations,
+            }
             out.append(dict(
                 url=url,
                 title=f"{zh} · SEC {desc}" + (f"（{items}）" if items and "·" in desc else ""),
@@ -157,11 +208,13 @@ def fetch_sec(source: dict) -> list[dict]:
                 extra=dict(
                     form=form, cik=c["cik"], accession=accession,
                     primary_document=doc, filing_date=filing_date,
-                    report_date=report_date,
+                    report_date=report_date, items=items,
+                    sec_associations=associations,
                 ),
                 source_time_values=source_times,
                 observed_at=response_observed_at.isoformat(),
-                source_record=source_record, payload_kind="api_record",
+                source_record={"filing": source_record, "issuer": issuer_record},
+                payload_kind="api_record",
             ))
         time.sleep(0.2)  # SEC 限速要求：≤10 req/s，留足余量
     return out

@@ -1171,6 +1171,99 @@ def _identity_catalog_foundation(db: sqlite3.Connection) -> None:
     _execute_script(db, IDENTITY_CATALOG_SCHEMA_SQL)
 
 
+SEC_IDENTITY_SCHEMA_SQL = """
+CREATE TABLE sec_security_keys (
+    cik TEXT NOT NULL,
+    exchange TEXT NOT NULL,
+    ticker TEXT NOT NULL,
+    security_entity_id TEXT NOT NULL UNIQUE REFERENCES entities(id),
+    first_evidence_id TEXT NOT NULL REFERENCES raw_records(id),
+    available_at TEXT NOT NULL,
+    PRIMARY KEY(cik,exchange,ticker)
+);
+
+CREATE TABLE sec_filings (
+    id TEXT PRIMARY KEY,
+    dataset_id TEXT NOT NULL,
+    cik TEXT NOT NULL,
+    accession_number TEXT NOT NULL,
+    issuer_entity_id TEXT NOT NULL REFERENCES entities(id),
+    current_version_id TEXT UNIQUE REFERENCES sec_filing_versions(id),
+    first_seen_at TEXT NOT NULL,
+    status TEXT NOT NULL CHECK(status IN ('observed','withdrawn')),
+    UNIQUE(dataset_id,cik,accession_number)
+);
+CREATE INDEX idx_sec_filings_issuer ON sec_filings(issuer_entity_id,cik,accession_number);
+
+CREATE TABLE sec_filing_versions (
+    id TEXT PRIMARY KEY,
+    filing_id TEXT NOT NULL REFERENCES sec_filings(id),
+    version INTEGER NOT NULL CHECK(version>0),
+    previous_version_id TEXT REFERENCES sec_filing_versions(id),
+    document_version_id TEXT NOT NULL REFERENCES document_versions(id),
+    raw_record_id TEXT NOT NULL REFERENCES raw_records(id),
+    form TEXT NOT NULL,
+    base_form TEXT NOT NULL,
+    is_amendment INTEGER NOT NULL CHECK(is_amendment IN (0,1)),
+    amends_filing_id TEXT REFERENCES sec_filings(id),
+    amendment_status TEXT NOT NULL CHECK(amendment_status IN (
+        'not_amendment','linked','unresolved','ambiguous'
+    )),
+    primary_document TEXT NOT NULL,
+    filing_date TEXT,
+    report_period_end TEXT,
+    accepted_at TEXT,
+    items_json TEXT NOT NULL DEFAULT '[]',
+    metadata_sha256 TEXT NOT NULL CHECK(length(metadata_sha256)=64),
+    available_at TEXT NOT NULL,
+    UNIQUE(filing_id,version),
+    CHECK((version=1 AND previous_version_id IS NULL)
+       OR (version>1 AND previous_version_id IS NOT NULL)),
+    CHECK((is_amendment=0 AND amends_filing_id IS NULL AND amendment_status='not_amendment')
+       OR (is_amendment=1 AND amendment_status IN ('linked','unresolved','ambiguous'))),
+    CHECK(amendment_status!='linked' OR amends_filing_id IS NOT NULL)
+);
+CREATE INDEX idx_sec_filing_match
+    ON sec_filing_versions(base_form,report_period_end,filing_date,is_amendment);
+
+CREATE TRIGGER sec_security_keys_no_update BEFORE UPDATE ON sec_security_keys
+BEGIN SELECT RAISE(ABORT,'SEC security keys are immutable'); END;
+CREATE TRIGGER sec_security_keys_no_delete BEFORE DELETE ON sec_security_keys
+BEGIN SELECT RAISE(ABORT,'SEC security keys are immutable'); END;
+CREATE TRIGGER sec_filing_versions_valid_append BEFORE INSERT ON sec_filing_versions
+WHEN NEW.version != COALESCE(
+         (SELECT MAX(version)+1 FROM sec_filing_versions WHERE filing_id=NEW.filing_id),1
+     )
+  OR (NEW.version=1 AND NEW.previous_version_id IS NOT NULL)
+  OR (NEW.version>1 AND NEW.previous_version_id IS NOT (
+         SELECT id FROM sec_filing_versions
+         WHERE filing_id=NEW.filing_id AND version=NEW.version-1
+     ))
+BEGIN SELECT RAISE(ABORT,'SEC filing versions must form a contiguous append-only chain'); END;
+CREATE TRIGGER sec_filing_versions_no_update BEFORE UPDATE ON sec_filing_versions
+BEGIN SELECT RAISE(ABORT,'SEC filing versions are immutable'); END;
+CREATE TRIGGER sec_filing_versions_no_delete BEFORE DELETE ON sec_filing_versions
+BEGIN SELECT RAISE(ABORT,'SEC filing versions are immutable'); END;
+CREATE TRIGGER sec_filings_identity_immutable BEFORE UPDATE ON sec_filings
+WHEN NEW.id IS NOT OLD.id OR NEW.dataset_id IS NOT OLD.dataset_id
+  OR NEW.cik IS NOT OLD.cik OR NEW.accession_number IS NOT OLD.accession_number
+  OR NEW.issuer_entity_id IS NOT OLD.issuer_entity_id OR NEW.first_seen_at IS NOT OLD.first_seen_at
+BEGIN SELECT RAISE(ABORT,'SEC filing identity is immutable'); END;
+CREATE TRIGGER sec_filings_current_version_valid BEFORE UPDATE OF current_version_id ON sec_filings
+WHEN NEW.current_version_id IS NULL OR NOT EXISTS(
+    SELECT 1 FROM sec_filing_versions
+    WHERE id=NEW.current_version_id AND filing_id=NEW.id
+)
+BEGIN SELECT RAISE(ABORT,'SEC filing current version must belong to the filing'); END;
+CREATE TRIGGER sec_filings_no_delete BEFORE DELETE ON sec_filings
+BEGIN SELECT RAISE(ABORT,'SEC filings are stable identities'); END;
+"""
+
+
+def _sec_identity_foundation(db: sqlite3.Connection) -> None:
+    _execute_script(db, SEC_IDENTITY_SCHEMA_SQL)
+
+
 # Migration 1 freezes the exact legacy schema at main@88a2a1e. Future schema
 # changes must append a new Migration instead of editing this definition.
 MIGRATIONS = (
@@ -1225,6 +1318,12 @@ MIGRATIONS = (
         IDENTITY_CATALOG_SCHEMA_SQL,
         _identity_catalog_foundation,
     ),
+    Migration(
+        9,
+        "SEC identity and filing semantics",
+        SEC_IDENTITY_SCHEMA_SQL,
+        _sec_identity_foundation,
+    ),
 )
 CURRENT_SCHEMA_VERSION = MIGRATIONS[-1].version
 REQUIRED_MIGRATION_COLUMNS = {
@@ -1248,6 +1347,7 @@ EXPECTED_TABLES = LEGACY_ANCHORS | {
     "publisher_legacy_keys", "publisher_names", "publisher_domains",
     "document_attributions", "topic_catalog", "topic_versions",
     "topic_slug_aliases", "document_topic_assignments",
+    "sec_security_keys", "sec_filings", "sec_filing_versions",
 }
 EXPECTED_ITEM_COLUMNS = {
     "id", "source_id", "url", "title", "title_zh", "summary", "raw_summary",
@@ -1415,6 +1515,20 @@ EXPECTED_IDENTITY_AUXILIARY_COLUMNS = {
         "id", "document_version_id", "topic_version_id", "method", "method_version",
         "analysis_result_id", "evidence_ids_json", "status", "available_at",
     },
+    "sec_security_keys": {
+        "cik", "exchange", "ticker", "security_entity_id", "first_evidence_id",
+        "available_at",
+    },
+    "sec_filings": {
+        "id", "dataset_id", "cik", "accession_number", "issuer_entity_id",
+        "current_version_id", "first_seen_at", "status",
+    },
+    "sec_filing_versions": {
+        "id", "filing_id", "version", "previous_version_id", "document_version_id",
+        "raw_record_id", "form", "base_form", "is_amendment", "amends_filing_id",
+        "amendment_status", "primary_document", "filing_date", "report_period_end",
+        "accepted_at", "items_json", "metadata_sha256", "available_at",
+    },
 }
 EXPECTED_DOCUMENT_INPUT_COLUMNS = {"version_id", "raw_record_id", "role"}
 EXPECTED_DOCUMENT_LOCATOR_COLUMNS = {
@@ -1454,6 +1568,10 @@ EXPECTED_INGEST_TRIGGERS = {
     "document_attributions_no_update", "document_attributions_no_delete",
     "topic_slug_aliases_no_update", "topic_slug_aliases_no_delete",
     "document_topic_assignments_no_update", "document_topic_assignments_no_delete",
+    "sec_security_keys_no_update", "sec_security_keys_no_delete",
+    "sec_filing_versions_valid_append", "sec_filing_versions_no_update",
+    "sec_filing_versions_no_delete", "sec_filings_identity_immutable",
+    "sec_filings_current_version_valid", "sec_filings_no_delete",
 }
 
 
@@ -1878,6 +1996,27 @@ def _assert_current_schema(db: sqlite3.Connection) -> None:
             "catalog current projections disagree with their versions: "
             f"entities={mismatched_entities}, publishers={mismatched_publishers}, "
             f"topics={mismatched_topics}"
+        )
+    invalid_sec_filings = db.execute(
+        """SELECT COUNT(*) FROM sec_filings AS filing
+           LEFT JOIN sec_filing_versions AS version
+             ON version.id=filing.current_version_id
+           JOIN dataset_state AS state ON state.singleton=1
+           WHERE filing.dataset_id<>state.dataset_id
+              OR filing.current_version_id IS NULL
+              OR version.id IS NULL
+              OR version.filing_id<>filing.id"""
+    ).fetchone()[0]
+    invalid_sec_links = db.execute(
+        """SELECT COUNT(*) FROM sec_filing_versions AS version
+           LEFT JOIN sec_filings AS target ON target.id=version.amends_filing_id
+           WHERE (version.amendment_status='linked' AND target.id IS NULL)
+              OR (version.amendment_status!='linked' AND version.amends_filing_id IS NOT NULL)"""
+    ).fetchone()[0]
+    if invalid_sec_filings or invalid_sec_links:
+        raise DatabaseVerificationError(
+            "SEC filing projections are invalid: "
+            f"filings={invalid_sec_filings}, amendment_links={invalid_sec_links}"
         )
     invalid_jobs = db.execute(
         """SELECT COUNT(*) FROM jobs AS job

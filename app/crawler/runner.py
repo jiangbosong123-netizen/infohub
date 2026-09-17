@@ -15,6 +15,7 @@ from .. import company_match
 from ..database import get_db
 from ..documents import project_candidate
 from ..ingest import RawObservation, begin_ingest_run, finish_ingest_run, observe_candidate
+from ..sec_identity import project_sec_candidate
 from . import fastnews, hkex_source, html_source, rss_source, sec_source, sina_source
 from . import googlenews
 from .sources import all_sources
@@ -139,6 +140,13 @@ def insert_item(
                 canonical_url=url,
                 observation=observation,
             )
+            if src["type"] == "sec":
+                project_sec_candidate(
+                    db,
+                    candidate=raw,
+                    observation=observation,
+                    document=projection,
+                )
             if projection.created_version and not inserted:
                 # ``items`` remains the compatibility projection used by the
                 # portal until versioned reads are enabled in a later PR.
