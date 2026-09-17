@@ -7,6 +7,7 @@ from unittest.mock import patch
 from app import config, database
 from app.analysis_runs import AnalysisInput, AnalysisRunError, prepare_analysis_run
 from app.analysis_attempts import authorize_attempt, record_attempt, register_budget_policy
+from app.analysis_results import publish_analysis_result
 from app.ingest import begin_ingest_run, observe_candidate
 from app.jobs import claim_job, enqueue_job
 
@@ -96,5 +97,34 @@ class AnalysisRunTests(unittest.TestCase):
   job=self.job("repair"); run=self.prepare(job,idempotency_key="analysis:repair"); self.policy()
   with self.assertRaisesRegex(AnalysisRunError,"first attempt"):
    authorize_attempt(run_id=run.id,job_id=job.id,lease_token=job.lease_token,expected_input_version=self.doc,attempt_kind="repair",reserved_cost_microusd=10,idempotency_key="auth:repair-bad",now=T0)
+
+ def completed_attempt(self,key="publish"):
+  job=self.job(key); run=self.prepare(job,idempotency_key=f"analysis:{key}"); self.policy()
+  auth=authorize_attempt(run_id=run.id,job_id=job.id,lease_token=job.lease_token,expected_input_version=self.doc,attempt_kind="primary",reserved_cost_microusd=100,idempotency_key=f"auth:{key}",now=T0)
+  attempt=record_attempt(authorization_id=auth.id,job_id=job.id,lease_token=job.lease_token,expected_input_version=self.doc,status="succeeded",started_at=T0,finished_at=T0,resolved_model="fixture-v1",usage_status="reported",input_tokens=10,output_tokens=5,cost_microusd=50,pricing_version="v1",raw_response_ref=f"cas://response/{key}",raw_response_sha256=SHA,now=T0)
+  return job,run,attempt
+
+ def test_validated_result_publishes_atomically_and_idempotently(self):
+  job,run,attempt=self.completed_attempt()
+  output={"schema_version":"summary/1.0","subject":{"type":"document","version_id":self.doc},"status":"valid","evidence_ids":[self.raw],"data":{"summary":"Evidence-backed summary","raw_confidence":0.8}}
+  result=publish_analysis_result(job_id=job.id,lease_token=job.lease_token,expected_input_version=self.doc,run_id=run.id,attempt_id=attempt.id,validated_output=output,review_status="unreviewed",evidence_status="supported",idempotency_key="result:publish",now=T0)
+  repeated=publish_analysis_result(job_id=job.id,lease_token=job.lease_token,expected_input_version=self.doc,run_id=run.id,attempt_id=attempt.id,validated_output=output,review_status="unreviewed",evidence_status="supported",idempotency_key="result:publish",now=T0)
+  self.assertEqual(result.to_dict(),repeated.to_dict())
+  with database.get_db() as db:
+   self.assertEqual(db.execute("SELECT COUNT(*) FROM analysis_results").fetchone()[0],1)
+   self.assertEqual(db.execute("SELECT COUNT(*) FROM analysis_publication_versions").fetchone()[0],1)
+   self.assertEqual(db.execute("SELECT COUNT(*) FROM change_log").fetchone()[0],1)
+
+ def test_unknown_evidence_and_bad_confidence_do_not_publish(self):
+  job,run,attempt=self.completed_attempt("invalid-result")
+  base={"schema_version":"summary/1.0","subject":{"type":"document","version_id":self.doc},"status":"valid","evidence_ids":[self.raw],"data":{}}
+  with self.assertRaisesRegex(AnalysisRunError,"unknown evidence"):
+   publish_analysis_result(job_id=job.id,lease_token=job.lease_token,expected_input_version=self.doc,run_id=run.id,attempt_id=attempt.id,validated_output={**base,"evidence_ids":["fake"]},review_status="unreviewed",evidence_status="supported",idempotency_key="result:fake",now=T0)
+  bad={**base,"data":{"confidence":1.2}}
+  with self.assertRaisesRegex(AnalysisRunError,"between 0 and 1"):
+   publish_analysis_result(job_id=job.id,lease_token=job.lease_token,expected_input_version=self.doc,run_id=run.id,attempt_id=attempt.id,validated_output=bad,review_status="unreviewed",evidence_status="supported",idempotency_key="result:bad-confidence",now=T0)
+  with database.get_db() as db:
+   self.assertEqual(db.execute("SELECT COUNT(*) FROM analysis_results").fetchone()[0],0)
+   self.assertEqual(db.execute("SELECT COUNT(*) FROM change_log").fetchone()[0],0)
 
 if __name__=="__main__": unittest.main()

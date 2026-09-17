@@ -1720,6 +1720,69 @@ def _analysis_attempt_foundation(db: sqlite3.Connection) -> None:
     _execute_script(db, ANALYSIS_ATTEMPT_SCHEMA_SQL)
 
 
+ANALYSIS_RESULT_SCHEMA_SQL = """
+CREATE TABLE analysis_results (
+    id TEXT PRIMARY KEY,
+    run_id TEXT NOT NULL UNIQUE REFERENCES analysis_runs(id),
+    attempt_id TEXT NOT NULL UNIQUE REFERENCES analysis_attempts(id),
+    schema_version TEXT NOT NULL,
+    raw_output_ref TEXT,
+    raw_output_sha256 TEXT CHECK(raw_output_sha256 IS NULL OR length(raw_output_sha256)=64),
+    validated_output_json TEXT NOT NULL,
+    validation_report_json TEXT NOT NULL,
+    result_status TEXT NOT NULL CHECK(result_status IN (
+        'valid','needs_review','insufficient_evidence','refused'
+    )),
+    created_at TEXT NOT NULL,
+    available_at TEXT NOT NULL
+);
+
+CREATE TABLE analysis_publication_versions (
+    id TEXT PRIMARY KEY,
+    subject_type TEXT NOT NULL CHECK(subject_type IN ('document','event')),
+    subject_version_id TEXT NOT NULL,
+    task_type TEXT NOT NULL,
+    result_id TEXT NOT NULL REFERENCES analysis_results(id),
+    version INTEGER NOT NULL CHECK(version>0),
+    review_status TEXT NOT NULL CHECK(review_status IN (
+        'unreviewed','accepted','rejected','corrected'
+    )),
+    evidence_status TEXT NOT NULL CHECK(evidence_status IN (
+        'supported','partial','insufficient','refused'
+    )),
+    available_at TEXT NOT NULL,
+    supersedes_id TEXT UNIQUE REFERENCES analysis_publication_versions(id),
+    publication_seq INTEGER NOT NULL UNIQUE REFERENCES change_log(seq),
+    UNIQUE(subject_type,subject_version_id,task_type,version)
+);
+CREATE INDEX idx_analysis_publication_subject
+    ON analysis_publication_versions(subject_type,subject_version_id,task_type,version);
+
+CREATE TABLE analysis_publications (
+    subject_type TEXT NOT NULL,
+    subject_version_id TEXT NOT NULL,
+    task_type TEXT NOT NULL,
+    current_publication_id TEXT NOT NULL UNIQUE REFERENCES analysis_publication_versions(id),
+    PRIMARY KEY(subject_type,subject_version_id,task_type)
+);
+
+CREATE TRIGGER analysis_results_no_update BEFORE UPDATE ON analysis_results
+BEGIN SELECT RAISE(ABORT,'analysis results are immutable'); END;
+CREATE TRIGGER analysis_results_no_delete BEFORE DELETE ON analysis_results
+BEGIN SELECT RAISE(ABORT,'analysis results are immutable'); END;
+CREATE TRIGGER analysis_publication_versions_no_update BEFORE UPDATE ON analysis_publication_versions
+BEGIN SELECT RAISE(ABORT,'analysis publication versions are immutable'); END;
+CREATE TRIGGER analysis_publication_versions_no_delete BEFORE DELETE ON analysis_publication_versions
+BEGIN SELECT RAISE(ABORT,'analysis publication versions are immutable'); END;
+CREATE TRIGGER analysis_publications_no_delete BEFORE DELETE ON analysis_publications
+BEGIN SELECT RAISE(ABORT,'analysis publication pointers cannot be deleted'); END;
+"""
+
+
+def _analysis_result_foundation(db: sqlite3.Connection) -> None:
+    _execute_script(db, ANALYSIS_RESULT_SCHEMA_SQL)
+
+
 # Migration 1 freezes the exact legacy schema at main@88a2a1e. Future schema
 # changes must append a new Migration instead of editing this definition.
 MIGRATIONS = (
@@ -1816,6 +1879,12 @@ MIGRATIONS = (
         ANALYSIS_ATTEMPT_SCHEMA_SQL,
         _analysis_attempt_foundation,
     ),
+    Migration(
+        16,
+        "validated analysis result publication",
+        ANALYSIS_RESULT_SCHEMA_SQL,
+        _analysis_result_foundation,
+    ),
 )
 CURRENT_SCHEMA_VERSION = MIGRATIONS[-1].version
 REQUIRED_MIGRATION_COLUMNS = {
@@ -1845,6 +1914,7 @@ EXPECTED_TABLES = LEGACY_ANCHORS | {
     "event_splits", "event_split_replacements", "event_split_assignments",
     "event_retractions", "event_revisions", "analysis_runs", "analysis_inputs",
     "analysis_budget_policies", "analysis_attempt_authorizations", "analysis_attempts",
+    "analysis_results", "analysis_publication_versions", "analysis_publications",
 }
 EXPECTED_ITEM_COLUMNS = {
     "id", "source_id", "url", "title", "title_zh", "summary", "raw_summary",
@@ -2108,6 +2178,19 @@ EXPECTED_IDENTITY_AUXILIARY_COLUMNS = {
         "pricing_version", "raw_response_ref", "raw_response_sha256", "error_type",
         "error_detail", "recorded_at",
     },
+    "analysis_results": {
+        "id", "run_id", "attempt_id", "schema_version", "raw_output_ref",
+        "raw_output_sha256", "validated_output_json", "validation_report_json",
+        "result_status", "created_at", "available_at",
+    },
+    "analysis_publication_versions": {
+        "id", "subject_type", "subject_version_id", "task_type", "result_id",
+        "version", "review_status", "evidence_status", "available_at",
+        "supersedes_id", "publication_seq",
+    },
+    "analysis_publications": {
+        "subject_type", "subject_version_id", "task_type", "current_publication_id",
+    },
 }
 EXPECTED_DOCUMENT_INPUT_COLUMNS = {"version_id", "raw_record_id", "role"}
 EXPECTED_DOCUMENT_LOCATOR_COLUMNS = {
@@ -2170,6 +2253,9 @@ EXPECTED_INGEST_TRIGGERS = {
     "analysis_budget_policies_no_update", "analysis_budget_policies_no_delete",
     "analysis_attempt_authorizations_no_update", "analysis_attempt_authorizations_no_delete",
     "analysis_attempts_no_update", "analysis_attempts_no_delete",
+    "analysis_results_no_update", "analysis_results_no_delete",
+    "analysis_publication_versions_no_update", "analysis_publication_versions_no_delete",
+    "analysis_publications_no_delete",
 }
 
 
@@ -2996,6 +3082,41 @@ def _assert_current_schema(db: sqlite3.Connection) -> None:
             ))
         ):
             invalid_analysis_attempts += 1
+    invalid_analysis_results = 0
+    for result in db.execute("SELECT * FROM analysis_results"):
+        run = db.execute("SELECT * FROM analysis_runs WHERE id=?", (result["run_id"],)).fetchone()
+        attempt = db.execute(
+            "SELECT * FROM analysis_attempts WHERE id=? AND run_id=?",
+            (result["attempt_id"], result["run_id"]),
+        ).fetchone()
+        try:
+            output = json.loads(result["validated_output_json"])
+            report = json.loads(result["validation_report_json"])
+        except (TypeError, json.JSONDecodeError):
+            output = report = None
+        if (
+            not run or not attempt or attempt["status"] not in {"succeeded", "refused"}
+            or not isinstance(output, dict) or not isinstance(report, dict)
+            or result["schema_version"] != run["output_schema_version"]
+            or output.get("schema_version") != run["output_schema_version"]
+            or output.get("subject") != {
+                "type": run["subject_type"], "version_id": run["subject_version_id"]
+            }
+            or report.get("status") != "passed"
+        ):
+            invalid_analysis_results += 1
+    for pointer in db.execute("SELECT * FROM analysis_publications"):
+        publication = db.execute(
+            "SELECT * FROM analysis_publication_versions WHERE id=?",
+            (pointer["current_publication_id"],),
+        ).fetchone()
+        if (
+            not publication
+            or publication["subject_type"] != pointer["subject_type"]
+            or publication["subject_version_id"] != pointer["subject_version_id"]
+            or publication["task_type"] != pointer["task_type"]
+        ):
+            invalid_analysis_results += 1
             continue
         inputs = db.execute(
             "SELECT * FROM analysis_inputs WHERE run_id=? ORDER BY ordinal", (run["id"],)
@@ -3051,6 +3172,7 @@ def _assert_current_schema(db: sqlite3.Connection) -> None:
         or invalid_event_revisions
         or invalid_analysis_runs
         or invalid_analysis_attempts
+        or invalid_analysis_results
     ):
         raise DatabaseVerificationError(
             "event projections are invalid: "
@@ -3064,6 +3186,7 @@ def _assert_current_schema(db: sqlite3.Connection) -> None:
             f", revisions={invalid_event_revisions}"
             f", analysis_runs={invalid_analysis_runs}"
             f", analysis_attempts={invalid_analysis_attempts}"
+            f", analysis_results={invalid_analysis_results}"
         )
     invalid_jobs = db.execute(
         """SELECT COUNT(*) FROM jobs AS job
