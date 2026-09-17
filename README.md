@@ -179,6 +179,7 @@ python cli.py legacy-backfill 250       # maintenance 下可续跑迁移历史�
 
 同一稳定事件的证据化事实更新与更正规则见
 [事件事实修订](docs/EVENT_REVISIONS.md)。
+分析调用前的版本固定与输入闭包见 [分析输入清单](docs/ANALYSIS_INPUTS.md)。
 
 命令输出中的 `file_sha256` 是指定 `.db` 文件的校验值；`db-backup` 生成的是单文件备份，
 可用该值核对传输。运行中的 WAL 数据库还可能有 `-wal` 内容，不能仅凭主文件校验值代表

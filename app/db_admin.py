@@ -1589,6 +1589,63 @@ def _event_revision_foundation(db: sqlite3.Connection) -> None:
     _execute_script(db, EVENT_REVISION_SCHEMA_SQL)
 
 
+ANALYSIS_INPUT_SCHEMA_SQL = """
+CREATE TABLE analysis_runs (
+    id TEXT PRIMARY KEY,
+    idempotency_key TEXT NOT NULL UNIQUE,
+    request_sha256 TEXT NOT NULL CHECK(length(request_sha256)=64),
+    job_id TEXT NOT NULL REFERENCES jobs(id),
+    subject_type TEXT NOT NULL CHECK(subject_type IN ('document','event')),
+    subject_version_id TEXT NOT NULL,
+    task_type TEXT NOT NULL CHECK(task_type IN (
+        'language','translation','relevance','entity_linking','summarization','importance',
+        'event_extraction','event_linking','tone','impact','macro_mapping','report'
+    )),
+    output_schema_version TEXT NOT NULL,
+    provider TEXT NOT NULL,
+    requested_model TEXT NOT NULL,
+    prompt_template_id TEXT NOT NULL,
+    prompt_sha256 TEXT NOT NULL CHECK(length(prompt_sha256)=64),
+    rendered_input_ref TEXT NOT NULL,
+    rendered_input_sha256 TEXT NOT NULL CHECK(length(rendered_input_sha256)=64),
+    pipeline_version TEXT NOT NULL,
+    parameters_json TEXT NOT NULL,
+    input_manifest_json TEXT NOT NULL,
+    input_manifest_sha256 TEXT NOT NULL CHECK(length(input_manifest_sha256)=64),
+    prepared_at TEXT NOT NULL
+);
+CREATE INDEX idx_analysis_runs_subject
+    ON analysis_runs(subject_type,subject_version_id,task_type,prepared_at);
+
+CREATE TABLE analysis_inputs (
+    run_id TEXT NOT NULL REFERENCES analysis_runs(id),
+    ordinal INTEGER NOT NULL CHECK(ordinal>=0),
+    document_version_id TEXT REFERENCES document_versions(id),
+    event_version_id TEXT REFERENCES event_versions(id),
+    evidence_id TEXT REFERENCES raw_records(id),
+    role TEXT NOT NULL CHECK(role IN ('primary','supporting','context','contradicting')),
+    PRIMARY KEY(run_id,ordinal),
+    CHECK((document_version_id IS NOT NULL) != (event_version_id IS NOT NULL)),
+    CHECK(evidence_id IS NULL OR document_version_id IS NOT NULL)
+);
+CREATE INDEX idx_analysis_inputs_document ON analysis_inputs(document_version_id,run_id);
+CREATE INDEX idx_analysis_inputs_event ON analysis_inputs(event_version_id,run_id);
+
+CREATE TRIGGER analysis_runs_no_update BEFORE UPDATE ON analysis_runs
+BEGIN SELECT RAISE(ABORT,'analysis runs are immutable'); END;
+CREATE TRIGGER analysis_runs_no_delete BEFORE DELETE ON analysis_runs
+BEGIN SELECT RAISE(ABORT,'analysis runs are immutable'); END;
+CREATE TRIGGER analysis_inputs_no_update BEFORE UPDATE ON analysis_inputs
+BEGIN SELECT RAISE(ABORT,'analysis inputs are immutable'); END;
+CREATE TRIGGER analysis_inputs_no_delete BEFORE DELETE ON analysis_inputs
+BEGIN SELECT RAISE(ABORT,'analysis inputs are immutable'); END;
+"""
+
+
+def _analysis_input_foundation(db: sqlite3.Connection) -> None:
+    _execute_script(db, ANALYSIS_INPUT_SCHEMA_SQL)
+
+
 # Migration 1 freezes the exact legacy schema at main@88a2a1e. Future schema
 # changes must append a new Migration instead of editing this definition.
 MIGRATIONS = (
@@ -1673,6 +1730,12 @@ MIGRATIONS = (
         EVENT_REVISION_SCHEMA_SQL,
         _event_revision_foundation,
     ),
+    Migration(
+        14,
+        "immutable analysis input manifests",
+        ANALYSIS_INPUT_SCHEMA_SQL,
+        _analysis_input_foundation,
+    ),
 )
 CURRENT_SCHEMA_VERSION = MIGRATIONS[-1].version
 REQUIRED_MIGRATION_COLUMNS = {
@@ -1700,7 +1763,7 @@ EXPECTED_TABLES = LEGACY_ANCHORS | {
     "events", "event_versions", "match_decisions", "event_evidence",
     "document_event_links", "legacy_story_events", "event_relations", "event_merges",
     "event_splits", "event_split_replacements", "event_split_assignments",
-    "event_retractions", "event_revisions",
+    "event_retractions", "event_revisions", "analysis_runs", "analysis_inputs",
 }
 EXPECTED_ITEM_COLUMNS = {
     "id", "source_id", "url", "title", "title_zh", "summary", "raw_summary",
@@ -1937,6 +2000,17 @@ EXPECTED_IDENTITY_AUXILIARY_COLUMNS = {
         "revision_kind", "changed_fields_json", "evidence_ids_json", "reason",
         "available_at", "publication_seq",
     },
+    "analysis_runs": {
+        "id", "idempotency_key", "request_sha256", "job_id", "subject_type",
+        "subject_version_id", "task_type", "output_schema_version", "provider",
+        "requested_model", "prompt_template_id", "prompt_sha256",
+        "rendered_input_ref", "rendered_input_sha256", "pipeline_version",
+        "parameters_json", "input_manifest_json", "input_manifest_sha256", "prepared_at",
+    },
+    "analysis_inputs": {
+        "run_id", "ordinal", "document_version_id", "event_version_id",
+        "evidence_id", "role",
+    },
 }
 EXPECTED_DOCUMENT_INPUT_COLUMNS = {"version_id", "raw_record_id", "role"}
 EXPECTED_DOCUMENT_LOCATOR_COLUMNS = {
@@ -1994,6 +2068,8 @@ EXPECTED_INGEST_TRIGGERS = {
     "event_split_assignments_no_update", "event_split_assignments_no_delete",
     "event_retractions_no_update", "event_retractions_no_delete",
     "event_revisions_no_update", "event_revisions_no_delete",
+    "analysis_runs_no_update", "analysis_runs_no_delete",
+    "analysis_inputs_no_update", "analysis_inputs_no_delete",
 }
 
 
@@ -2786,6 +2862,54 @@ def _assert_current_schema(db: sqlite3.Connection) -> None:
             or change["operation"] != "update"
         ):
             invalid_event_revisions += 1
+    invalid_analysis_runs = 0
+    for run in db.execute("SELECT * FROM analysis_runs"):
+        try:
+            manifest = json.loads(run["input_manifest_json"])
+            parameters = json.loads(run["parameters_json"])
+        except (TypeError, json.JSONDecodeError):
+            invalid_analysis_runs += 1
+            continue
+        inputs = db.execute(
+            "SELECT * FROM analysis_inputs WHERE run_id=? ORDER BY ordinal", (run["id"],)
+        ).fetchall()
+        subject_exists = (
+            run["subject_version_id"] in document_version_ids
+            if run["subject_type"] == "document"
+            else run["subject_version_id"] in event_version_ids
+        )
+        includes_subject = any(
+            item["document_version_id"] == run["subject_version_id"]
+            if run["subject_type"] == "document"
+            else item["event_version_id"] == run["subject_version_id"]
+            for item in inputs
+        )
+        valid_inputs = bool(inputs)
+        for ordinal, item in enumerate(inputs):
+            valid_inputs = valid_inputs and item["ordinal"] == ordinal
+            if item["document_version_id"] is not None:
+                valid_inputs = valid_inputs and item["document_version_id"] in document_version_ids
+                if item["evidence_id"] is not None:
+                    valid_inputs = valid_inputs and bool(db.execute(
+                        """SELECT 1 FROM document_version_inputs
+                           WHERE version_id=? AND raw_record_id=?""",
+                        (item["document_version_id"], item["evidence_id"]),
+                    ).fetchone())
+            else:
+                valid_inputs = (
+                    valid_inputs and item["event_version_id"] in event_version_ids
+                    and item["evidence_id"] is None
+                )
+        manifest_hash = hashlib.sha256(
+            run["input_manifest_json"].encode("utf-8")
+        ).hexdigest()
+        if (
+            not isinstance(manifest, dict) or not isinstance(parameters, dict)
+            or manifest_hash != run["input_manifest_sha256"]
+            or manifest.get("parameters") != parameters
+            or not subject_exists or not includes_subject or not valid_inputs
+        ):
+            invalid_analysis_runs += 1
     if (
         invalid_events
         or invalid_event_links
@@ -2798,6 +2922,7 @@ def _assert_current_schema(db: sqlite3.Connection) -> None:
         or invalid_event_retractions
         or invalid_terminal_overlap
         or invalid_event_revisions
+        or invalid_analysis_runs
     ):
         raise DatabaseVerificationError(
             "event projections are invalid: "
@@ -2809,6 +2934,7 @@ def _assert_current_schema(db: sqlite3.Connection) -> None:
             f"splits={invalid_event_splits}, retractions={invalid_event_retractions}, "
             f"terminal_overlap={invalid_terminal_overlap}"
             f", revisions={invalid_event_revisions}"
+            f", analysis_runs={invalid_analysis_runs}"
         )
     invalid_jobs = db.execute(
         """SELECT COUNT(*) FROM jobs AS job

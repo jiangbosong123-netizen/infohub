@@ -1,0 +1,64 @@
+{
+  "checked_at": "2026-09-17",
+  "scope": "P11a immutable analysis input migration rehearsal",
+  "source": {
+    "path_class": "local development database",
+    "access": "read-only consistent SQLite backup",
+    "size_bytes": 83525632,
+    "production_or_windows_accessed": false
+  },
+  "migration": {
+    "previous_state": "legacy_unversioned",
+    "result_schema_version": 14,
+    "legacy_core_unchanged": true,
+    "new_table_counts": {
+      "analysis_runs": 0,
+      "analysis_inputs": 0
+    }
+  },
+  "legacy_core": {
+    "companies": {
+      "rows": 23,
+      "sha256": "84a8b255408ee72d72b1360fec2b8796f767c920e62d4c639773596c163567fc"
+    },
+    "sources": {
+      "rows": 57,
+      "sha256": "ef8aa724aa4856dbb30b4c7383972d766c5d081352875b8e253f888d14540ced"
+    },
+    "items": {
+      "rows": 25215,
+      "sha256": "baf1a32ec873c0ed0d574b0e240499035ab7e80e12583accb8652e863f5de90d"
+    },
+    "item_discoveries": {
+      "rows": 26507,
+      "sha256": "d78c0e28527b3124c0061f4a0061c99f22311146d84a2354f7adb2c969798ea3"
+    },
+    "item_companies": {
+      "rows": 14592,
+      "sha256": "48d6ee245045a2b6beed56a31223b0be81efd5ceb1ec3e975cfefd904d0b700e"
+    },
+    "daily_reports": {
+      "rows": 6,
+      "sha256": "a13a98bdb2e88956f90518f08e3ba476723a0a9ca83e245c7f3f1e3d06fb86f7"
+    },
+    "stories": {
+      "rows": 21697,
+      "sha256": "86f1ca9063aa894b5872e74c832c9b3e45f180f1c82e47306ae7903aa85f2040"
+    },
+    "story_items": {
+      "rows": 17590,
+      "sha256": "154210ac5e2b6259fd6238940e3483f303ae0b5061a2c154b86b5ac41676cbff"
+    }
+  },
+  "verification": {
+    "integrity_before": "ok",
+    "integrity_after": "ok",
+    "foreign_key_violations": 0,
+    "source_written": false,
+    "temporary_copy_deleted": true
+  },
+  "limits": [
+    "This rehearsal used the local development database, not the Windows production database.",
+    "No provider or paid model was called."
+  ]
+}
