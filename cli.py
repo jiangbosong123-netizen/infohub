@@ -60,7 +60,14 @@ def cmd_init_db() -> None:
     upsert_sources()
     from app.stories import refresh_derived
     refresh_derived()
-    print(f"数据库初始化完成：{n} 家公司，源注册表已同步。")
+    from app.catalog import sync_identity_catalog
+    with get_db() as db:
+        catalog = sync_identity_catalog(db)
+    print(
+        f"数据库初始化完成：{n} 家公司，源注册表已同步；"
+        f"身份目录包含 {catalog.companies_seen} 个旧公司映射、"
+        f"{catalog.topics_seen} 个主题和 {catalog.publishers_seen} 个发布方。"
+    )
 
 
 def cmd_db_status(path: str | None = None) -> None:

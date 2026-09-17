@@ -1,0 +1,60 @@
+{
+  "recorded_date": "2026-09-17",
+  "environment": "macOS temporary directory; SQLite online-backup copy of the active legacy database",
+  "schema_before": 0,
+  "schema_after": 8,
+  "migration_applied": [
+    1,
+    2,
+    3,
+    4,
+    5,
+    6,
+    7,
+    8
+  ],
+  "automatic_backup_created": true,
+  "first_sync": {
+    "companies_seen": 23,
+    "company_entities_created": 23,
+    "entity_versions_created": 23,
+    "topics_seen": 56,
+    "topics_created": 56,
+    "topic_versions_created": 56,
+    "publishers_seen": 11,
+    "publishers_created": 11,
+    "publisher_versions_created": 11
+  },
+  "repeat_sync": {
+    "companies_seen": 23,
+    "company_entities_created": 0,
+    "entity_versions_created": 0,
+    "topics_seen": 56,
+    "topics_created": 0,
+    "topic_versions_created": 0,
+    "publishers_seen": 11,
+    "publishers_created": 0,
+    "publisher_versions_created": 0
+  },
+  "catalog_counts": {
+    "companies": 23,
+    "us_company_entities": 13,
+    "entities": 23,
+    "entity_versions": 23,
+    "topics": 56,
+    "topic_versions": 56,
+    "publishers": 11,
+    "publisher_versions": 11,
+    "candidate_aliases": 110,
+    "formal_exchange_tickers": 0,
+    "security_listings": 0
+  },
+  "legacy_company_source_topic_fingerprints_unchanged": true,
+  "sqlite_integrity": "ok",
+  "foreign_key_violations": 0,
+  "limitations": [
+    "This is a consistent local copy, not the required new Windows export rehearsal.",
+    "Legacy tickers and aliases remain explicitly unverified and no security listing is inferred.",
+    "The portal still reads legacy company and topic projections in this PR."
+  ]
+}

@@ -33,7 +33,7 @@ class DatabaseSafetyTests(unittest.TestCase):
         first = db_admin.migrate_database(self.path)
         second = db_admin.migrate_database(self.path)
         self.assertEqual(first.previous_state, "empty")
-        self.assertEqual(first.applied_versions, (1, 2, 3, 4, 5, 6, 7))
+        self.assertEqual(first.applied_versions, (1, 2, 3, 4, 5, 6, 7, 8))
         self.assertIsNone(first.backup_path)
         self.assertEqual(second.applied_versions, ())
         self.assertEqual(second.verification.state, "current")
@@ -164,10 +164,10 @@ class DatabaseSafetyTests(unittest.TestCase):
         report = db_admin.migrate_database(self.path)
         self.assertEqual(report.previous_state, "versioned")
         self.assertEqual(report.previous_version, 1)
-        self.assertEqual(report.applied_versions, (2, 3, 4, 5, 6, 7))
+        self.assertEqual(report.applied_versions, (2, 3, 4, 5, 6, 7, 8))
         self.assertTrue(report.backup_path)
         self.assertEqual(db_admin.verify_database(report.backup_path).schema_version, 1)
-        self.assertEqual(report.verification.schema_version, 7)
+        self.assertEqual(report.verification.schema_version, 8)
 
     def test_version_two_jobs_survive_publication_ledger_upgrade(self):
         with database.get_db(self.path) as db:
@@ -193,7 +193,7 @@ class DatabaseSafetyTests(unittest.TestCase):
 
         report = db_admin.migrate_database(self.path)
         self.assertEqual(report.previous_version, 2)
-        self.assertEqual(report.applied_versions, (3, 4, 5, 6, 7))
+        self.assertEqual(report.applied_versions, (3, 4, 5, 6, 7, 8))
         with sqlite3.connect(self.path) as db:
             job = db.execute(
                 """SELECT id,idempotency_key,logical_idempotency_key,
@@ -244,7 +244,7 @@ class DatabaseSafetyTests(unittest.TestCase):
             )
         report = db_admin.migrate_database(self.path)
         self.assertEqual(report.previous_version, 3)
-        self.assertEqual(report.applied_versions, (4, 5, 6, 7))
+        self.assertEqual(report.applied_versions, (4, 5, 6, 7, 8))
         self.assertTrue(report.backup_path)
         with sqlite3.connect(self.path) as db:
             self.assertEqual(
@@ -298,7 +298,7 @@ class DatabaseSafetyTests(unittest.TestCase):
             )
         report = db_admin.migrate_database(self.path)
         self.assertEqual(report.previous_version, 4)
-        self.assertEqual(report.applied_versions, (5, 6, 7))
+        self.assertEqual(report.applied_versions, (5, 6, 7, 8))
         self.assertTrue(report.backup_path)
         with sqlite3.connect(self.path) as db:
             raw = db.execute(
@@ -327,7 +327,7 @@ class DatabaseSafetyTests(unittest.TestCase):
             )
         report = db_admin.migrate_database(self.path)
         self.assertEqual(report.previous_version, 5)
-        self.assertEqual(report.applied_versions, (6, 7))
+        self.assertEqual(report.applied_versions, (6, 7, 8))
         self.assertTrue(report.backup_path)
         with sqlite3.connect(self.path) as db:
             self.assertEqual(
@@ -383,7 +383,7 @@ class DatabaseSafetyTests(unittest.TestCase):
 
         report = db_admin.migrate_database(self.path)
         self.assertEqual(report.previous_version, 6)
-        self.assertEqual(report.applied_versions, (7,))
+        self.assertEqual(report.applied_versions, (7, 8))
         self.assertTrue(report.backup_path)
         with sqlite3.connect(self.path) as db:
             version = db.execute(
@@ -400,6 +400,33 @@ class DatabaseSafetyTests(unittest.TestCase):
             {"legacy_backfill_state", "legacy_backfill_sources",
              "legacy_object_mappings", "legacy_report_identities"} <= tables
         )
+
+    def test_version_seven_adds_empty_identity_catalog_without_rewriting_legacy(self):
+        with database.get_db(self.path) as db:
+            self.assertEqual(
+                db_admin.apply_migrations(db, db_admin.MIGRATIONS[:7]),
+                (1, 2, 3, 4, 5, 6, 7),
+            )
+            db.execute(
+                """INSERT INTO companies(slug,name,name_zh,market,aliases)
+                   VALUES('fixture','Fixture','示例','PRIVATE','[]')"""
+            )
+            before = tuple(db.execute("SELECT * FROM companies").fetchone())
+
+        report = db_admin.migrate_database(self.path)
+        self.assertEqual(report.previous_version, 7)
+        self.assertEqual(report.applied_versions, (8,))
+        self.assertTrue(report.backup_path)
+        with sqlite3.connect(self.path) as db:
+            after = tuple(db.execute("SELECT * FROM companies").fetchone())
+            counts = tuple(db.execute(
+                """SELECT
+                   (SELECT COUNT(*) FROM entities),
+                   (SELECT COUNT(*) FROM publishers),
+                   (SELECT COUNT(*) FROM topic_catalog)"""
+            ).fetchone())
+        self.assertEqual(before, after)
+        self.assertEqual(counts, (0, 0, 0))
 
     def test_current_schema_rejects_a_missing_dataset_identity(self):
         db_admin.migrate_database(self.path)

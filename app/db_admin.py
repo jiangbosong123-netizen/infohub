@@ -691,6 +691,391 @@ BEFORE DELETE ON legacy_report_identities
 BEGIN SELECT RAISE(ABORT, 'legacy report identities are immutable'); END;
 """
 
+IDENTITY_CATALOG_SCHEMA_SQL = """
+CREATE TABLE entities (
+    id TEXT PRIMARY KEY,
+    dataset_id TEXT NOT NULL,
+    type TEXT NOT NULL CHECK(type IN (
+        'organization','security','person','product','model','industry','region','macro_concept'
+    )),
+    current_version_id TEXT UNIQUE REFERENCES entity_versions(id),
+    status TEXT NOT NULL CHECK(status IN ('active','inactive','merged','restricted')),
+    created_at TEXT NOT NULL
+);
+CREATE INDEX idx_entities_dataset_type ON entities(dataset_id,type,status);
+
+CREATE TABLE entity_versions (
+    id TEXT PRIMARY KEY,
+    entity_id TEXT NOT NULL REFERENCES entities(id),
+    version INTEGER NOT NULL CHECK(version>0),
+    previous_version_id TEXT REFERENCES entity_versions(id),
+    type TEXT NOT NULL CHECK(type IN (
+        'organization','security','person','product','model','industry','region','macro_concept'
+    )),
+    canonical_name TEXT NOT NULL,
+    status TEXT NOT NULL CHECK(status IN ('active','inactive','merged','restricted')),
+    attributes_json TEXT NOT NULL DEFAULT '{}',
+    version_sha256 TEXT NOT NULL CHECK(length(version_sha256)=64),
+    available_at TEXT NOT NULL,
+    created_by TEXT NOT NULL,
+    UNIQUE(entity_id,version),
+    CHECK((version=1 AND previous_version_id IS NULL)
+       OR (version>1 AND previous_version_id IS NOT NULL))
+);
+
+CREATE TABLE entity_identifiers (
+    id TEXT PRIMARY KEY,
+    entity_id TEXT NOT NULL REFERENCES entities(id),
+    namespace TEXT NOT NULL,
+    value TEXT NOT NULL,
+    qualifier_json TEXT NOT NULL DEFAULT '{}',
+    valid_from TEXT,
+    valid_to TEXT,
+    evidence_id TEXT,
+    verification_status TEXT NOT NULL CHECK(verification_status IN (
+        'verified','legacy_unverified','candidate','rejected'
+    )),
+    assertion_sha256 TEXT NOT NULL CHECK(length(assertion_sha256)=64),
+    available_at TEXT NOT NULL,
+    UNIQUE(entity_id,assertion_sha256),
+    CHECK(valid_to IS NULL OR valid_from IS NULL OR valid_to>=valid_from)
+);
+CREATE INDEX idx_entity_identifiers_lookup
+    ON entity_identifiers(namespace,value,verification_status);
+
+CREATE TABLE entity_aliases (
+    id TEXT PRIMARY KEY,
+    entity_id TEXT NOT NULL REFERENCES entities(id),
+    alias TEXT NOT NULL,
+    alias_key TEXT NOT NULL,
+    language TEXT NOT NULL DEFAULT 'und',
+    match_mode TEXT NOT NULL CHECK(match_mode IN ('exact','casefold','candidate_only')),
+    ambiguity TEXT NOT NULL CHECK(ambiguity IN ('unique','ambiguous','unreviewed')),
+    status TEXT NOT NULL CHECK(status IN ('active','deprecated','rejected')),
+    evidence_id TEXT,
+    valid_from TEXT,
+    valid_to TEXT,
+    assertion_sha256 TEXT NOT NULL CHECK(length(assertion_sha256)=64),
+    available_at TEXT NOT NULL,
+    UNIQUE(entity_id,assertion_sha256),
+    CHECK(valid_to IS NULL OR valid_from IS NULL OR valid_to>=valid_from)
+);
+CREATE INDEX idx_entity_aliases_lookup ON entity_aliases(alias_key,status);
+
+CREATE TABLE entity_relations (
+    id TEXT PRIMARY KEY,
+    from_entity_id TEXT NOT NULL REFERENCES entities(id),
+    to_entity_id TEXT NOT NULL REFERENCES entities(id),
+    relation TEXT NOT NULL CHECK(relation IN (
+        'issues','employed_by','subsidiary_of','developed_by','located_in','related_to'
+    )),
+    valid_from TEXT,
+    valid_to TEXT,
+    evidence_id TEXT,
+    verification_status TEXT NOT NULL CHECK(verification_status IN (
+        'verified','legacy_unverified','candidate','rejected'
+    )),
+    available_at TEXT NOT NULL,
+    UNIQUE(from_entity_id,to_entity_id,relation,valid_from),
+    CHECK(from_entity_id<>to_entity_id),
+    CHECK(valid_to IS NULL OR valid_from IS NULL OR valid_to>=valid_from)
+);
+
+CREATE TABLE security_listings (
+    id TEXT PRIMARY KEY,
+    security_entity_id TEXT NOT NULL REFERENCES entities(id),
+    issuer_entity_id TEXT NOT NULL REFERENCES entities(id),
+    exchange TEXT,
+    ticker TEXT,
+    listing_type TEXT NOT NULL CHECK(listing_type IN (
+        'common_stock','adr','depositary_receipt','preferred','other','unknown'
+    )),
+    valid_from TEXT,
+    valid_to TEXT,
+    evidence_id TEXT,
+    verification_status TEXT NOT NULL CHECK(verification_status IN (
+        'verified','legacy_unverified','candidate','rejected'
+    )),
+    available_at TEXT NOT NULL,
+    publication_seq INTEGER,
+    CHECK(security_entity_id<>issuer_entity_id),
+    CHECK(valid_to IS NULL OR valid_from IS NULL OR valid_to>=valid_from),
+    CHECK(ticker IS NULL OR exchange IS NOT NULL)
+);
+CREATE INDEX idx_security_listings_lookup
+    ON security_listings(exchange,ticker,valid_from,valid_to);
+
+CREATE TABLE entity_mentions (
+    id TEXT PRIMARY KEY,
+    document_version_id TEXT NOT NULL REFERENCES document_versions(id),
+    entity_id TEXT REFERENCES entities(id),
+    evidence_id TEXT,
+    method TEXT NOT NULL,
+    method_version TEXT NOT NULL,
+    raw_confidence REAL,
+    calibration_version TEXT,
+    status TEXT NOT NULL CHECK(status IN ('resolved','unresolved','ambiguous','rejected')),
+    available_at TEXT NOT NULL,
+    CHECK(raw_confidence IS NULL OR (raw_confidence>=0 AND raw_confidence<=1))
+);
+CREATE INDEX idx_entity_mentions_entity ON entity_mentions(entity_id,document_version_id);
+
+CREATE TABLE legacy_company_entities (
+    company_id INTEGER PRIMARY KEY REFERENCES companies(id),
+    entity_id TEXT NOT NULL UNIQUE REFERENCES entities(id),
+    legacy_sha256 TEXT NOT NULL CHECK(length(legacy_sha256)=64),
+    available_at TEXT NOT NULL
+);
+
+CREATE TABLE publishers (
+    id TEXT PRIMARY KEY,
+    dataset_id TEXT NOT NULL,
+    organization_entity_id TEXT REFERENCES entities(id),
+    current_version_id TEXT UNIQUE REFERENCES publisher_versions(id),
+    status TEXT NOT NULL CHECK(status IN ('active','inactive','merged','restricted')),
+    created_at TEXT NOT NULL
+);
+
+CREATE TABLE publisher_versions (
+    id TEXT PRIMARY KEY,
+    publisher_id TEXT NOT NULL REFERENCES publishers(id),
+    version INTEGER NOT NULL CHECK(version>0),
+    previous_version_id TEXT REFERENCES publisher_versions(id),
+    name TEXT NOT NULL,
+    status TEXT NOT NULL CHECK(status IN ('active','inactive','merged','restricted')),
+    version_sha256 TEXT NOT NULL CHECK(length(version_sha256)=64),
+    available_at TEXT NOT NULL,
+    UNIQUE(publisher_id,version),
+    CHECK((version=1 AND previous_version_id IS NULL)
+       OR (version>1 AND previous_version_id IS NOT NULL))
+);
+
+CREATE TABLE publisher_legacy_keys (
+    legacy_key TEXT PRIMARY KEY,
+    publisher_id TEXT NOT NULL REFERENCES publishers(id),
+    available_at TEXT NOT NULL
+);
+
+CREATE TABLE publisher_names (
+    id TEXT PRIMARY KEY,
+    publisher_id TEXT NOT NULL REFERENCES publishers(id),
+    name TEXT NOT NULL,
+    name_key TEXT NOT NULL,
+    language TEXT NOT NULL DEFAULT 'und',
+    status TEXT NOT NULL CHECK(status IN ('active','deprecated','rejected')),
+    assertion_sha256 TEXT NOT NULL CHECK(length(assertion_sha256)=64),
+    available_at TEXT NOT NULL,
+    UNIQUE(publisher_id,assertion_sha256)
+);
+CREATE INDEX idx_publisher_names_lookup ON publisher_names(name_key,status);
+
+CREATE TABLE publisher_domains (
+    id TEXT PRIMARY KEY,
+    publisher_id TEXT NOT NULL REFERENCES publishers(id),
+    domain TEXT NOT NULL,
+    valid_from TEXT,
+    valid_to TEXT,
+    evidence_id TEXT,
+    verification_status TEXT NOT NULL CHECK(verification_status IN (
+        'verified','legacy_unverified','candidate','rejected'
+    )),
+    assertion_sha256 TEXT NOT NULL CHECK(length(assertion_sha256)=64),
+    available_at TEXT NOT NULL,
+    UNIQUE(publisher_id,assertion_sha256),
+    CHECK(valid_to IS NULL OR valid_from IS NULL OR valid_to>=valid_from)
+);
+CREATE INDEX idx_publisher_domains_lookup
+    ON publisher_domains(domain,verification_status,valid_from,valid_to);
+
+CREATE TABLE document_attributions (
+    id TEXT PRIMARY KEY,
+    document_version_id TEXT NOT NULL REFERENCES document_versions(id),
+    publisher_id TEXT REFERENCES publishers(id),
+    origin_document_id TEXT REFERENCES documents(id),
+    relation TEXT NOT NULL CHECK(relation IN ('original','syndicated','cites','unknown')),
+    evidence_id TEXT,
+    method TEXT NOT NULL,
+    status TEXT NOT NULL CHECK(status IN ('asserted','verified','unknown','rejected')),
+    available_at TEXT NOT NULL
+);
+CREATE INDEX idx_document_attributions_document
+    ON document_attributions(document_version_id,publisher_id);
+
+CREATE TABLE topic_catalog (
+    id TEXT PRIMARY KEY,
+    dataset_id TEXT NOT NULL,
+    current_version_id TEXT UNIQUE REFERENCES topic_versions(id),
+    status TEXT NOT NULL CHECK(status IN ('active','inactive','merged','restricted')),
+    created_at TEXT NOT NULL
+);
+
+CREATE TABLE topic_versions (
+    id TEXT PRIMARY KEY,
+    topic_id TEXT NOT NULL REFERENCES topic_catalog(id),
+    version INTEGER NOT NULL CHECK(version>0),
+    previous_version_id TEXT REFERENCES topic_versions(id),
+    slug TEXT NOT NULL,
+    name TEXT NOT NULL,
+    group_key TEXT NOT NULL CHECK(group_key IN (
+        'company_model','technology','format','macro','research'
+    )),
+    description TEXT NOT NULL,
+    rules_json TEXT NOT NULL,
+    rules_hash TEXT NOT NULL CHECK(length(rules_hash)=64),
+    version_sha256 TEXT NOT NULL CHECK(length(version_sha256)=64),
+    status TEXT NOT NULL CHECK(status IN ('active','inactive','merged','restricted')),
+    available_at TEXT NOT NULL,
+    UNIQUE(topic_id,version),
+    CHECK((version=1 AND previous_version_id IS NULL)
+       OR (version>1 AND previous_version_id IS NOT NULL))
+);
+CREATE INDEX idx_topic_versions_slug ON topic_versions(slug,available_at);
+
+CREATE TABLE topic_slug_aliases (
+    slug TEXT PRIMARY KEY,
+    topic_id TEXT NOT NULL REFERENCES topic_catalog(id),
+    available_at TEXT NOT NULL
+);
+
+CREATE TABLE document_topic_assignments (
+    id TEXT PRIMARY KEY,
+    document_version_id TEXT NOT NULL REFERENCES document_versions(id),
+    topic_version_id TEXT NOT NULL REFERENCES topic_versions(id),
+    method TEXT NOT NULL,
+    method_version TEXT NOT NULL,
+    analysis_result_id TEXT,
+    evidence_ids_json TEXT NOT NULL DEFAULT '[]',
+    status TEXT NOT NULL CHECK(status IN ('candidate','accepted','rejected','superseded')),
+    available_at TEXT NOT NULL
+);
+CREATE INDEX idx_document_topics_topic
+    ON document_topic_assignments(topic_version_id,document_version_id);
+
+CREATE TRIGGER entity_versions_valid_append BEFORE INSERT ON entity_versions
+WHEN NEW.version != COALESCE(
+         (SELECT MAX(version)+1 FROM entity_versions WHERE entity_id=NEW.entity_id),1
+     )
+  OR (NEW.version=1 AND NEW.previous_version_id IS NOT NULL)
+  OR (NEW.version>1 AND NEW.previous_version_id IS NOT (
+         SELECT id FROM entity_versions
+         WHERE entity_id=NEW.entity_id AND version=NEW.version-1
+     ))
+BEGIN SELECT RAISE(ABORT,'entity versions must form a contiguous append-only chain'); END;
+CREATE TRIGGER entity_versions_no_update BEFORE UPDATE ON entity_versions
+BEGIN SELECT RAISE(ABORT,'entity versions are immutable'); END;
+CREATE TRIGGER entity_versions_no_delete BEFORE DELETE ON entity_versions
+BEGIN SELECT RAISE(ABORT,'entity versions are immutable'); END;
+CREATE TRIGGER entities_identity_immutable BEFORE UPDATE ON entities
+WHEN NEW.id IS NOT OLD.id OR NEW.dataset_id IS NOT OLD.dataset_id OR NEW.created_at IS NOT OLD.created_at
+BEGIN SELECT RAISE(ABORT,'entity identity is immutable'); END;
+CREATE TRIGGER entities_current_version_valid BEFORE UPDATE OF current_version_id ON entities
+WHEN NEW.current_version_id IS NULL OR NOT EXISTS(
+    SELECT 1 FROM entity_versions WHERE id=NEW.current_version_id AND entity_id=NEW.id
+)
+BEGIN SELECT RAISE(ABORT,'entity current version must belong to the entity'); END;
+CREATE TRIGGER entities_no_delete BEFORE DELETE ON entities
+BEGIN SELECT RAISE(ABORT,'entities are stable identities'); END;
+
+CREATE TRIGGER publisher_versions_valid_append BEFORE INSERT ON publisher_versions
+WHEN NEW.version != COALESCE(
+         (SELECT MAX(version)+1 FROM publisher_versions WHERE publisher_id=NEW.publisher_id),1
+     )
+  OR (NEW.version=1 AND NEW.previous_version_id IS NOT NULL)
+  OR (NEW.version>1 AND NEW.previous_version_id IS NOT (
+         SELECT id FROM publisher_versions
+         WHERE publisher_id=NEW.publisher_id AND version=NEW.version-1
+     ))
+BEGIN SELECT RAISE(ABORT,'publisher versions must form a contiguous append-only chain'); END;
+CREATE TRIGGER publisher_versions_no_update BEFORE UPDATE ON publisher_versions
+BEGIN SELECT RAISE(ABORT,'publisher versions are immutable'); END;
+CREATE TRIGGER publisher_versions_no_delete BEFORE DELETE ON publisher_versions
+BEGIN SELECT RAISE(ABORT,'publisher versions are immutable'); END;
+CREATE TRIGGER publishers_identity_immutable BEFORE UPDATE ON publishers
+WHEN NEW.id IS NOT OLD.id OR NEW.dataset_id IS NOT OLD.dataset_id OR NEW.created_at IS NOT OLD.created_at
+BEGIN SELECT RAISE(ABORT,'publisher identity is immutable'); END;
+CREATE TRIGGER publishers_current_version_valid BEFORE UPDATE OF current_version_id ON publishers
+WHEN NEW.current_version_id IS NULL OR NOT EXISTS(
+    SELECT 1 FROM publisher_versions WHERE id=NEW.current_version_id AND publisher_id=NEW.id
+)
+BEGIN SELECT RAISE(ABORT,'publisher current version must belong to the publisher'); END;
+CREATE TRIGGER publishers_no_delete BEFORE DELETE ON publishers
+BEGIN SELECT RAISE(ABORT,'publishers are stable identities'); END;
+
+CREATE TRIGGER topic_versions_valid_append BEFORE INSERT ON topic_versions
+WHEN NEW.version != COALESCE(
+         (SELECT MAX(version)+1 FROM topic_versions WHERE topic_id=NEW.topic_id),1
+     )
+  OR (NEW.version=1 AND NEW.previous_version_id IS NOT NULL)
+  OR (NEW.version>1 AND NEW.previous_version_id IS NOT (
+         SELECT id FROM topic_versions
+         WHERE topic_id=NEW.topic_id AND version=NEW.version-1
+     ))
+BEGIN SELECT RAISE(ABORT,'topic versions must form a contiguous append-only chain'); END;
+CREATE TRIGGER topic_versions_no_update BEFORE UPDATE ON topic_versions
+BEGIN SELECT RAISE(ABORT,'topic versions are immutable'); END;
+CREATE TRIGGER topic_versions_no_delete BEFORE DELETE ON topic_versions
+BEGIN SELECT RAISE(ABORT,'topic versions are immutable'); END;
+CREATE TRIGGER topic_catalog_identity_immutable BEFORE UPDATE ON topic_catalog
+WHEN NEW.id IS NOT OLD.id OR NEW.dataset_id IS NOT OLD.dataset_id OR NEW.created_at IS NOT OLD.created_at
+BEGIN SELECT RAISE(ABORT,'topic identity is immutable'); END;
+CREATE TRIGGER topic_catalog_current_version_valid BEFORE UPDATE OF current_version_id ON topic_catalog
+WHEN NEW.current_version_id IS NULL OR NOT EXISTS(
+    SELECT 1 FROM topic_versions WHERE id=NEW.current_version_id AND topic_id=NEW.id
+)
+BEGIN SELECT RAISE(ABORT,'topic current version must belong to the topic'); END;
+CREATE TRIGGER topic_catalog_no_delete BEFORE DELETE ON topic_catalog
+BEGIN SELECT RAISE(ABORT,'topics are stable identities'); END;
+
+CREATE TRIGGER entity_identifiers_no_update BEFORE UPDATE ON entity_identifiers
+BEGIN SELECT RAISE(ABORT,'entity identifiers are immutable'); END;
+CREATE TRIGGER entity_identifiers_no_delete BEFORE DELETE ON entity_identifiers
+BEGIN SELECT RAISE(ABORT,'entity identifiers are immutable'); END;
+CREATE TRIGGER entity_aliases_no_update BEFORE UPDATE ON entity_aliases
+BEGIN SELECT RAISE(ABORT,'entity aliases are immutable'); END;
+CREATE TRIGGER entity_aliases_no_delete BEFORE DELETE ON entity_aliases
+BEGIN SELECT RAISE(ABORT,'entity aliases are immutable'); END;
+CREATE TRIGGER entity_relations_no_update BEFORE UPDATE ON entity_relations
+BEGIN SELECT RAISE(ABORT,'entity relations are immutable'); END;
+CREATE TRIGGER entity_relations_no_delete BEFORE DELETE ON entity_relations
+BEGIN SELECT RAISE(ABORT,'entity relations are immutable'); END;
+CREATE TRIGGER security_listings_no_update BEFORE UPDATE ON security_listings
+BEGIN SELECT RAISE(ABORT,'security listings are immutable'); END;
+CREATE TRIGGER security_listings_no_delete BEFORE DELETE ON security_listings
+BEGIN SELECT RAISE(ABORT,'security listings are immutable'); END;
+CREATE TRIGGER entity_mentions_no_update BEFORE UPDATE ON entity_mentions
+BEGIN SELECT RAISE(ABORT,'entity mentions are immutable'); END;
+CREATE TRIGGER entity_mentions_no_delete BEFORE DELETE ON entity_mentions
+BEGIN SELECT RAISE(ABORT,'entity mentions are immutable'); END;
+CREATE TRIGGER legacy_company_entities_no_update BEFORE UPDATE ON legacy_company_entities
+BEGIN SELECT RAISE(ABORT,'legacy company mappings are immutable'); END;
+CREATE TRIGGER legacy_company_entities_no_delete BEFORE DELETE ON legacy_company_entities
+BEGIN SELECT RAISE(ABORT,'legacy company mappings are immutable'); END;
+CREATE TRIGGER publisher_legacy_keys_no_update BEFORE UPDATE ON publisher_legacy_keys
+BEGIN SELECT RAISE(ABORT,'publisher keys are immutable'); END;
+CREATE TRIGGER publisher_legacy_keys_no_delete BEFORE DELETE ON publisher_legacy_keys
+BEGIN SELECT RAISE(ABORT,'publisher keys are immutable'); END;
+CREATE TRIGGER publisher_names_no_update BEFORE UPDATE ON publisher_names
+BEGIN SELECT RAISE(ABORT,'publisher names are immutable'); END;
+CREATE TRIGGER publisher_names_no_delete BEFORE DELETE ON publisher_names
+BEGIN SELECT RAISE(ABORT,'publisher names are immutable'); END;
+CREATE TRIGGER publisher_domains_no_update BEFORE UPDATE ON publisher_domains
+BEGIN SELECT RAISE(ABORT,'publisher domains are immutable'); END;
+CREATE TRIGGER publisher_domains_no_delete BEFORE DELETE ON publisher_domains
+BEGIN SELECT RAISE(ABORT,'publisher domains are immutable'); END;
+CREATE TRIGGER document_attributions_no_update BEFORE UPDATE ON document_attributions
+BEGIN SELECT RAISE(ABORT,'document attributions are immutable'); END;
+CREATE TRIGGER document_attributions_no_delete BEFORE DELETE ON document_attributions
+BEGIN SELECT RAISE(ABORT,'document attributions are immutable'); END;
+CREATE TRIGGER topic_slug_aliases_no_update BEFORE UPDATE ON topic_slug_aliases
+BEGIN SELECT RAISE(ABORT,'topic slug aliases are immutable'); END;
+CREATE TRIGGER topic_slug_aliases_no_delete BEFORE DELETE ON topic_slug_aliases
+BEGIN SELECT RAISE(ABORT,'topic slug aliases are immutable'); END;
+CREATE TRIGGER document_topic_assignments_no_update BEFORE UPDATE ON document_topic_assignments
+BEGIN SELECT RAISE(ABORT,'topic assignments are immutable'); END;
+CREATE TRIGGER document_topic_assignments_no_delete BEFORE DELETE ON document_topic_assignments
+BEGIN SELECT RAISE(ABORT,'topic assignments are immutable'); END;
+"""
+
 
 def _execute_script(db: sqlite3.Connection, script: str) -> None:
     """Execute a SQL script without sqlite3.executescript's implicit COMMIT."""
@@ -782,6 +1167,10 @@ def _legacy_backfill_foundation(db: sqlite3.Connection) -> None:
     _execute_script(db, LEGACY_BACKFILL_SCHEMA_SQL)
 
 
+def _identity_catalog_foundation(db: sqlite3.Connection) -> None:
+    _execute_script(db, IDENTITY_CATALOG_SCHEMA_SQL)
+
+
 # Migration 1 freezes the exact legacy schema at main@88a2a1e. Future schema
 # changes must append a new Migration instead of editing this definition.
 MIGRATIONS = (
@@ -830,6 +1219,12 @@ MIGRATIONS = (
         LEGACY_BACKFILL_SCHEMA_SQL,
         _legacy_backfill_foundation,
     ),
+    Migration(
+        8,
+        "versioned identity catalog foundation",
+        IDENTITY_CATALOG_SCHEMA_SQL,
+        _identity_catalog_foundation,
+    ),
 )
 CURRENT_SCHEMA_VERSION = MIGRATIONS[-1].version
 REQUIRED_MIGRATION_COLUMNS = {
@@ -847,6 +1242,12 @@ EXPECTED_TABLES = LEGACY_ANCHORS | {
     "documents", "document_versions", "document_version_inputs", "document_locators",
     "legacy_backfill_state", "legacy_backfill_sources", "legacy_object_mappings",
     "legacy_report_identities",
+    "entities", "entity_versions", "entity_identifiers", "entity_aliases",
+    "entity_relations", "security_listings", "entity_mentions",
+    "legacy_company_entities", "publishers", "publisher_versions",
+    "publisher_legacy_keys", "publisher_names", "publisher_domains",
+    "document_attributions", "topic_catalog", "topic_versions",
+    "topic_slug_aliases", "document_topic_assignments",
 }
 EXPECTED_ITEM_COLUMNS = {
     "id", "source_id", "url", "title", "title_zh", "summary", "raw_summary",
@@ -945,6 +1346,76 @@ EXPECTED_LEGACY_REPORT_COLUMNS = {
     "id", "dataset_id", "legacy_report_id", "report_date", "content_sha256",
     "legacy_created_at", "available_at", "status",
 }
+EXPECTED_ENTITY_COLUMNS = {
+    "id", "dataset_id", "type", "current_version_id", "status", "created_at",
+}
+EXPECTED_ENTITY_VERSION_COLUMNS = {
+    "id", "entity_id", "version", "previous_version_id", "type",
+    "canonical_name", "status", "attributes_json", "version_sha256",
+    "available_at", "created_by",
+}
+EXPECTED_ENTITY_IDENTIFIER_COLUMNS = {
+    "id", "entity_id", "namespace", "value", "qualifier_json", "valid_from",
+    "valid_to", "evidence_id", "verification_status", "assertion_sha256", "available_at",
+}
+EXPECTED_ENTITY_ALIAS_COLUMNS = {
+    "id", "entity_id", "alias", "alias_key", "language", "match_mode",
+    "ambiguity", "status", "evidence_id", "valid_from", "valid_to",
+    "assertion_sha256", "available_at",
+}
+EXPECTED_TOPIC_CATALOG_COLUMNS = {
+    "id", "dataset_id", "current_version_id", "status", "created_at",
+}
+EXPECTED_TOPIC_VERSION_COLUMNS = {
+    "id", "topic_id", "version", "previous_version_id", "slug", "name",
+    "group_key", "description", "rules_json", "rules_hash", "version_sha256",
+    "status", "available_at",
+}
+EXPECTED_PUBLISHER_COLUMNS = {
+    "id", "dataset_id", "organization_entity_id", "current_version_id",
+    "status", "created_at",
+}
+EXPECTED_PUBLISHER_VERSION_COLUMNS = {
+    "id", "publisher_id", "version", "previous_version_id", "name", "status",
+    "version_sha256", "available_at",
+}
+EXPECTED_IDENTITY_AUXILIARY_COLUMNS = {
+    "entity_relations": {
+        "id", "from_entity_id", "to_entity_id", "relation", "valid_from",
+        "valid_to", "evidence_id", "verification_status", "available_at",
+    },
+    "security_listings": {
+        "id", "security_entity_id", "issuer_entity_id", "exchange", "ticker",
+        "listing_type", "valid_from", "valid_to", "evidence_id",
+        "verification_status", "available_at", "publication_seq",
+    },
+    "entity_mentions": {
+        "id", "document_version_id", "entity_id", "evidence_id", "method",
+        "method_version", "raw_confidence", "calibration_version", "status",
+        "available_at",
+    },
+    "legacy_company_entities": {
+        "company_id", "entity_id", "legacy_sha256", "available_at",
+    },
+    "publisher_legacy_keys": {"legacy_key", "publisher_id", "available_at"},
+    "publisher_names": {
+        "id", "publisher_id", "name", "name_key", "language", "status",
+        "assertion_sha256", "available_at",
+    },
+    "publisher_domains": {
+        "id", "publisher_id", "domain", "valid_from", "valid_to", "evidence_id",
+        "verification_status", "assertion_sha256", "available_at",
+    },
+    "document_attributions": {
+        "id", "document_version_id", "publisher_id", "origin_document_id",
+        "relation", "evidence_id", "method", "status", "available_at",
+    },
+    "topic_slug_aliases": {"slug", "topic_id", "available_at"},
+    "document_topic_assignments": {
+        "id", "document_version_id", "topic_version_id", "method", "method_version",
+        "analysis_result_id", "evidence_ids_json", "status", "available_at",
+    },
+}
 EXPECTED_DOCUMENT_INPUT_COLUMNS = {"version_id", "raw_record_id", "role"}
 EXPECTED_DOCUMENT_LOCATOR_COLUMNS = {
     "document_id", "source_id", "external_id", "canonical_url", "relation",
@@ -964,6 +1435,25 @@ EXPECTED_INGEST_TRIGGERS = {
     "document_locators_identity_immutable", "document_locators_no_delete",
     "legacy_object_mappings_no_update", "legacy_object_mappings_no_delete",
     "legacy_report_identities_no_update", "legacy_report_identities_no_delete",
+    "entity_versions_valid_append", "entity_versions_no_update", "entity_versions_no_delete",
+    "entities_identity_immutable", "entities_current_version_valid", "entities_no_delete",
+    "publisher_versions_valid_append", "publisher_versions_no_update",
+    "publisher_versions_no_delete", "publishers_identity_immutable",
+    "publishers_current_version_valid", "publishers_no_delete",
+    "topic_versions_valid_append", "topic_versions_no_update", "topic_versions_no_delete",
+    "topic_catalog_identity_immutable", "topic_catalog_current_version_valid",
+    "topic_catalog_no_delete", "entity_identifiers_no_update",
+    "entity_identifiers_no_delete", "entity_aliases_no_update", "entity_aliases_no_delete",
+    "entity_relations_no_update", "entity_relations_no_delete",
+    "security_listings_no_update", "security_listings_no_delete",
+    "entity_mentions_no_update", "entity_mentions_no_delete",
+    "legacy_company_entities_no_update", "legacy_company_entities_no_delete",
+    "publisher_legacy_keys_no_update", "publisher_legacy_keys_no_delete",
+    "publisher_names_no_update", "publisher_names_no_delete",
+    "publisher_domains_no_update", "publisher_domains_no_delete",
+    "document_attributions_no_update", "document_attributions_no_delete",
+    "topic_slug_aliases_no_update", "topic_slug_aliases_no_delete",
+    "document_topic_assignments_no_update", "document_topic_assignments_no_delete",
 }
 
 
@@ -1197,6 +1687,51 @@ def _assert_current_schema(db: sqlite3.Connection) -> None:
         row["name"] for row in db.execute("PRAGMA table_info(legacy_report_identities)")
     }
     missing_legacy_report_columns = EXPECTED_LEGACY_REPORT_COLUMNS - legacy_report_columns
+    entity_columns = {row["name"] for row in db.execute("PRAGMA table_info(entities)")}
+    missing_entity_columns = EXPECTED_ENTITY_COLUMNS - entity_columns
+    entity_version_columns = {
+        row["name"] for row in db.execute("PRAGMA table_info(entity_versions)")
+    }
+    missing_entity_version_columns = EXPECTED_ENTITY_VERSION_COLUMNS - entity_version_columns
+    entity_identifier_columns = {
+        row["name"] for row in db.execute("PRAGMA table_info(entity_identifiers)")
+    }
+    missing_entity_identifier_columns = (
+        EXPECTED_ENTITY_IDENTIFIER_COLUMNS - entity_identifier_columns
+    )
+    entity_alias_columns = {
+        row["name"] for row in db.execute("PRAGMA table_info(entity_aliases)")
+    }
+    missing_entity_alias_columns = EXPECTED_ENTITY_ALIAS_COLUMNS - entity_alias_columns
+    topic_catalog_columns = {
+        row["name"] for row in db.execute("PRAGMA table_info(topic_catalog)")
+    }
+    missing_topic_catalog_columns = EXPECTED_TOPIC_CATALOG_COLUMNS - topic_catalog_columns
+    topic_version_columns = {
+        row["name"] for row in db.execute("PRAGMA table_info(topic_versions)")
+    }
+    missing_topic_version_columns = EXPECTED_TOPIC_VERSION_COLUMNS - topic_version_columns
+    publisher_columns = {
+        row["name"] for row in db.execute("PRAGMA table_info(publishers)")
+    }
+    missing_publisher_columns = EXPECTED_PUBLISHER_COLUMNS - publisher_columns
+    publisher_version_columns = {
+        row["name"] for row in db.execute("PRAGMA table_info(publisher_versions)")
+    }
+    missing_publisher_version_columns = (
+        EXPECTED_PUBLISHER_VERSION_COLUMNS - publisher_version_columns
+    )
+    missing_identity_auxiliary_columns = {
+        table: sorted(required - {
+            row["name"] for row in db.execute(f"PRAGMA table_info({table})")
+        })
+        for table, required in EXPECTED_IDENTITY_AUXILIARY_COLUMNS.items()
+    }
+    missing_identity_auxiliary_columns = {
+        table: columns
+        for table, columns in missing_identity_auxiliary_columns.items()
+        if columns
+    }
     ingest_triggers = {
         row["name"] for row in db.execute(
             "SELECT name FROM sqlite_master WHERE type='trigger'"
@@ -1227,6 +1762,15 @@ def _assert_current_schema(db: sqlite3.Connection) -> None:
         or missing_legacy_backfill_source_columns
         or missing_legacy_mapping_columns
         or missing_legacy_report_columns
+        or missing_entity_columns
+        or missing_entity_version_columns
+        or missing_entity_identifier_columns
+        or missing_entity_alias_columns
+        or missing_topic_catalog_columns
+        or missing_topic_version_columns
+        or missing_publisher_columns
+        or missing_publisher_version_columns
+        or missing_identity_auxiliary_columns
         or missing_ingest_triggers
         or "title_zh" not in fts_columns
     ):
@@ -1254,6 +1798,15 @@ def _assert_current_schema(db: sqlite3.Connection) -> None:
             f"legacy_backfill_source_columns={sorted(missing_legacy_backfill_source_columns)}, "
             f"legacy_mapping_columns={sorted(missing_legacy_mapping_columns)}, "
             f"legacy_report_columns={sorted(missing_legacy_report_columns)}, "
+            f"entity_columns={sorted(missing_entity_columns)}, "
+            f"entity_version_columns={sorted(missing_entity_version_columns)}, "
+            f"entity_identifier_columns={sorted(missing_entity_identifier_columns)}, "
+            f"entity_alias_columns={sorted(missing_entity_alias_columns)}, "
+            f"topic_catalog_columns={sorted(missing_topic_catalog_columns)}, "
+            f"topic_version_columns={sorted(missing_topic_version_columns)}, "
+            f"publisher_columns={sorted(missing_publisher_columns)}, "
+            f"publisher_version_columns={sorted(missing_publisher_version_columns)}, "
+            f"identity_auxiliary_columns={missing_identity_auxiliary_columns}, "
             f"ingest_triggers={sorted(missing_ingest_triggers)}, "
             f"fts_title_zh={'title_zh' in fts_columns}"
         )
@@ -1285,6 +1838,46 @@ def _assert_current_schema(db: sqlite3.Connection) -> None:
     if invalid_documents:
         raise DatabaseVerificationError(
             f"{invalid_documents} document(s) have an invalid dataset or current version"
+        )
+    for table, version_table, owner_column in (
+        ("entities", "entity_versions", "entity_id"),
+        ("publishers", "publisher_versions", "publisher_id"),
+        ("topic_catalog", "topic_versions", "topic_id"),
+    ):
+        invalid = db.execute(
+            f"""SELECT COUNT(*) FROM {table} AS identity
+                LEFT JOIN {version_table} AS version
+                  ON version.id=identity.current_version_id
+                JOIN dataset_state AS state ON state.singleton=1
+                WHERE identity.dataset_id<>state.dataset_id
+                   OR identity.current_version_id IS NULL
+                   OR version.id IS NULL
+                   OR version.{owner_column}<>identity.id"""
+        ).fetchone()[0]
+        if invalid:
+            raise DatabaseVerificationError(
+                f"{invalid} {table} row(s) have an invalid dataset or current version"
+            )
+    mismatched_entities = db.execute(
+        """SELECT COUNT(*) FROM entities AS identity
+           JOIN entity_versions AS version ON version.id=identity.current_version_id
+           WHERE identity.type<>version.type OR identity.status<>version.status"""
+    ).fetchone()[0]
+    mismatched_publishers = db.execute(
+        """SELECT COUNT(*) FROM publishers AS identity
+           JOIN publisher_versions AS version ON version.id=identity.current_version_id
+           WHERE identity.status<>version.status"""
+    ).fetchone()[0]
+    mismatched_topics = db.execute(
+        """SELECT COUNT(*) FROM topic_catalog AS identity
+           JOIN topic_versions AS version ON version.id=identity.current_version_id
+           WHERE identity.status<>version.status"""
+    ).fetchone()[0]
+    if mismatched_entities or mismatched_publishers or mismatched_topics:
+        raise DatabaseVerificationError(
+            "catalog current projections disagree with their versions: "
+            f"entities={mismatched_entities}, publishers={mismatched_publishers}, "
+            f"topics={mismatched_topics}"
         )
     invalid_jobs = db.execute(
         """SELECT COUNT(*) FROM jobs AS job

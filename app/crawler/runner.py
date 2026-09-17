@@ -308,7 +308,8 @@ def upsert_sources() -> None:
                    VALUES (?,?,?,?,?,?,?,1,?)
                    ON CONFLICT(key) DO UPDATE SET name=excluded.name, url=excluded.url,
                        channel=excluded.channel, tier=excluded.tier, type=excluded.type,
-                       company_slug=excluded.company_slug, interval_minutes=excluded.interval_minutes""",
+                       company_slug=excluded.company_slug, interval_minutes=excluded.interval_minutes,
+                       enabled=1""",
                 (s["key"], s["name"], s["channel"], s.get("tier", "media"), s["type"],
                  s.get("url", ""), s.get("company_slug", ""), s.get("interval_minutes", 30)))
             if previous and previous["channel"] != s["channel"]:
