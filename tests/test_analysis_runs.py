@@ -6,6 +6,7 @@ from unittest.mock import patch
 
 from app import config, database
 from app.analysis_runs import AnalysisInput, AnalysisRunError, prepare_analysis_run
+from app.analysis_attempts import authorize_attempt, record_attempt, register_budget_policy
 from app.ingest import begin_ingest_run, observe_candidate
 from app.jobs import claim_job, enqueue_job
 
@@ -68,5 +69,32 @@ class AnalysisRunTests(unittest.TestCase):
   job=self.job("closure")
   with self.assertRaisesRegex(AnalysisRunError,"subject version does not exist"):
    self.prepare(job,inputs=(AnalysisInput("primary",self.doc,None,self.raw),),subject_type="event",subject_version_id="missing-event",idempotency_key="analysis:closure")
+
+ def policy(self,daily=1000,per_attempt=600):
+  return register_budget_policy(provider="fixture",daily_limit_microusd=daily,per_attempt_limit_microusd=per_attempt,effective_from=T0,idempotency_key=f"policy:{daily}:{per_attempt}",now=T0)
+
+ def test_attempt_audit_is_idempotent_and_budget_reserved(self):
+  job=self.job("attempt"); run=self.prepare(job); self.policy()
+  auth=authorize_attempt(run_id=run.id,job_id=job.id,lease_token=job.lease_token,expected_input_version=self.doc,attempt_kind="primary",reserved_cost_microusd=400,idempotency_key="auth:one",now=T0)
+  self.assertEqual(auth.decision,"allowed")
+  attempt=record_attempt(authorization_id=auth.id,job_id=job.id,lease_token=job.lease_token,expected_input_version=self.doc,status="succeeded",started_at=T0,finished_at=T0,resolved_model="fixture-resolved",provider_request_id="req-1",input_tokens=10,output_tokens=5,usage_status="reported",cost_microusd=300,pricing_version="fixture-price-v1",raw_response_ref="cas://response/1",raw_response_sha256=SHA,now=T0)
+  repeated=record_attempt(authorization_id=auth.id,job_id=job.id,lease_token=job.lease_token,expected_input_version=self.doc,status="succeeded",started_at=T0,finished_at=T0,resolved_model="fixture-resolved",provider_request_id="req-1",input_tokens=10,output_tokens=5,usage_status="reported",cost_microusd=300,pricing_version="fixture-price-v1",raw_response_ref="cas://response/1",raw_response_sha256=SHA,now=T0)
+  self.assertEqual(attempt,repeated)
+  with database.get_db() as db:
+   self.assertEqual(db.execute("SELECT COUNT(*) FROM analysis_attempts").fetchone()[0],1)
+   with self.assertRaisesRegex(Exception,"immutable"): db.execute("UPDATE analysis_attempts SET status='failed'")
+
+ def test_budget_blocks_before_provider_call(self):
+  job=self.job("budget"); run=self.prepare(job,idempotency_key="analysis:budget"); self.policy(daily=200,per_attempt=200)
+  auth=authorize_attempt(run_id=run.id,job_id=job.id,lease_token=job.lease_token,expected_input_version=self.doc,attempt_kind="primary",reserved_cost_microusd=300,idempotency_key="auth:blocked",now=T0)
+  self.assertEqual(auth.decision,"blocked")
+  with self.assertRaisesRegex(AnalysisRunError,"blocked attempt"):
+   record_attempt(authorization_id=auth.id,job_id=job.id,lease_token=job.lease_token,expected_input_version=self.doc,status="failed",started_at=T0,finished_at=T0,now=T0)
+  with database.get_db() as db: self.assertEqual(db.execute("SELECT COUNT(*) FROM analysis_attempts").fetchone()[0],0)
+
+ def test_repair_requires_invalid_output(self):
+  job=self.job("repair"); run=self.prepare(job,idempotency_key="analysis:repair"); self.policy()
+  with self.assertRaisesRegex(AnalysisRunError,"first attempt"):
+   authorize_attempt(run_id=run.id,job_id=job.id,lease_token=job.lease_token,expected_input_version=self.doc,attempt_kind="repair",reserved_cost_microusd=10,idempotency_key="auth:repair-bad",now=T0)
 
 if __name__=="__main__": unittest.main()

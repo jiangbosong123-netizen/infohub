@@ -1646,6 +1646,80 @@ def _analysis_input_foundation(db: sqlite3.Connection) -> None:
     _execute_script(db, ANALYSIS_INPUT_SCHEMA_SQL)
 
 
+ANALYSIS_ATTEMPT_SCHEMA_SQL = """
+CREATE TABLE analysis_budget_policies (
+    id TEXT PRIMARY KEY,
+    provider TEXT NOT NULL,
+    daily_limit_microusd INTEGER NOT NULL CHECK(daily_limit_microusd>=0),
+    per_attempt_limit_microusd INTEGER NOT NULL CHECK(per_attempt_limit_microusd>=0),
+    effective_from TEXT NOT NULL,
+    created_at TEXT NOT NULL,
+    supersedes_policy_id TEXT UNIQUE REFERENCES analysis_budget_policies(id)
+);
+CREATE INDEX idx_analysis_budget_provider ON analysis_budget_policies(provider,effective_from);
+
+CREATE TABLE analysis_attempt_authorizations (
+    id TEXT PRIMARY KEY,
+    run_id TEXT NOT NULL REFERENCES analysis_runs(id),
+    attempt_number INTEGER NOT NULL CHECK(attempt_number BETWEEN 1 AND 4),
+    attempt_kind TEXT NOT NULL CHECK(attempt_kind IN ('primary','retry','repair')),
+    provider TEXT NOT NULL,
+    budget_policy_id TEXT NOT NULL REFERENCES analysis_budget_policies(id),
+    budget_day TEXT NOT NULL,
+    reserved_cost_microusd INTEGER NOT NULL CHECK(reserved_cost_microusd>=0),
+    decision TEXT NOT NULL CHECK(decision IN ('allowed','blocked')),
+    reason TEXT NOT NULL,
+    authorized_at TEXT NOT NULL,
+    UNIQUE(run_id,attempt_number)
+);
+
+CREATE TABLE analysis_attempts (
+    id TEXT PRIMARY KEY,
+    authorization_id TEXT NOT NULL UNIQUE REFERENCES analysis_attempt_authorizations(id),
+    run_id TEXT NOT NULL REFERENCES analysis_runs(id),
+    attempt_number INTEGER NOT NULL,
+    attempt_kind TEXT NOT NULL CHECK(attempt_kind IN ('primary','retry','repair')),
+    resolved_model TEXT,
+    provider_request_id TEXT,
+    started_at TEXT NOT NULL,
+    finished_at TEXT NOT NULL,
+    status TEXT NOT NULL CHECK(status IN (
+        'succeeded','failed','refused','invalid_output','blocked'
+    )),
+    input_tokens INTEGER CHECK(input_tokens IS NULL OR input_tokens>=0),
+    output_tokens INTEGER CHECK(output_tokens IS NULL OR output_tokens>=0),
+    usage_status TEXT NOT NULL CHECK(usage_status IN ('reported','estimated','unknown')),
+    cost_microusd INTEGER CHECK(cost_microusd IS NULL OR cost_microusd>=0),
+    pricing_version TEXT,
+    raw_response_ref TEXT,
+    raw_response_sha256 TEXT CHECK(raw_response_sha256 IS NULL OR length(raw_response_sha256)=64),
+    error_type TEXT,
+    error_detail TEXT,
+    recorded_at TEXT NOT NULL,
+    UNIQUE(run_id,attempt_number),
+    CHECK(finished_at>=started_at)
+);
+CREATE INDEX idx_analysis_attempts_run ON analysis_attempts(run_id,attempt_number);
+
+CREATE TRIGGER analysis_budget_policies_no_update BEFORE UPDATE ON analysis_budget_policies
+BEGIN SELECT RAISE(ABORT,'analysis budget policies are immutable'); END;
+CREATE TRIGGER analysis_budget_policies_no_delete BEFORE DELETE ON analysis_budget_policies
+BEGIN SELECT RAISE(ABORT,'analysis budget policies are immutable'); END;
+CREATE TRIGGER analysis_attempt_authorizations_no_update BEFORE UPDATE ON analysis_attempt_authorizations
+BEGIN SELECT RAISE(ABORT,'analysis attempt authorizations are immutable'); END;
+CREATE TRIGGER analysis_attempt_authorizations_no_delete BEFORE DELETE ON analysis_attempt_authorizations
+BEGIN SELECT RAISE(ABORT,'analysis attempt authorizations are immutable'); END;
+CREATE TRIGGER analysis_attempts_no_update BEFORE UPDATE ON analysis_attempts
+BEGIN SELECT RAISE(ABORT,'analysis attempts are immutable'); END;
+CREATE TRIGGER analysis_attempts_no_delete BEFORE DELETE ON analysis_attempts
+BEGIN SELECT RAISE(ABORT,'analysis attempts are immutable'); END;
+"""
+
+
+def _analysis_attempt_foundation(db: sqlite3.Connection) -> None:
+    _execute_script(db, ANALYSIS_ATTEMPT_SCHEMA_SQL)
+
+
 # Migration 1 freezes the exact legacy schema at main@88a2a1e. Future schema
 # changes must append a new Migration instead of editing this definition.
 MIGRATIONS = (
@@ -1736,6 +1810,12 @@ MIGRATIONS = (
         ANALYSIS_INPUT_SCHEMA_SQL,
         _analysis_input_foundation,
     ),
+    Migration(
+        15,
+        "analysis attempt audit and budget gates",
+        ANALYSIS_ATTEMPT_SCHEMA_SQL,
+        _analysis_attempt_foundation,
+    ),
 )
 CURRENT_SCHEMA_VERSION = MIGRATIONS[-1].version
 REQUIRED_MIGRATION_COLUMNS = {
@@ -1764,6 +1844,7 @@ EXPECTED_TABLES = LEGACY_ANCHORS | {
     "document_event_links", "legacy_story_events", "event_relations", "event_merges",
     "event_splits", "event_split_replacements", "event_split_assignments",
     "event_retractions", "event_revisions", "analysis_runs", "analysis_inputs",
+    "analysis_budget_policies", "analysis_attempt_authorizations", "analysis_attempts",
 }
 EXPECTED_ITEM_COLUMNS = {
     "id", "source_id", "url", "title", "title_zh", "summary", "raw_summary",
@@ -2011,6 +2092,22 @@ EXPECTED_IDENTITY_AUXILIARY_COLUMNS = {
         "run_id", "ordinal", "document_version_id", "event_version_id",
         "evidence_id", "role",
     },
+    "analysis_budget_policies": {
+        "id", "provider", "daily_limit_microusd", "per_attempt_limit_microusd",
+        "effective_from", "created_at", "supersedes_policy_id",
+    },
+    "analysis_attempt_authorizations": {
+        "id", "run_id", "attempt_number", "attempt_kind", "provider",
+        "budget_policy_id", "budget_day", "reserved_cost_microusd", "decision",
+        "reason", "authorized_at",
+    },
+    "analysis_attempts": {
+        "id", "authorization_id", "run_id", "attempt_number", "attempt_kind",
+        "resolved_model", "provider_request_id", "started_at", "finished_at", "status",
+        "input_tokens", "output_tokens", "usage_status", "cost_microusd",
+        "pricing_version", "raw_response_ref", "raw_response_sha256", "error_type",
+        "error_detail", "recorded_at",
+    },
 }
 EXPECTED_DOCUMENT_INPUT_COLUMNS = {"version_id", "raw_record_id", "role"}
 EXPECTED_DOCUMENT_LOCATOR_COLUMNS = {
@@ -2070,6 +2167,9 @@ EXPECTED_INGEST_TRIGGERS = {
     "event_revisions_no_update", "event_revisions_no_delete",
     "analysis_runs_no_update", "analysis_runs_no_delete",
     "analysis_inputs_no_update", "analysis_inputs_no_delete",
+    "analysis_budget_policies_no_update", "analysis_budget_policies_no_delete",
+    "analysis_attempt_authorizations_no_update", "analysis_attempt_authorizations_no_delete",
+    "analysis_attempts_no_update", "analysis_attempts_no_delete",
 }
 
 
@@ -2869,6 +2969,33 @@ def _assert_current_schema(db: sqlite3.Connection) -> None:
             parameters = json.loads(run["parameters_json"])
         except (TypeError, json.JSONDecodeError):
             invalid_analysis_runs += 1
+    invalid_analysis_attempts = 0
+    for authorization in db.execute("SELECT * FROM analysis_attempt_authorizations"):
+        run = db.execute(
+            "SELECT provider FROM analysis_runs WHERE id=?", (authorization["run_id"],)
+        ).fetchone()
+        policy = db.execute(
+            "SELECT * FROM analysis_budget_policies WHERE id=?",
+            (authorization["budget_policy_id"],),
+        ).fetchone()
+        attempt = db.execute(
+            "SELECT * FROM analysis_attempts WHERE authorization_id=?", (authorization["id"],)
+        ).fetchone()
+        should_allow = bool(policy) and (
+            authorization["reserved_cost_microusd"] <= policy["per_attempt_limit_microusd"]
+        )
+        if (
+            not run or not policy or run["provider"] != authorization["provider"]
+            or policy["provider"] != authorization["provider"]
+            or (authorization["decision"] == "allowed" and not should_allow)
+            or (attempt is not None and authorization["decision"] != "allowed")
+            or (attempt is not None and (
+                attempt["run_id"] != authorization["run_id"]
+                or attempt["attempt_number"] != authorization["attempt_number"]
+                or attempt["attempt_kind"] != authorization["attempt_kind"]
+            ))
+        ):
+            invalid_analysis_attempts += 1
             continue
         inputs = db.execute(
             "SELECT * FROM analysis_inputs WHERE run_id=? ORDER BY ordinal", (run["id"],)
@@ -2923,6 +3050,7 @@ def _assert_current_schema(db: sqlite3.Connection) -> None:
         or invalid_terminal_overlap
         or invalid_event_revisions
         or invalid_analysis_runs
+        or invalid_analysis_attempts
     ):
         raise DatabaseVerificationError(
             "event projections are invalid: "
@@ -2935,6 +3063,7 @@ def _assert_current_schema(db: sqlite3.Connection) -> None:
             f"terminal_overlap={invalid_terminal_overlap}"
             f", revisions={invalid_event_revisions}"
             f", analysis_runs={invalid_analysis_runs}"
+            f", analysis_attempts={invalid_analysis_attempts}"
         )
     invalid_jobs = db.execute(
         """SELECT COUNT(*) FROM jobs AS job
