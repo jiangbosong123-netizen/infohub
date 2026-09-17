@@ -1,0 +1,13 @@
+{
+  "schema_version": "evaluation-dataset-v1",
+  "dataset_version": "foundation-v1",
+  "annotation_schema_version": "annotation-v1",
+  "created_at": "2026-09-17",
+  "purpose": "synthetic tooling fixtures; not a model-quality gold set",
+  "target_plan": {
+    "documents": 600,
+    "event_groups": 150,
+    "impact_annotations": 300,
+    "security_cases": 50
+  }
+}
