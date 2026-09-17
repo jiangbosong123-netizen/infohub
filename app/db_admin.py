@@ -2236,11 +2236,59 @@ def _assert_current_schema(db: sqlite3.Connection) -> None:
                  AND input.raw_record_id=evidence.evidence_id
            )"""
     ).fetchone()[0]
-    if invalid_events or invalid_event_links or invalid_event_evidence:
+    document_version_ids = {
+        row[0] for row in db.execute("SELECT id FROM document_versions")
+    }
+    event_version_ids = {row[0] for row in db.execute("SELECT id FROM event_versions")}
+    invalid_match_decisions = 0
+    match_references: dict[str, tuple[set[str], set[str], str]] = {}
+    for row in db.execute(
+        """SELECT id,input_versions_json,candidate_event_versions_json,decision
+           FROM match_decisions"""
+    ):
+        try:
+            inputs = json.loads(row["input_versions_json"])
+            candidates = json.loads(row["candidate_event_versions_json"])
+        except (TypeError, json.JSONDecodeError):
+            invalid_match_decisions += 1
+            continue
+        if (
+            not isinstance(inputs, list)
+            or not inputs
+            or not all(isinstance(item, str) and item in document_version_ids for item in inputs)
+            or not isinstance(candidates, list)
+            or not all(isinstance(item, str) and item in event_version_ids for item in candidates)
+            or (row["decision"] != "new_candidate" and not candidates)
+        ):
+            invalid_match_decisions += 1
+            continue
+        match_references[row["id"]] = (set(inputs), set(candidates), row["decision"])
+    invalid_link_decisions = 0
+    for row in db.execute(
+        """SELECT document_version_id,event_version_id,decision_id
+           FROM document_event_links"""
+    ):
+        references = match_references.get(row["decision_id"])
+        if (
+            not references
+            or references[2] != "candidate_link"
+            or row["document_version_id"] not in references[0]
+            or row["event_version_id"] not in references[1]
+        ):
+            invalid_link_decisions += 1
+    if (
+        invalid_events
+        or invalid_event_links
+        or invalid_event_evidence
+        or invalid_match_decisions
+        or invalid_link_decisions
+    ):
         raise DatabaseVerificationError(
             "event projections are invalid: "
             f"events={invalid_events}, links={invalid_event_links}, "
-            f"evidence={invalid_event_evidence}"
+            f"evidence={invalid_event_evidence}, "
+            f"match_decisions={invalid_match_decisions}, "
+            f"link_decisions={invalid_link_decisions}"
         )
     invalid_jobs = db.execute(
         """SELECT COUNT(*) FROM jobs AS job
