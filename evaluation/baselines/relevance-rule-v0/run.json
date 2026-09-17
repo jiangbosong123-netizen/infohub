@@ -1,0 +1,10 @@
+{
+  "schema_version": "prediction-run-v1",
+  "prediction_run_id": "relevance-rule-v0-on-foundation-v1",
+  "dataset_version": "foundation-v1",
+  "task": "relevance",
+  "label_path": "relevance",
+  "method_version": "keyword-rule-v0",
+  "predictions_file": "predictions.jsonl",
+  "abstain_labels": ["unknown"]
+}
