@@ -1562,6 +1562,33 @@ def _event_terminal_foundation(db: sqlite3.Connection) -> None:
     _execute_script(db, EVENT_TERMINAL_SCHEMA_SQL)
 
 
+EVENT_REVISION_SCHEMA_SQL = """
+CREATE TABLE event_revisions (
+    id TEXT PRIMARY KEY,
+    event_id TEXT NOT NULL REFERENCES events(id),
+    previous_version_id TEXT NOT NULL REFERENCES event_versions(id),
+    revised_version_id TEXT NOT NULL UNIQUE REFERENCES event_versions(id),
+    revision_kind TEXT NOT NULL CHECK(revision_kind IN (
+        'fact_update','correction','knowledge_update'
+    )),
+    changed_fields_json TEXT NOT NULL,
+    evidence_ids_json TEXT NOT NULL,
+    reason TEXT NOT NULL CHECK(length(trim(reason))>0),
+    available_at TEXT NOT NULL,
+    publication_seq INTEGER NOT NULL UNIQUE REFERENCES change_log(seq)
+);
+CREATE INDEX idx_event_revisions_event ON event_revisions(event_id,publication_seq);
+CREATE TRIGGER event_revisions_no_update BEFORE UPDATE ON event_revisions
+BEGIN SELECT RAISE(ABORT,'event revisions are immutable'); END;
+CREATE TRIGGER event_revisions_no_delete BEFORE DELETE ON event_revisions
+BEGIN SELECT RAISE(ABORT,'event revisions are immutable'); END;
+"""
+
+
+def _event_revision_foundation(db: sqlite3.Connection) -> None:
+    _execute_script(db, EVENT_REVISION_SCHEMA_SQL)
+
+
 # Migration 1 freezes the exact legacy schema at main@88a2a1e. Future schema
 # changes must append a new Migration instead of editing this definition.
 MIGRATIONS = (
@@ -1640,6 +1667,12 @@ MIGRATIONS = (
         EVENT_TERMINAL_SCHEMA_SQL,
         _event_terminal_foundation,
     ),
+    Migration(
+        13,
+        "auditable event fact revisions",
+        EVENT_REVISION_SCHEMA_SQL,
+        _event_revision_foundation,
+    ),
 )
 CURRENT_SCHEMA_VERSION = MIGRATIONS[-1].version
 REQUIRED_MIGRATION_COLUMNS = {
@@ -1667,7 +1700,7 @@ EXPECTED_TABLES = LEGACY_ANCHORS | {
     "events", "event_versions", "match_decisions", "event_evidence",
     "document_event_links", "legacy_story_events", "event_relations", "event_merges",
     "event_splits", "event_split_replacements", "event_split_assignments",
-    "event_retractions",
+    "event_retractions", "event_revisions",
 }
 EXPECTED_ITEM_COLUMNS = {
     "id", "source_id", "url", "title", "title_zh", "summary", "raw_summary",
@@ -1899,6 +1932,11 @@ EXPECTED_IDENTITY_AUXILIARY_COLUMNS = {
         "id", "event_id", "previous_status", "retracted_event_version_id",
         "evidence_ids_json", "reason", "available_at", "publication_seq",
     },
+    "event_revisions": {
+        "id", "event_id", "previous_version_id", "revised_version_id",
+        "revision_kind", "changed_fields_json", "evidence_ids_json", "reason",
+        "available_at", "publication_seq",
+    },
 }
 EXPECTED_DOCUMENT_INPUT_COLUMNS = {"version_id", "raw_record_id", "role"}
 EXPECTED_DOCUMENT_LOCATOR_COLUMNS = {
@@ -1955,6 +1993,7 @@ EXPECTED_INGEST_TRIGGERS = {
     "event_split_replacements_no_update", "event_split_replacements_no_delete",
     "event_split_assignments_no_update", "event_split_assignments_no_delete",
     "event_retractions_no_update", "event_retractions_no_delete",
+    "event_revisions_no_update", "event_revisions_no_delete",
 }
 
 
@@ -2689,6 +2728,64 @@ def _assert_current_schema(db: sqlite3.Connection) -> None:
         1 for event_id, status in event_statuses.items()
         if status == "retracted" and event_id not in retraction_rows
     )
+    revision_fields = {
+        "schema_version": "schema_version", "title": "title", "event_type": "event_type",
+        "event_time_start": "event_time_start", "event_time_end": "event_time_end",
+        "time_precision": "time_precision", "primary_entities": "primary_entities_json",
+        "object_entities": "object_entities_json", "facts": "facts_json",
+        "topics": "topics_json", "knowledge_status": "knowledge_status",
+    }
+    invalid_event_revisions = 0
+    for row in db.execute("SELECT * FROM event_revisions"):
+        try:
+            changed_fields = json.loads(row["changed_fields_json"])
+            evidence_ids = json.loads(row["evidence_ids_json"])
+        except (TypeError, json.JSONDecodeError):
+            invalid_event_revisions += 1
+            continue
+        previous = db.execute(
+            "SELECT * FROM event_versions WHERE id=?", (row["previous_version_id"],)
+        ).fetchone()
+        revised = db.execute(
+            "SELECT * FROM event_versions WHERE id=?", (row["revised_version_id"],)
+        ).fetchone()
+        change = change_rows.get(row["publication_seq"])
+        actual_changes = []
+        if previous and revised:
+            for public_name, column in revision_fields.items():
+                before_value = previous[column]
+                after_value = revised[column]
+                if column.endswith("_json"):
+                    try:
+                        before_value = json.loads(before_value)
+                        after_value = json.loads(after_value)
+                    except (TypeError, json.JSONDecodeError):
+                        invalid_event_revisions += 1
+                if before_value != after_value:
+                    actual_changes.append(public_name)
+        linked_evidence = {
+            item["evidence_id"] for item in db.execute(
+                "SELECT evidence_id FROM event_evidence WHERE event_version_id=?",
+                (row["revised_version_id"],),
+            )
+        }
+        if (
+            not previous or not revised
+            or previous["event_id"] != row["event_id"]
+            or revised["event_id"] != row["event_id"]
+            or revised["previous_version_id"] != previous["id"]
+            or revised["version"] != previous["version"] + 1
+            or changed_fields != sorted(actual_changes)
+            or not actual_changes
+            or not isinstance(evidence_ids, list) or not evidence_ids
+            or set(evidence_ids) != linked_evidence
+            or change is None
+            or change["resource_type"] != "event"
+            or change["resource_id"] != row["event_id"]
+            or change["version_id"] != row["revised_version_id"]
+            or change["operation"] != "update"
+        ):
+            invalid_event_revisions += 1
     if (
         invalid_events
         or invalid_event_links
@@ -2700,6 +2797,7 @@ def _assert_current_schema(db: sqlite3.Connection) -> None:
         or invalid_event_splits
         or invalid_event_retractions
         or invalid_terminal_overlap
+        or invalid_event_revisions
     ):
         raise DatabaseVerificationError(
             "event projections are invalid: "
@@ -2710,6 +2808,7 @@ def _assert_current_schema(db: sqlite3.Connection) -> None:
             f"relations={invalid_event_relations}, merges={invalid_event_merges}, "
             f"splits={invalid_event_splits}, retractions={invalid_event_retractions}, "
             f"terminal_overlap={invalid_terminal_overlap}"
+            f", revisions={invalid_event_revisions}"
         )
     invalid_jobs = db.execute(
         """SELECT COUNT(*) FROM jobs AS job

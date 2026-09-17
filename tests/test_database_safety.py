@@ -33,7 +33,7 @@ class DatabaseSafetyTests(unittest.TestCase):
         first = db_admin.migrate_database(self.path)
         second = db_admin.migrate_database(self.path)
         self.assertEqual(first.previous_state, "empty")
-        self.assertEqual(first.applied_versions, (1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12))
+        self.assertEqual(first.applied_versions, (1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13))
         self.assertIsNone(first.backup_path)
         self.assertEqual(second.applied_versions, ())
         self.assertEqual(second.verification.state, "current")
@@ -164,10 +164,10 @@ class DatabaseSafetyTests(unittest.TestCase):
         report = db_admin.migrate_database(self.path)
         self.assertEqual(report.previous_state, "versioned")
         self.assertEqual(report.previous_version, 1)
-        self.assertEqual(report.applied_versions, (2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12))
+        self.assertEqual(report.applied_versions, (2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13))
         self.assertTrue(report.backup_path)
         self.assertEqual(db_admin.verify_database(report.backup_path).schema_version, 1)
-        self.assertEqual(report.verification.schema_version, 12)
+        self.assertEqual(report.verification.schema_version, 13)
 
     def test_version_two_jobs_survive_publication_ledger_upgrade(self):
         with database.get_db(self.path) as db:
@@ -193,7 +193,7 @@ class DatabaseSafetyTests(unittest.TestCase):
 
         report = db_admin.migrate_database(self.path)
         self.assertEqual(report.previous_version, 2)
-        self.assertEqual(report.applied_versions, (3, 4, 5, 6, 7, 8, 9, 10, 11, 12))
+        self.assertEqual(report.applied_versions, (3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13))
         with sqlite3.connect(self.path) as db:
             job = db.execute(
                 """SELECT id,idempotency_key,logical_idempotency_key,
@@ -244,7 +244,7 @@ class DatabaseSafetyTests(unittest.TestCase):
             )
         report = db_admin.migrate_database(self.path)
         self.assertEqual(report.previous_version, 3)
-        self.assertEqual(report.applied_versions, (4, 5, 6, 7, 8, 9, 10, 11, 12))
+        self.assertEqual(report.applied_versions, (4, 5, 6, 7, 8, 9, 10, 11, 12, 13))
         self.assertTrue(report.backup_path)
         with sqlite3.connect(self.path) as db:
             self.assertEqual(
@@ -298,7 +298,7 @@ class DatabaseSafetyTests(unittest.TestCase):
             )
         report = db_admin.migrate_database(self.path)
         self.assertEqual(report.previous_version, 4)
-        self.assertEqual(report.applied_versions, (5, 6, 7, 8, 9, 10, 11, 12))
+        self.assertEqual(report.applied_versions, (5, 6, 7, 8, 9, 10, 11, 12, 13))
         self.assertTrue(report.backup_path)
         with sqlite3.connect(self.path) as db:
             raw = db.execute(
@@ -327,7 +327,7 @@ class DatabaseSafetyTests(unittest.TestCase):
             )
         report = db_admin.migrate_database(self.path)
         self.assertEqual(report.previous_version, 5)
-        self.assertEqual(report.applied_versions, (6, 7, 8, 9, 10, 11, 12))
+        self.assertEqual(report.applied_versions, (6, 7, 8, 9, 10, 11, 12, 13))
         self.assertTrue(report.backup_path)
         with sqlite3.connect(self.path) as db:
             self.assertEqual(
@@ -383,7 +383,7 @@ class DatabaseSafetyTests(unittest.TestCase):
 
         report = db_admin.migrate_database(self.path)
         self.assertEqual(report.previous_version, 6)
-        self.assertEqual(report.applied_versions, (7, 8, 9, 10, 11, 12))
+        self.assertEqual(report.applied_versions, (7, 8, 9, 10, 11, 12, 13))
         self.assertTrue(report.backup_path)
         with sqlite3.connect(self.path) as db:
             version = db.execute(
@@ -415,7 +415,7 @@ class DatabaseSafetyTests(unittest.TestCase):
 
         report = db_admin.migrate_database(self.path)
         self.assertEqual(report.previous_version, 7)
-        self.assertEqual(report.applied_versions, (8, 9, 10, 11, 12))
+        self.assertEqual(report.applied_versions, (8, 9, 10, 11, 12, 13))
         self.assertTrue(report.backup_path)
         with sqlite3.connect(self.path) as db:
             after = tuple(db.execute("SELECT * FROM companies").fetchone())
@@ -442,7 +442,7 @@ class DatabaseSafetyTests(unittest.TestCase):
 
         report = db_admin.migrate_database(self.path)
         self.assertEqual(report.previous_version, 8)
-        self.assertEqual(report.applied_versions, (9, 10, 11, 12))
+        self.assertEqual(report.applied_versions, (9, 10, 11, 12, 13))
         self.assertTrue(report.backup_path)
         with sqlite3.connect(self.path) as db:
             after = tuple(db.execute("SELECT * FROM companies").fetchone())
@@ -480,7 +480,7 @@ class DatabaseSafetyTests(unittest.TestCase):
 
         report = db_admin.migrate_database(self.path)
         self.assertEqual(report.previous_version, 9)
-        self.assertEqual(report.applied_versions, (10, 11, 12))
+        self.assertEqual(report.applied_versions, (10, 11, 12, 13))
         self.assertTrue(report.backup_path)
         with sqlite3.connect(self.path) as db:
             after = tuple(db.execute("SELECT * FROM stories").fetchone())
@@ -524,7 +524,7 @@ class DatabaseSafetyTests(unittest.TestCase):
 
         report = db_admin.migrate_database(self.path)
         self.assertEqual(report.previous_version, 10)
-        self.assertEqual(report.applied_versions, (11, 12))
+        self.assertEqual(report.applied_versions, (11, 12, 13))
         self.assertTrue(report.backup_path)
         with sqlite3.connect(self.path) as db:
             after = tuple(db.execute("SELECT * FROM events").fetchone())
@@ -567,7 +567,7 @@ class DatabaseSafetyTests(unittest.TestCase):
 
         report = db_admin.migrate_database(self.path)
         self.assertEqual(report.previous_version, 11)
-        self.assertEqual(report.applied_versions, (12,))
+        self.assertEqual(report.applied_versions, (12,13))
         with sqlite3.connect(self.path) as db:
             after = tuple(db.execute("SELECT * FROM events").fetchone())
             counts = tuple(db.execute(
@@ -583,6 +583,43 @@ class DatabaseSafetyTests(unittest.TestCase):
         self.assertEqual(before, after)
         self.assertEqual(counts, (0, 0, 0, 0))
         self.assertIn("previous_status", merge_columns)
+
+    def test_version_twelve_adds_empty_event_revisions_without_rewriting_events(self):
+        with database.get_db(self.path) as db:
+            self.assertEqual(
+                db_admin.apply_migrations(db, db_admin.MIGRATIONS[:12]),
+                (1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12),
+            )
+            dataset_id = db.execute(
+                "SELECT dataset_id FROM dataset_state WHERE singleton=1"
+            ).fetchone()[0]
+            db.execute(
+                """INSERT INTO events(id,dataset_id,first_seen_at,latest_report_at,status)
+                   VALUES('event-a',?,?,?,'candidate')""",
+                (dataset_id, "2026-09-17T10:00:00Z", "2026-09-17T10:00:00Z"),
+            )
+            db.execute(
+                """INSERT INTO event_versions(
+                       id,event_id,version,schema_version,title,event_type,time_precision,
+                       primary_entities_json,object_entities_json,facts_json,topics_json,
+                       knowledge_status,version_sha256,available_at,created_by,method_version
+                   ) VALUES('event-version-a','event-a',1,'event-candidate-v1','A','other',
+                            'unknown','[]','[]','[]','[]','unknown',?,?,'test','test-v1')""",
+                ("a" * 64, "2026-09-17T10:00:00Z"),
+            )
+            db.execute(
+                "UPDATE events SET current_version_id='event-version-a' WHERE id='event-a'"
+            )
+            before = tuple(db.execute("SELECT * FROM events").fetchone())
+
+        report = db_admin.migrate_database(self.path)
+        self.assertEqual(report.previous_version, 12)
+        self.assertEqual(report.applied_versions, (13,))
+        with sqlite3.connect(self.path) as db:
+            after = tuple(db.execute("SELECT * FROM events").fetchone())
+            count = db.execute("SELECT COUNT(*) FROM event_revisions").fetchone()[0]
+        self.assertEqual(before, after)
+        self.assertEqual(count, 0)
 
     def test_current_schema_rejects_a_missing_dataset_identity(self):
         db_admin.migrate_database(self.path)
