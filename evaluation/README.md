@@ -15,3 +15,19 @@ python -c "from app.evaluation import validate_evaluation_dataset as v; print(v(
 ```
 
 标注定义见 [ANNOTATION_GUIDE_V1.md](ANNOTATION_GUIDE_V1.md)。分类基线报告必须同时输出 confusion、逐类 support、macro F1、coverage、abstain、missing 和 Wilson 95% 区间。
+
+## 真实候选抽样
+
+`app.evaluation_sampling` 以只读方式扫描现有数据库，按来源、语言、文档类型、季度和官方属性进行
+确定性分层抽样。输出只有本地对象引用、内容 hash 和抽样元数据，不包含标题、正文、摘要、URL
+或数据库路径。输出目录必须保存在私有运行目录中，不提交 Git：
+
+```bash
+python -m app.evaluation_sampling \
+  --database /absolute/private/path/app.db \
+  --output /absolute/private/path/evaluation-candidates-v1 \
+  --target 600
+```
+
+`report.json` 用于检查中英文、来源、SEC/美股、事件组和困难负例覆盖缺口。候选仍是
+`unlabeled`；语言、类型、公司和困难负例均为抽样启发式信息，不能作为模型质量真值。

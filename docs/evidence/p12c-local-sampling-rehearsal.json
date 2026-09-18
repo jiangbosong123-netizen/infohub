@@ -1,0 +1,204 @@
+{
+  "captured_at": "2026-09-18T15:47:21.846738Z",
+  "evidence_version": "p12c-local-sampling-rehearsal-v1",
+  "input": {
+    "access_mode": "SQLite mode=ro",
+    "database_schema_version": 0,
+    "database_snapshot_fingerprint": "414b00f7a089d6d4ad7c4c3a814485a7350c7744d50009f38eb9fdfdf44008d1"
+  },
+  "limitations": [
+    "candidate metadata is unlabeled and cannot be used to claim NLP quality",
+    "language, document kind, US-market links, and hard-negative status are sampling heuristics",
+    "canonical URL origin groups do not yet detect all syndication or translation relationships",
+    "company links in the legacy database are not gold entity labels"
+  ],
+  "privacy_verification": {
+    "candidate_lines": 600,
+    "contains_local_paths": false,
+    "contains_text": false,
+    "contains_titles": false,
+    "contains_urls": false,
+    "forbidden_token_hits": {
+      "\"raw_summary\"": 0,
+      "\"summary\"": 0,
+      "\"text\"": 0,
+      "\"title\"": 0,
+      "\"title_en\"": 0,
+      "\"title_zh\"": 0,
+      "\"url\"": 0,
+      "/Users/jumbo": 0
+    },
+    "restricted_content_remains_in_private_database": true
+  },
+  "scope": "Mac development legacy database; this is not a Windows production migration or quality evaluation",
+  "selection": {
+    "language_floor": 200,
+    "method": "deterministic language floors then round-robin over source/language/kind/time/official strata",
+    "pool": {
+      "content_extents": {
+        "excerpt": 18674,
+        "title_only": 9942
+      },
+      "document_kinds": {
+        "article": 27998,
+        "exchange_announcement": 32,
+        "news_brief": 10,
+        "sec_filing": 576
+      },
+      "documents": 28616,
+      "event_groups": 24434,
+      "hard_negative_pool": 14151,
+      "languages": {
+        "en": 12682,
+        "zh": 15934
+      },
+      "official": 611,
+      "origin_groups": 20331,
+      "sec_related": 576,
+      "source_refs": {
+        "cls-telegraph": 2603,
+        "cnbc-tech": 108,
+        "google-news": 191,
+        "googlenews-alibaba": 235,
+        "googlenews-amazon": 1172,
+        "googlenews-amd": 468,
+        "googlenews-anthropic": 657,
+        "googlenews-apple": 911,
+        "googlenews-arm": 146,
+        "googlenews-baidu": 90,
+        "googlenews-broadcom": 350,
+        "googlenews-google": 722,
+        "googlenews-lixiang": 70,
+        "googlenews-meituan": 21,
+        "googlenews-meta": 953,
+        "googlenews-microsoft": 796,
+        "googlenews-nvidia": 894,
+        "googlenews-openai": 875,
+        "googlenews-oracle": 558,
+        "googlenews-palantir": 467,
+        "googlenews-smic": 15,
+        "googlenews-tencent": 201,
+        "googlenews-tesla": 834,
+        "googlenews-tsmc": 264,
+        "googlenews-xiaomi": 339,
+        "googlenews-xpeng": 201,
+        "hkex": 28,
+        "hnrss": 431,
+        "huggingface": 62,
+        "ieee-robotics": 32,
+        "ifanr": 56,
+        "ithome": 1567,
+        "openai-news": 70,
+        "qbitai": 75,
+        "robot-report": 30,
+        "sec-edgar": 575,
+        "sina-7x24": 8278,
+        "techcrunch": 142,
+        "techmeme": 278,
+        "theverge": 105,
+        "wallstreetcn": 354,
+        "wallstreetcn-live": 2392
+      },
+      "source_tiers": {
+        "info": 2500,
+        "media": 25252,
+        "official": 673,
+        "reconcile": 191
+      },
+      "time_buckets": {
+        "2025-Q4": 3,
+        "2026-Q1": 31,
+        "2026-Q2": 182,
+        "2026-Q3": 28400
+      },
+      "us_market_linked": 10639
+    },
+    "selected": {
+      "content_extents": {
+        "excerpt": 404,
+        "title_only": 196
+      },
+      "document_kinds": {
+        "article": 496,
+        "exchange_announcement": 25,
+        "news_brief": 10,
+        "sec_filing": 69
+      },
+      "documents": 600,
+      "event_groups": 596,
+      "hard_negative_pool": 416,
+      "languages": {
+        "en": 352,
+        "zh": 248
+      },
+      "official": 97,
+      "origin_groups": 579,
+      "sec_related": 69,
+      "source_refs": {
+        "cls-telegraph": 21,
+        "cnbc-tech": 11,
+        "google-news": 9,
+        "googlenews-alibaba": 9,
+        "googlenews-amazon": 11,
+        "googlenews-amd": 11,
+        "googlenews-anthropic": 9,
+        "googlenews-apple": 10,
+        "googlenews-arm": 11,
+        "googlenews-baidu": 11,
+        "googlenews-broadcom": 9,
+        "googlenews-google": 9,
+        "googlenews-lixiang": 11,
+        "googlenews-meituan": 11,
+        "googlenews-meta": 13,
+        "googlenews-microsoft": 11,
+        "googlenews-nvidia": 11,
+        "googlenews-openai": 9,
+        "googlenews-oracle": 11,
+        "googlenews-palantir": 9,
+        "googlenews-smic": 9,
+        "googlenews-tencent": 13,
+        "googlenews-tesla": 10,
+        "googlenews-tsmc": 9,
+        "googlenews-xiaomi": 9,
+        "googlenews-xpeng": 11,
+        "hkex": 21,
+        "hnrss": 16,
+        "huggingface": 19,
+        "ieee-robotics": 9,
+        "ifanr": 21,
+        "ithome": 23,
+        "openai-news": 17,
+        "qbitai": 23,
+        "robot-report": 9,
+        "sec-edgar": 68,
+        "sina-7x24": 22,
+        "techcrunch": 12,
+        "techmeme": 9,
+        "theverge": 10,
+        "wallstreetcn": 22,
+        "wallstreetcn-live": 21
+      },
+      "source_tiers": {
+        "info": 142,
+        "media": 343,
+        "official": 106,
+        "reconcile": 9
+      },
+      "time_buckets": {
+        "2025-Q4": 3,
+        "2026-Q1": 23,
+        "2026-Q2": 31,
+        "2026-Q3": 543
+      },
+      "us_market_linked": 244
+    },
+    "target_documents": 600,
+    "target_gaps": {
+      "documents": 0,
+      "en_documents": 0,
+      "event_groups": 0,
+      "hard_negative_groups": 0,
+      "zh_documents": 0
+    }
+  }
+}
