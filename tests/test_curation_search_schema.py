@@ -19,14 +19,14 @@ class CurationSearchSchemaTests(unittest.TestCase):
         with sqlite3.connect(self.path) as db:
             db.row_factory = sqlite3.Row
             db.execute("PRAGMA foreign_keys=ON")
-            db_admin.apply_migrations(db, db_admin.MIGRATIONS[:-1])
+            db_admin.apply_migrations(db, db_admin.MIGRATIONS[:16])
             db.execute("INSERT INTO sources(id,key,name,channel,tier,type) VALUES(1,'test','Test','ai','media','rss')")
             db.execute("""INSERT INTO items(id,source_id,url,title,channel,published_at,fetched_at)
                           VALUES(1,1,'https://example.test/a','Original','ai',
                           '2026-09-10T09:00:00+00:00','2026-09-10T09:01:00+00:00')""")
         report = db_admin.migrate_database(self.path)
-        self.assertEqual(report.applied_versions, (17,))
-        self.assertEqual(db_admin.verify_database(self.path, require_current=True).schema_version, 17)
+        self.assertEqual(report.applied_versions, (17, 18))
+        self.assertEqual(db_admin.verify_database(self.path, require_current=True).schema_version, 18)
         with sqlite3.connect(self.path) as db:
             self.assertEqual(db.execute("SELECT COUNT(*) FROM curation_search_documents").fetchone()[0], 0)
             self.assertEqual(db.execute("SELECT status,last_item_id FROM curation_search_state").fetchone(), ("empty", 0))

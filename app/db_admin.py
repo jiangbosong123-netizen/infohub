@@ -1864,6 +1864,99 @@ def _curation_search_foundation(db: sqlite3.Connection) -> None:
         VALUES(1,0,'empty',0,0,?)""", (_utc_now(),))
 
 
+CURATION_STORY_METRICS_SCHEMA_SQL = """
+CREATE TABLE curation_story_metrics (
+    story_id TEXT PRIMARY KEY REFERENCES stories(id) ON DELETE CASCADE,
+    metric_schema_version TEXT NOT NULL CHECK(metric_schema_version='curation-story-metrics-v1'),
+    visible_item_count INTEGER NOT NULL CHECK(visible_item_count>=0),
+    publisher_count INTEGER NOT NULL CHECK(publisher_count>=0),
+    heat REAL NOT NULL CHECK(heat>=0),
+    representative_item_id INTEGER REFERENCES items(id) ON DELETE SET NULL,
+    title_display TEXT NOT NULL,
+    url_display TEXT NOT NULL,
+    company_slugs TEXT NOT NULL DEFAULT '[]',
+    last_visible_at TEXT,
+    computed_at TEXT NOT NULL
+);
+CREATE TABLE curation_story_metrics_state (
+    singleton INTEGER PRIMARY KEY CHECK(singleton=1),
+    generation INTEGER NOT NULL CHECK(generation>=0),
+    status TEXT NOT NULL CHECK(status IN ('empty','building','ready')),
+    last_story_id TEXT NOT NULL DEFAULT '',
+    indexed_count INTEGER NOT NULL CHECK(indexed_count>=0),
+    updated_at TEXT NOT NULL
+);
+CREATE TABLE curation_story_metrics_dirty (
+    story_id TEXT PRIMARY KEY REFERENCES stories(id) ON DELETE CASCADE,
+    reason TEXT NOT NULL,
+    queued_at TEXT NOT NULL
+);
+CREATE TRIGGER curation_story_insert AFTER INSERT ON stories BEGIN
+    INSERT INTO curation_story_metrics_dirty(story_id,reason,queued_at)
+    VALUES(new.id,'story_insert',strftime('%Y-%m-%dT%H:%M:%fZ','now')) ON CONFLICT(story_id) DO UPDATE SET reason=excluded.reason,queued_at=excluded.queued_at;
+END;
+CREATE TRIGGER curation_story_update
+AFTER UPDATE OF anchor_item_id,title,url,channel,first_at,last_at,redirect_to ON stories BEGIN
+    INSERT INTO curation_story_metrics_dirty(story_id,reason,queued_at)
+    VALUES(new.id,'story_update',strftime('%Y-%m-%dT%H:%M:%fZ','now')) ON CONFLICT(story_id) DO UPDATE SET reason=excluded.reason,queued_at=excluded.queued_at;
+END;
+CREATE TRIGGER curation_story_member_insert AFTER INSERT ON story_items BEGIN
+    INSERT INTO curation_story_metrics_dirty(story_id,reason,queued_at)
+    VALUES(new.story_id,'member_insert',strftime('%Y-%m-%dT%H:%M:%fZ','now')) ON CONFLICT(story_id) DO UPDATE SET reason=excluded.reason,queued_at=excluded.queued_at;
+END;
+CREATE TRIGGER curation_story_member_delete AFTER DELETE ON story_items BEGIN
+    INSERT INTO curation_story_metrics_dirty(story_id,reason,queued_at)
+    SELECT old.story_id,'member_delete',strftime('%Y-%m-%dT%H:%M:%fZ','now')
+    WHERE EXISTS(SELECT 1 FROM stories WHERE id=old.story_id) ON CONFLICT(story_id) DO UPDATE SET reason=excluded.reason,queued_at=excluded.queued_at;
+END;
+CREATE TRIGGER curation_story_member_move AFTER UPDATE OF story_id ON story_items BEGIN
+    INSERT INTO curation_story_metrics_dirty(story_id,reason,queued_at)
+    VALUES(old.story_id,'member_move',strftime('%Y-%m-%dT%H:%M:%fZ','now')) ON CONFLICT(story_id) DO UPDATE SET reason=excluded.reason,queued_at=excluded.queued_at;
+    INSERT INTO curation_story_metrics_dirty(story_id,reason,queued_at)
+    VALUES(new.story_id,'member_move',strftime('%Y-%m-%dT%H:%M:%fZ','now')) ON CONFLICT(story_id) DO UPDATE SET reason=excluded.reason,queued_at=excluded.queued_at;
+END;
+CREATE TRIGGER curation_story_item_update
+AFTER UPDATE OF title,title_zh,score,tmt,official,published_at,url,extra,companies,event_type ON items BEGIN
+    INSERT INTO curation_story_metrics_dirty(story_id,reason,queued_at)
+    SELECT si.story_id,'item_update',strftime('%Y-%m-%dT%H:%M:%fZ','now')
+    FROM story_items si WHERE si.item_id=new.id ON CONFLICT(story_id) DO UPDATE SET reason=excluded.reason,queued_at=excluded.queued_at;
+END;
+CREATE TRIGGER curation_story_document_insert AFTER INSERT ON documents BEGIN
+    INSERT INTO curation_story_metrics_dirty(story_id,reason,queued_at)
+    SELECT si.story_id,'document_insert',strftime('%Y-%m-%dT%H:%M:%fZ','now')
+    FROM story_items si WHERE si.item_id=new.legacy_item_id ON CONFLICT(story_id) DO UPDATE SET reason=excluded.reason,queued_at=excluded.queued_at;
+END;
+CREATE TRIGGER curation_story_document_update
+AFTER UPDATE OF current_version_id,status ON documents BEGIN
+    INSERT INTO curation_story_metrics_dirty(story_id,reason,queued_at)
+    SELECT si.story_id,'document_update',strftime('%Y-%m-%dT%H:%M:%fZ','now')
+    FROM story_items si WHERE si.item_id=new.legacy_item_id ON CONFLICT(story_id) DO UPDATE SET reason=excluded.reason,queued_at=excluded.queued_at;
+END;
+CREATE TRIGGER curation_story_publication_insert AFTER INSERT ON analysis_publications
+WHEN new.subject_type='document' AND new.task_type IN ('translation','relevance','importance') BEGIN
+    INSERT INTO curation_story_metrics_dirty(story_id,reason,queued_at)
+    SELECT si.story_id,'publication_insert',strftime('%Y-%m-%dT%H:%M:%fZ','now')
+    FROM documents d JOIN story_items si ON si.item_id=d.legacy_item_id
+    WHERE d.current_version_id=new.subject_version_id ON CONFLICT(story_id) DO UPDATE SET reason=excluded.reason,queued_at=excluded.queued_at;
+END;
+CREATE TRIGGER curation_story_publication_update
+AFTER UPDATE OF current_publication_id ON analysis_publications
+WHEN new.subject_type='document' AND new.task_type IN ('translation','relevance','importance') BEGIN
+    INSERT INTO curation_story_metrics_dirty(story_id,reason,queued_at)
+    SELECT si.story_id,'publication_update',strftime('%Y-%m-%dT%H:%M:%fZ','now')
+    FROM documents d JOIN story_items si ON si.item_id=d.legacy_item_id
+    WHERE d.current_version_id=new.subject_version_id ON CONFLICT(story_id) DO UPDATE SET reason=excluded.reason,queued_at=excluded.queued_at;
+END;
+"""
+
+
+def _curation_story_metrics_foundation(db: sqlite3.Connection) -> None:
+    _execute_script(db, CURATION_STORY_METRICS_SCHEMA_SQL)
+    db.execute("""INSERT INTO curation_story_metrics_state(
+        singleton,generation,status,last_story_id,indexed_count,updated_at)
+        VALUES(1,0,'empty','',0,?)""", (_utc_now(),))
+
+
 # Migration 1 freezes the exact legacy schema at main@88a2a1e. Future schema
 # changes must append a new Migration instead of editing this definition.
 MIGRATIONS = (
@@ -1972,6 +2065,12 @@ MIGRATIONS = (
         CURATION_SEARCH_SCHEMA_SQL + "\ninitialize:empty-index-v1",
         _curation_search_foundation,
     ),
+    Migration(
+        18,
+        "versioned curation story metrics foundation",
+        CURATION_STORY_METRICS_SCHEMA_SQL + "\ninitialize:empty-story-metrics-v1",
+        _curation_story_metrics_foundation,
+    ),
 )
 CURRENT_SCHEMA_VERSION = MIGRATIONS[-1].version
 REQUIRED_MIGRATION_COLUMNS = {
@@ -2004,6 +2103,7 @@ EXPECTED_TABLES = LEGACY_ANCHORS | {
     "analysis_results", "analysis_publication_versions", "analysis_publications",
     "curation_search_documents", "curation_search_fts", "curation_search_state",
     "curation_search_dirty",
+    "curation_story_metrics", "curation_story_metrics_state", "curation_story_metrics_dirty",
 }
 EXPECTED_ITEM_COLUMNS = {
     "id", "source_id", "url", "title", "title_zh", "summary", "raw_summary",
@@ -2298,11 +2398,27 @@ EXPECTED_CURATION_SEARCH_COLUMNS = {
     "curation_search_dirty": {"item_id", "reason", "queued_at"},
     "curation_search_fts": {"title_original", "title_display", "summary_display"},
 }
+EXPECTED_CURATION_STORY_METRICS_COLUMNS = {
+    "curation_story_metrics": {
+        "story_id", "metric_schema_version", "visible_item_count", "publisher_count",
+        "heat", "representative_item_id", "title_display", "url_display",
+        "company_slugs", "last_visible_at", "computed_at",
+    },
+    "curation_story_metrics_state": {
+        "singleton", "generation", "status", "last_story_id", "indexed_count", "updated_at",
+    },
+    "curation_story_metrics_dirty": {"story_id", "reason", "queued_at"},
+}
 EXPECTED_INGEST_TRIGGERS = {
     "curation_search_ai", "curation_search_ad", "curation_search_au",
     "curation_search_item_ai", "curation_search_item_au",
     "curation_search_document_ai", "curation_search_document_au",
     "curation_search_publication_ai", "curation_search_publication_au",
+    "curation_story_insert", "curation_story_update",
+    "curation_story_member_insert", "curation_story_member_delete",
+    "curation_story_member_move", "curation_story_item_update",
+    "curation_story_document_insert", "curation_story_document_update",
+    "curation_story_publication_insert", "curation_story_publication_update",
     "source_config_versions_no_update", "source_config_versions_no_delete",
     "raw_records_no_update", "raw_records_no_delete",
     "raw_observations_no_update", "raw_observations_no_delete",
@@ -2643,7 +2759,9 @@ def _assert_current_schema(db: sqlite3.Connection) -> None:
         table: sorted(required - {
             row["name"] for row in db.execute(f"PRAGMA table_info({table})")
         })
-        for table, required in EXPECTED_CURATION_SEARCH_COLUMNS.items()
+        for table, required in (
+            EXPECTED_CURATION_SEARCH_COLUMNS | EXPECTED_CURATION_STORY_METRICS_COLUMNS
+        ).items()
     }
     missing_search_columns = {
         table: columns for table, columns in missing_search_columns.items() if columns
@@ -2748,6 +2866,11 @@ def _assert_current_schema(db: sqlite3.Connection) -> None:
     ).fetchall()
     if len(search_state) != 1 or search_state[0]["singleton"] != 1:
         raise DatabaseVerificationError("curation search index must have one state row")
+    story_metrics_state = db.execute(
+        "SELECT singleton,status FROM curation_story_metrics_state"
+    ).fetchall()
+    if len(story_metrics_state) != 1 or story_metrics_state[0]["singleton"] != 1:
+        raise DatabaseVerificationError("curation story metrics must have one state row")
     invalid_documents = db.execute(
         """SELECT COUNT(*) FROM documents AS document
            LEFT JOIN document_versions AS version

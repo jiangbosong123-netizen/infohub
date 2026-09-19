@@ -87,3 +87,8 @@ P13i 让 durable worker 在搜索开关启用时每分钟执行一次有界刷�
 每批最多 500 条），初次建索引和增量 dirty 队列都可跨任务续跑。关闭开关会在
 worker 下次启动时禁用该 schedule；已排队任务执行时会直接跳过。web 进程
 始终不负责索引写入，不增加模型调用。
+
+P13j 为热点榜增加独立的可重建统计投影 schema 18。迁移只建空表和变更队列，
+不重算历史故事，也不改变现有榜单；后续分批构建、读切换另行验收。旧故事仍是门户
+兼容层，不会因此冒充正式 stable event。详见
+[`CURATION_HOT_METRICS.md`](CURATION_HOT_METRICS.md)。

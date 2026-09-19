@@ -1,0 +1,21 @@
+{
+  "captured_at": "2026-09-19T21:09:16Z",
+  "evidence_version": "p13j-hot-metrics-schema-rehearsal-v1",
+  "scope": "Mac database read-only SQLite backup migrated in an isolated temporary directory",
+  "source_items_before": 31657,
+  "source_stories_before": 27108,
+  "source_memberships_before": 21330,
+  "items_after": 31657,
+  "stories_after": 27108,
+  "memberships_after": 21330,
+  "migrated_schema_version": 18,
+  "metrics_rows_after_migration": 0,
+  "metrics_state_after_migration": "empty",
+  "migration_backup_created": true,
+  "provider_calls": 0,
+  "limitations": [
+    "Windows production was not migrated or modified",
+    "Metric builder, web cutover and query latency are separate follow-up changes",
+    "The legacy story model is a portal bridge, not the future stable event API"
+  ]
+}
