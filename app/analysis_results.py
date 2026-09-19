@@ -11,6 +11,7 @@ from .analysis_runs import AnalysisRunError
 from .database import get_db
 from .event_relations import _existing_change, _retry_persist_should_not_run, _stable_id
 from .publication import ChangeRequest, PublishedChange, PublicationResult, publish_job_result
+from .curation_contracts import validate_curation_data
 
 CONFIDENCE_KEYS={"confidence","raw_confidence","calibrated_confidence","intensity"}
 RESULT_STATUSES={"valid","needs_review","insufficient_evidence","refused"}
@@ -57,6 +58,8 @@ def _validate_output(run,output:Mapping[str,object],allowed_evidence:set[str]):
  unknown=referenced-allowed_evidence
  if unknown: raise AnalysisRunError(f"analysis output references unknown evidence IDs: {sorted(unknown)[:5]}")
  if status in {"valid","needs_review"} and not referenced: raise AnalysisRunError("publishable analysis output requires evidence")
+ if "data" not in clean: raise AnalysisRunError("analysis output must declare data")
+ clean["data"]=validate_curation_data(task_type=run["task_type"],schema_version=run["output_schema_version"],status=status,data=clean["data"],allowed_evidence=allowed_evidence)
  return clean,sorted(referenced),status
 
 
