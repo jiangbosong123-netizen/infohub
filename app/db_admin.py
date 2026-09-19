@@ -1783,6 +1783,87 @@ def _analysis_result_foundation(db: sqlite3.Connection) -> None:
     _execute_script(db, ANALYSIS_RESULT_SCHEMA_SQL)
 
 
+CURATION_SEARCH_SCHEMA_SQL = """
+CREATE TABLE curation_search_documents (
+    item_id INTEGER PRIMARY KEY REFERENCES items(id) ON DELETE CASCADE,
+    document_version_id TEXT,
+    translation_publication_id TEXT,
+    summary_publication_id TEXT,
+    index_schema_version TEXT NOT NULL CHECK(index_schema_version='curation-search-v1'),
+    title_original TEXT NOT NULL,
+    title_display TEXT NOT NULL,
+    summary_display TEXT NOT NULL,
+    indexed_at TEXT NOT NULL
+);
+CREATE VIRTUAL TABLE curation_search_fts USING fts5(
+    title_original, title_display, summary_display,
+    content='curation_search_documents', content_rowid='item_id', tokenize='trigram'
+);
+CREATE TRIGGER curation_search_ai AFTER INSERT ON curation_search_documents BEGIN
+    INSERT INTO curation_search_fts(rowid,title_original,title_display,summary_display)
+    VALUES(new.item_id,new.title_original,new.title_display,new.summary_display);
+END;
+CREATE TRIGGER curation_search_ad AFTER DELETE ON curation_search_documents BEGIN
+    INSERT INTO curation_search_fts(curation_search_fts,rowid,title_original,title_display,summary_display)
+    VALUES('delete',old.item_id,old.title_original,old.title_display,old.summary_display);
+END;
+CREATE TRIGGER curation_search_au AFTER UPDATE ON curation_search_documents BEGIN
+    INSERT INTO curation_search_fts(curation_search_fts,rowid,title_original,title_display,summary_display)
+    VALUES('delete',old.item_id,old.title_original,old.title_display,old.summary_display);
+    INSERT INTO curation_search_fts(rowid,title_original,title_display,summary_display)
+    VALUES(new.item_id,new.title_original,new.title_display,new.summary_display);
+END;
+CREATE TABLE curation_search_state (
+    singleton INTEGER PRIMARY KEY CHECK(singleton=1),
+    generation INTEGER NOT NULL CHECK(generation>=0),
+    status TEXT NOT NULL CHECK(status IN ('empty','building','ready')),
+    last_item_id INTEGER NOT NULL CHECK(last_item_id>=0),
+    indexed_count INTEGER NOT NULL CHECK(indexed_count>=0),
+    updated_at TEXT NOT NULL
+);
+CREATE TABLE curation_search_dirty (
+    item_id INTEGER PRIMARY KEY REFERENCES items(id) ON DELETE CASCADE,
+    reason TEXT NOT NULL,
+    queued_at TEXT NOT NULL
+);
+CREATE TRIGGER curation_search_item_ai AFTER INSERT ON items BEGIN
+    INSERT OR REPLACE INTO curation_search_dirty(item_id,reason,queued_at)
+    VALUES(new.id,'item_insert',strftime('%Y-%m-%dT%H:%M:%fZ','now'));
+END;
+CREATE TRIGGER curation_search_item_au AFTER UPDATE OF title,title_zh,summary,raw_summary,tmt ON items BEGIN
+    INSERT OR REPLACE INTO curation_search_dirty(item_id,reason,queued_at)
+    VALUES(new.id,'item_update',strftime('%Y-%m-%dT%H:%M:%fZ','now'));
+END;
+CREATE TRIGGER curation_search_document_ai AFTER INSERT ON documents BEGIN
+    INSERT OR REPLACE INTO curation_search_dirty(item_id,reason,queued_at)
+    VALUES(new.legacy_item_id,'document_insert',strftime('%Y-%m-%dT%H:%M:%fZ','now'));
+END;
+CREATE TRIGGER curation_search_document_au AFTER UPDATE OF current_version_id,status ON documents BEGIN
+    INSERT OR REPLACE INTO curation_search_dirty(item_id,reason,queued_at)
+    VALUES(new.legacy_item_id,'document_update',strftime('%Y-%m-%dT%H:%M:%fZ','now'));
+END;
+CREATE TRIGGER curation_search_publication_ai AFTER INSERT ON analysis_publications
+WHEN new.subject_type='document' AND new.task_type IN ('translation','summarization','relevance') BEGIN
+    INSERT OR REPLACE INTO curation_search_dirty(item_id,reason,queued_at)
+    SELECT d.legacy_item_id,'publication_insert',strftime('%Y-%m-%dT%H:%M:%fZ','now')
+    FROM documents d WHERE d.current_version_id=new.subject_version_id;
+END;
+CREATE TRIGGER curation_search_publication_au AFTER UPDATE OF current_publication_id ON analysis_publications
+WHEN new.subject_type='document' AND new.task_type IN ('translation','summarization','relevance') BEGIN
+    INSERT OR REPLACE INTO curation_search_dirty(item_id,reason,queued_at)
+    SELECT d.legacy_item_id,'publication_update',strftime('%Y-%m-%dT%H:%M:%fZ','now')
+    FROM documents d WHERE d.current_version_id=new.subject_version_id;
+END;
+"""
+
+
+def _curation_search_foundation(db: sqlite3.Connection) -> None:
+    _execute_script(db, CURATION_SEARCH_SCHEMA_SQL)
+    db.execute("""INSERT INTO curation_search_state(
+        singleton,generation,status,last_item_id,indexed_count,updated_at)
+        VALUES(1,0,'empty',0,0,?)""", (_utc_now(),))
+
+
 # Migration 1 freezes the exact legacy schema at main@88a2a1e. Future schema
 # changes must append a new Migration instead of editing this definition.
 MIGRATIONS = (
@@ -1885,6 +1966,12 @@ MIGRATIONS = (
         ANALYSIS_RESULT_SCHEMA_SQL,
         _analysis_result_foundation,
     ),
+    Migration(
+        17,
+        "versioned curation search index foundation",
+        CURATION_SEARCH_SCHEMA_SQL + "\ninitialize:empty-index-v1",
+        _curation_search_foundation,
+    ),
 )
 CURRENT_SCHEMA_VERSION = MIGRATIONS[-1].version
 REQUIRED_MIGRATION_COLUMNS = {
@@ -1915,6 +2002,8 @@ EXPECTED_TABLES = LEGACY_ANCHORS | {
     "event_retractions", "event_revisions", "analysis_runs", "analysis_inputs",
     "analysis_budget_policies", "analysis_attempt_authorizations", "analysis_attempts",
     "analysis_results", "analysis_publication_versions", "analysis_publications",
+    "curation_search_documents", "curation_search_fts", "curation_search_state",
+    "curation_search_dirty",
 }
 EXPECTED_ITEM_COLUMNS = {
     "id", "source_id", "url", "title", "title_zh", "summary", "raw_summary",
@@ -2197,7 +2286,23 @@ EXPECTED_DOCUMENT_LOCATOR_COLUMNS = {
     "document_id", "source_id", "external_id", "canonical_url", "relation",
     "first_observed_at", "last_observed_at",
 }
+EXPECTED_CURATION_SEARCH_COLUMNS = {
+    "curation_search_documents": {
+        "item_id", "document_version_id", "translation_publication_id",
+        "summary_publication_id", "index_schema_version", "title_original",
+        "title_display", "summary_display", "indexed_at",
+    },
+    "curation_search_state": {
+        "singleton", "generation", "status", "last_item_id", "indexed_count", "updated_at",
+    },
+    "curation_search_dirty": {"item_id", "reason", "queued_at"},
+    "curation_search_fts": {"title_original", "title_display", "summary_display"},
+}
 EXPECTED_INGEST_TRIGGERS = {
+    "curation_search_ai", "curation_search_ad", "curation_search_au",
+    "curation_search_item_ai", "curation_search_item_au",
+    "curation_search_document_ai", "curation_search_document_au",
+    "curation_search_publication_ai", "curation_search_publication_au",
     "source_config_versions_no_update", "source_config_versions_no_delete",
     "raw_records_no_update", "raw_records_no_delete",
     "raw_observations_no_update", "raw_observations_no_delete",
@@ -2534,6 +2639,15 @@ def _assert_current_schema(db: sqlite3.Connection) -> None:
         for table, columns in missing_identity_auxiliary_columns.items()
         if columns
     }
+    missing_search_columns = {
+        table: sorted(required - {
+            row["name"] for row in db.execute(f"PRAGMA table_info({table})")
+        })
+        for table, required in EXPECTED_CURATION_SEARCH_COLUMNS.items()
+    }
+    missing_search_columns = {
+        table: columns for table, columns in missing_search_columns.items() if columns
+    }
     ingest_triggers = {
         row["name"] for row in db.execute(
             "SELECT name FROM sqlite_master WHERE type='trigger'"
@@ -2573,6 +2687,7 @@ def _assert_current_schema(db: sqlite3.Connection) -> None:
         or missing_publisher_columns
         or missing_publisher_version_columns
         or missing_identity_auxiliary_columns
+        or missing_search_columns
         or missing_ingest_triggers
         or "title_zh" not in fts_columns
     ):
@@ -2609,6 +2724,7 @@ def _assert_current_schema(db: sqlite3.Connection) -> None:
             f"publisher_columns={sorted(missing_publisher_columns)}, "
             f"publisher_version_columns={sorted(missing_publisher_version_columns)}, "
             f"identity_auxiliary_columns={missing_identity_auxiliary_columns}, "
+            f"search_columns={missing_search_columns}, "
             f"ingest_triggers={sorted(missing_ingest_triggers)}, "
             f"fts_title_zh={'title_zh' in fts_columns}"
         )
@@ -2627,6 +2743,11 @@ def _assert_current_schema(db: sqlite3.Connection) -> None:
         raise DatabaseVerificationError(
             "dataset state and current epoch have different environment owners"
         )
+    search_state = db.execute(
+        "SELECT singleton,status FROM curation_search_state"
+    ).fetchall()
+    if len(search_state) != 1 or search_state[0]["singleton"] != 1:
+        raise DatabaseVerificationError("curation search index must have one state row")
     invalid_documents = db.execute(
         """SELECT COUNT(*) FROM documents AS document
            LEFT JOIN document_versions AS version

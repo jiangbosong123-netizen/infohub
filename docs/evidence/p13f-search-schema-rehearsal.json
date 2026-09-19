@@ -1,0 +1,17 @@
+{
+  "captured_at": "2026-09-19T15:12:06Z",
+  "evidence_version": "p13f-search-schema-rehearsal-v1",
+  "scope": "Mac existing database read-only SQLite backup migrated in an isolated temporary directory",
+  "source_items_before": 31274,
+  "items_after": 31274,
+  "migrated_schema_version": 17,
+  "search_index_rows_after_migration": 0,
+  "search_index_state_after_migration": "empty",
+  "migration_backup_created": true,
+  "provider_calls": 0,
+  "limitations": [
+    "Windows production was not migrated or modified",
+    "index rebuild and search cutover are separate follow-up changes",
+    "full-scale index build time and query latency have not been measured"
+  ]
+}

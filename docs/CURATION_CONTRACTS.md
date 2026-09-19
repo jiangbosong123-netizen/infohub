@@ -63,3 +63,12 @@ P13e 将“稍后读”、事件详情（报道、来源、主题标签和可见
 `items`，因此在新旧结果不一致时可能与新版策展文本不同。在这些查询迁移并通过
 回归前不要在生产环境开启此开关；尤其不能把本投影视为完整的新版发布通道。
 回滚只需关闭开关并重启 web 进程，无需回退数据库迁移。
+
+P13f 为搜索增加 schema 17：`curation_search_documents` 是可重建的派生表，
+记录条目、文档版本、译题和摘要 publication 指针及入索引的文本；FTS5 trigram
+索引由表触发器同步。`curation_search_dirty` 记录旧条目、文档版本和发布指针的
+变动，`curation_search_state` 标记整代索引尚未构建/构建中/可用。迁移只建空表，
+**不在 Web 启动或数据库升级中遍历历史记录**；索引构建与搜索切读将各自独立验收。
+因此 schema 17 完成后，搜索仍走旧路径，`INFOHUB_CURATION_READ_ENABLED` 仍不能
+用于生产。Mac 现有数据库只读备份的隔离升级演练见
+[`p13f-search-schema-rehearsal.json`](evidence/p13f-search-schema-rehearsal.json)。
