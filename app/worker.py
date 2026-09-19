@@ -30,7 +30,7 @@ from .timeutil import format_utc, utc_now
 
 
 log = logging.getLogger(__name__)
-JOB_KINDS = ("crawl", "ai", "reconcile", "report", "prune", "curation-search")
+JOB_KINDS = ("crawl", "ai", "reconcile", "report", "prune", "curation-search", "curation-hot")
 
 
 def _next_daily(hour: int, minute: int, now: datetime) -> datetime:
@@ -86,6 +86,18 @@ def register_default_schedules(now: datetime | None = None) -> None:
         with get_db() as db:
             db.execute("""UPDATE schedules SET enabled=0,updated_at=?
                           WHERE id='curation-search:refresh' AND enabled=1""", (utc_now(),))
+    if config.CURATION_HOT_ENABLED:
+        upsert_interval_schedule(
+            schedule_id="curation-hot:refresh", kind="curation-hot",
+            next_due_at=current, interval_seconds=60, priority=14,
+            max_attempts=3,
+        )
+    else:
+        # Previously queued work must also be guarded by the handler.
+        from .database import get_db
+        with get_db() as db:
+            db.execute("""UPDATE schedules SET enabled=0,updated_at=?
+                          WHERE id='curation-hot:refresh' AND enabled=1""", (utc_now(),))
 
 
 def _crawl() -> dict:
@@ -146,6 +158,20 @@ def _curation_search_refresh() -> dict:
     return {"batches": batches, **report.to_dict()}
 
 
+def _curation_hot_refresh() -> dict:
+    if not config.CURATION_HOT_ENABLED:
+        return {"status": "disabled", "batches": 0}
+    from .curation_hot_metrics import advance_hot_metrics
+    report = None
+    batches = 0
+    for _ in range(10):
+        report = advance_hot_metrics(100)
+        batches += 1
+        if report.status == "ready" and report.dirty_remaining == 0:
+            break
+    return {"batches": batches, **report.to_dict()}
+
+
 def default_handlers() -> dict[str, Callable[[], object]]:
     return {
         "crawl": _crawl,
@@ -154,6 +180,7 @@ def default_handlers() -> dict[str, Callable[[], object]]:
         "report": _report,
         "prune": _prune,
         "curation-search": _curation_search_refresh,
+        "curation-hot": _curation_hot_refresh,
     }
 
 

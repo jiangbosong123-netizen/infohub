@@ -103,3 +103,7 @@ P13l 增加独立的热点读开关；只有统计投影 ready、dirty 为空且
 筛选会检查可见成员，不假设旧事件频道一定与所有成员一致；未就绪时展示旧口径提示。
 本机副本查询演练见
 [`p13l-hot-metrics-read-rehearsal.json`](evidence/p13l-hot-metrics-read-rehearsal.json)。
+
+P13m 把热点投影刷新接入 durable worker；仅在热点读开关启用时注册每分钟任务，
+每次最多十批、每批至多 100 个事件。关闭开关时禁用日程，已入队任务跳过；
+初始回填可用 maintenance 命令提前完成。构建中或存在 dirty 时仍回退到旧榜并提示。

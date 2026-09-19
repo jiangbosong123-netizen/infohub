@@ -1,4 +1,4 @@
-# Versioned hotspot metrics foundation (P13j)
+# Versioned hotspot metrics foundation (P13j–P13m)
 
 The existing `stories` row is a legacy clustering result. Its `heat`,
 `source_count`, `item_count`, headline, and recency can disagree with current
@@ -36,6 +36,16 @@ Channel and topic filters check *visible member items*; they cannot rely on
 The filter uses a set-based query so a page does not execute one curation
 lookup per story. This remains a portal ranking, not calibrated sentiment or
 an API-grade macro impact score.
+
+P13m wires the existing durable worker to refresh the projection once per
+minute when `INFOHUB_CURATION_HOT_ENABLED=true`. One job processes at most ten
+100-story transactions. It resumes from the durable cursor on the next tick
+and drains the dirty queue after the initial scan. Disabling the flag disables
+the schedule; any already queued job returns `disabled` without writing metrics.
+The read still falls back with a visible old-metric notice if the projection is
+building or dirty. Initial backfill can also be run manually using the command
+above. The switch remains off by default, and no production data is changed by
+this PR.
 
 Dirty triggers cover legacy story/membership edits, item fields that affect
 visibility, ranking, provenance or display, document version changes, and

@@ -71,6 +71,40 @@ class WorkerRuntimeTests(unittest.TestCase):
         with database.get_db() as db:
             self.assertEqual(db.execute("SELECT enabled FROM schedules WHERE id='curation-search:refresh'").fetchone()[0], 0)
 
+    def test_hot_refresh_schedule_can_be_enabled_and_disabled(self):
+        with patch.object(config, "CURATION_HOT_ENABLED", True):
+            register_default_schedules(T0)
+        with database.get_db() as db:
+            row = db.execute("SELECT enabled,interval_seconds FROM schedules WHERE id='curation-hot:refresh'").fetchone()
+            self.assertEqual(tuple(row), (1, 60))
+        with patch.object(config, "CURATION_HOT_ENABLED", False):
+            register_default_schedules(T0 + timedelta(minutes=1))
+        with database.get_db() as db:
+            self.assertEqual(db.execute("SELECT enabled FROM schedules WHERE id='curation-hot:refresh'").fetchone()[0], 0)
+
+    def test_durable_hot_refresh_job_builds_and_skips_when_disabled(self):
+        with database.get_db() as db:
+            db.execute("INSERT INTO sources(id,key,name,channel,tier,type) VALUES(1,'test','Test','ai','media','rss')")
+            db.execute("""INSERT INTO items(id,source_id,url,title,channel,published_at,fetched_at)
+                          VALUES(1,1,'https://example.test/1','Headline','ai',?,?)""",
+                       (T0.isoformat(), T0.isoformat()))
+            db.execute("""INSERT INTO stories(id,title,channel,url,first_at,last_at)
+                          VALUES('story-one','Headline','ai','https://example.test/1',?,?)""",
+                       (T0.isoformat(), T0.isoformat()))
+            db.execute("INSERT INTO story_items(item_id,story_id) VALUES(1,'story-one')")
+        enqueue_job(kind="curation-hot", idempotency_key="hot-fixture", scheduled_for=T0)
+        with patch.object(config, "CURATION_HOT_ENABLED", True):
+            result = process_one_job(worker_id="hot-worker", now=T0)
+        self.assertEqual(result.state, "succeeded")
+        with database.get_db() as db:
+            state = db.execute("SELECT status,indexed_count FROM curation_story_metrics_state").fetchone()
+            self.assertEqual(tuple(state), ("ready", 1))
+        enqueue_job(kind="curation-hot", idempotency_key="hot-disabled", scheduled_for=T0)
+        with patch.object(config, "CURATION_HOT_ENABLED", False):
+            skipped = process_one_job(worker_id="hot-worker", now=T0)
+        self.assertEqual(skipped.state, "succeeded")
+        self.assertIn('"status": "disabled"', skipped.result_ref)
+
     def test_durable_search_refresh_job_builds_without_models(self):
         with database.get_db() as db:
             db.execute("INSERT INTO sources(id,key,name,channel,tier,type) VALUES(1,'test','Test','ai','media','rss')")
