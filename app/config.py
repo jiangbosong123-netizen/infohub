@@ -77,6 +77,7 @@ class RuntimeSettings:
     durable_jobs_enabled: bool
     curated_feed_enabled: bool
     curation_read_enabled: bool
+    curation_search_enabled: bool
     process_role: str
     legacy_data_layout: bool
 
@@ -195,6 +196,11 @@ def load_runtime_settings(
     durable_jobs_enabled = _boolean(values, "INFOHUB_DURABLE_JOBS_ENABLED", False)
     curated_feed_enabled = _boolean(values, "INFOHUB_CURATED_FEED_ENABLED", False)
     curation_read_enabled = _boolean(values, "INFOHUB_CURATION_READ_ENABLED", False)
+    curation_search_enabled = _boolean(values, "INFOHUB_CURATION_SEARCH_ENABLED", False)
+    if curation_search_enabled and not curation_read_enabled:
+        raise RuntimeConfigurationError(
+            "INFOHUB_CURATION_SEARCH_ENABLED=true requires INFOHUB_CURATION_READ_ENABLED=true"
+        )
     process_role = values.get("INFOHUB_PROCESS_ROLE", "web").strip().lower() or "web"
     if process_role not in _PROCESS_ROLES:
         raise RuntimeConfigurationError(
@@ -229,6 +235,7 @@ def load_runtime_settings(
         durable_jobs_enabled=durable_jobs_enabled,
         curated_feed_enabled=curated_feed_enabled,
         curation_read_enabled=curation_read_enabled,
+        curation_search_enabled=curation_search_enabled,
         process_role=process_role,
         legacy_data_layout=legacy_data_layout,
     )
@@ -246,6 +253,7 @@ SCHEDULER_ENABLED = RUNTIME.scheduler_enabled
 DURABLE_JOBS_ENABLED = RUNTIME.durable_jobs_enabled
 CURATED_FEED_ENABLED = RUNTIME.curated_feed_enabled
 CURATION_READ_ENABLED = RUNTIME.curation_read_enabled
+CURATION_SEARCH_ENABLED = RUNTIME.curation_search_enabled
 PROCESS_ROLE = RUNTIME.process_role
 
 WATCHLIST_PATH = BASE_DIR / "config" / "watchlist.yaml"

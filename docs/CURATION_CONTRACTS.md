@@ -72,3 +72,13 @@ P13f 为搜索增加 schema 17：`curation_search_documents` 是可重建的派�
 因此 schema 17 完成后，搜索仍走旧路径，`INFOHUB_CURATION_READ_ENABLED` 仍不能
 用于生产。Mac 现有数据库只读备份的隔离升级演练见
 [`p13f-search-schema-rehearsal.json`](evidence/p13f-search-schema-rehearsal.json)。
+
+P13g 提供仅 maintenance 可执行的分批搜索索引构建，进度、文本和 dirty 确认在
+同一事务提交。详见 [`CURATION_SEARCH_BUILD.md`](CURATION_SEARCH_BUILD.md)。
+
+P13h 为搜索页增加独立的 `INFOHUB_CURATION_SEARCH_ENABLED` 开关；必须同时开启
+`INFOHUB_CURATION_READ_ENABLED`。索引仅在状态 ready、dirty 队列为空且条目总数
+与记录的索引行数相同时读取。否则展示旧搜索结果并明确提示可能缺少新发布内容。
+搜索词最长 120 字符、页码最多 200、每页 30 条，支持译题和摘要的已发布文本；
+短于 3 字符或 FTS 无匹配时使用转义后的字面 LIKE。回滚只需关闭搜索开关。
+这一步仍不等于生产验收：自动刷新、生产演练与其他旧派生值切换尚未完成。

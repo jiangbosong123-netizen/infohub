@@ -18,6 +18,7 @@ from ..config import (
     BASE_DIR,
     CURATED_FEED_ENABLED,
     CURATION_READ_ENABLED,
+    CURATION_SEARCH_ENABLED,
     ENVIRONMENT,
     ENVIRONMENT_ID,
     DURABLE_JOBS_ENABLED,
@@ -28,6 +29,7 @@ from ..config import (
 from ..database import get_db
 from ..curation_projection import display_curation, published_curation
 from ..curation_query import portal_curation_sql
+from ..curation_search_query import search_curated, search_index_usable
 from ..provenance import publisher, display_title
 from ..runtime_health import read_worker_heartbeat
 from ..topics import GROUPS
@@ -435,32 +437,55 @@ def daily_detail(request: Request, date: str):
 
 
 @app.get("/search", response_class=HTMLResponse)
-def search(request: Request, q: str = ""):
+def search(request: Request, q: str = "", page: int = Query(1, ge=1, le=200)):
     q = q.strip()
+    if len(q) > 120:
+        raise HTTPException(400, "搜索词最多 120 个字符")
     items = []
+    page_size = 30
+    notice = ""
+    has_next = False
     if q:
         with get_db() as db:
+            db.execute("BEGIN")  # Pin readiness and result reads to one SQLite snapshot.
             rows: list = []
-            if len(q) >= 3:  # trigram 分词最少 3 字符
-                try:
+            limit, offset = page_size + 1, (page - 1) * page_size
+            use_curated = CURATION_SEARCH_ENABLED and search_index_usable(db)
+            if use_curated:
+                rows = search_curated(db, q, limit=limit, offset=offset)
+            else:
+                if CURATION_SEARCH_ENABLED:
+                    notice = "搜索索引正在更新，当前显示旧搜索结果；新发布内容可能暂未包含。"
+                if len(q) >= 3:  # trigram 分词最少 3 字符
+                    try:
+                        rows = db.execute(
+                            """SELECT i.*, s.name AS source_name FROM items_fts
+                               JOIN items i ON i.id = items_fts.rowid
+                               JOIN sources s ON s.id = i.source_id
+                               WHERE items_fts MATCH ? AND COALESCE(i.tmt, 1) != 0
+                               ORDER BY i.published_at DESC,i.id DESC LIMIT ? OFFSET ?""",
+                            (f'"{q.replace(chr(34), chr(34) * 2)}"', limit, offset)).fetchall()
+                        if not rows and offset and db.execute(
+                            """SELECT 1 FROM items_fts JOIN items i ON i.id=items_fts.rowid
+                               WHERE items_fts MATCH ? AND COALESCE(i.tmt,1)!=0 LIMIT 1""",
+                            (f'"{q.replace(chr(34), chr(34) * 2)}"',),
+                        ).fetchone():
+                            rows = ()  # This page is past the FTS result set.
+                    except sqlite3.OperationalError:
+                        rows = []
+                if rows == []:
+                    like = "%" + q.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_") + "%"
                     rows = db.execute(
-                        """SELECT i.*, s.name AS source_name FROM items_fts
-                           JOIN items i ON i.id = items_fts.rowid
-                           JOIN sources s ON s.id = i.source_id
-                           WHERE items_fts MATCH ? AND COALESCE(i.tmt, 1) != 0 ORDER BY i.published_at DESC LIMIT 100""",
-                        (f'"{q.replace(chr(34), chr(34) * 2)}"',)).fetchall()
-                except sqlite3.OperationalError:
-                    rows = []
-            if not rows:
-                like = "%" + q.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_") + "%"
-                rows = db.execute(
-                    """SELECT i.*, s.name AS source_name FROM items i
-                       JOIN sources s ON s.id=i.source_id
-                       WHERE COALESCE(i.tmt, 1) != 0 AND (i.title LIKE ? ESCAPE '\\'
-                       OR i.title_zh LIKE ? ESCAPE '\\' OR i.summary LIKE ? ESCAPE '\\')
-                       ORDER BY i.published_at DESC LIMIT 100""", (like, like, like)).fetchall()
-        items = _decorate(rows)
-    return templates.TemplateResponse(request, "search.html", dict(q=q, items=items))
+                        """SELECT i.*, s.name AS source_name FROM items i
+                           JOIN sources s ON s.id=i.source_id
+                           WHERE COALESCE(i.tmt, 1) != 0 AND (i.title LIKE ? ESCAPE '\\'
+                           OR i.title_zh LIKE ? ESCAPE '\\' OR i.summary LIKE ? ESCAPE '\\')
+                           ORDER BY i.published_at DESC,i.id DESC LIMIT ? OFFSET ?""",
+                        (like, like, like, limit, offset)).fetchall()
+        has_next = len(rows) > page_size
+        items = _decorate(rows[:page_size])
+    return templates.TemplateResponse(request, "search.html", dict(
+        q=q, items=items, page=page, has_next=has_next, notice=notice))
 
 
 @app.get("/saved", response_class=HTMLResponse)

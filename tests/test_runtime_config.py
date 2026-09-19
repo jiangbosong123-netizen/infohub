@@ -39,6 +39,15 @@ class RuntimeConfigurationTests(unittest.TestCase):
         self.assertTrue(settings.legacy_data_layout)
         self.assertFalse(settings.scheduler_enabled)
 
+    def test_curated_search_requires_curated_read_projection(self):
+        with self.assertRaisesRegex(config.RuntimeConfigurationError, "requires INFOHUB_CURATION_READ_ENABLED"):
+            config.load_runtime_settings({"INFOHUB_CURATION_SEARCH_ENABLED": "true"}, self.root)
+        settings = config.load_runtime_settings({
+            "INFOHUB_CURATION_READ_ENABLED": "true",
+            "INFOHUB_CURATION_SEARCH_ENABLED": "true",
+        }, self.root)
+        self.assertTrue(settings.curation_search_enabled)
+
     def test_production_requires_identity_paths_and_task_flags(self):
         cases = (
             {"INFOHUB_ENVIRONMENT": "production"},
@@ -91,6 +100,7 @@ class RuntimeConfigurationTests(unittest.TestCase):
             values["INFOHUB_ENVIRONMENT_ID"] = "windows-production"
             values["INFOHUB_CURATED_FEED_ENABLED"] = "true"
             values["INFOHUB_CURATION_READ_ENABLED"] = "false"
+            values["INFOHUB_CURATION_SEARCH_ENABLED"] = "false"
             settings = config.load_runtime_settings(values, self.root)
             self.assertEqual(settings.database_path, Path("/app/data/app.db"))
             self.assertEqual(settings.backup_path, Path("/app/data/backups"))
@@ -112,6 +122,8 @@ class RuntimeConfigurationTests(unittest.TestCase):
         worker_values["INFOHUB_CURATED_FEED_ENABLED"] = "true"
         web_values["INFOHUB_CURATION_READ_ENABLED"] = "false"
         worker_values["INFOHUB_CURATION_READ_ENABLED"] = "false"
+        web_values["INFOHUB_CURATION_SEARCH_ENABLED"] = "false"
+        worker_values["INFOHUB_CURATION_SEARCH_ENABLED"] = "false"
         self.assertFalse(config.load_runtime_settings(web_values, self.root).allow_network_tasks)
         self.assertTrue(config.load_runtime_settings(worker_values, self.root).allow_network_tasks)
         self.assertIn("/api/live", " ".join(compose["services"]["infohub"]["healthcheck"]["test"]))
