@@ -33,8 +33,8 @@ class CurationStoryMetricsSchemaTests(unittest.TestCase):
             self._seed(db)
             db.execute("INSERT INTO story_items(item_id,story_id) VALUES(1,'story-one')")
         report = db_admin.migrate_database(self.path)
-        self.assertEqual(report.applied_versions, (18,))
-        self.assertEqual(db_admin.verify_database(self.path, require_current=True).schema_version, 18)
+        self.assertEqual(report.applied_versions, (18, 19))
+        self.assertEqual(db_admin.verify_database(self.path, require_current=True).schema_version, 19)
         with sqlite3.connect(self.path) as db:
             self.assertEqual(db.execute("SELECT COUNT(*) FROM curation_story_metrics").fetchone()[0], 0)
             self.assertEqual(db.execute("SELECT COUNT(*) FROM curation_story_metrics_dirty").fetchone()[0], 0)

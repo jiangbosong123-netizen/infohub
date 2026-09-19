@@ -1957,6 +1957,118 @@ def _curation_story_metrics_foundation(db: sqlite3.Connection) -> None:
         VALUES(1,0,'empty','',0,?)""", (_utc_now(),))
 
 
+REPORT_VERSION_SCHEMA_SQL = """
+CREATE TABLE report_input_snapshots (
+    id TEXT PRIMARY KEY,
+    dataset_id TEXT NOT NULL,
+    report_key TEXT NOT NULL,
+    report_type TEXT NOT NULL CHECK(report_type IN ('calendar_daily','us_market_daily','other')),
+    report_date TEXT NOT NULL,
+    window_start TEXT NOT NULL,
+    window_end TEXT NOT NULL,
+    window_basis TEXT NOT NULL CHECK(window_basis IN ('calendar_day','market_session','custom')),
+    timezone TEXT NOT NULL,
+    calendar_id TEXT,
+    calendar_version TEXT,
+    as_of TEXT NOT NULL,
+    knowledge_checkpoint_id TEXT REFERENCES knowledge_checkpoints(id),
+    manifest_json TEXT NOT NULL CHECK(json_valid(manifest_json)),
+    manifest_sha256 TEXT NOT NULL CHECK(length(manifest_sha256)=64),
+    input_count INTEGER NOT NULL CHECK(input_count>=0),
+    created_at TEXT NOT NULL,
+    CHECK(window_start<window_end),
+    CHECK((calendar_id IS NULL)=(calendar_version IS NULL)),
+    CHECK(window_basis!='market_session' OR calendar_id IS NOT NULL),
+    UNIQUE(dataset_id,report_key,manifest_sha256)
+);
+CREATE INDEX idx_report_inputs_key ON report_input_snapshots(dataset_id,report_key,created_at);
+
+CREATE TABLE report_input_members (
+    snapshot_id TEXT NOT NULL REFERENCES report_input_snapshots(id),
+    ordinal INTEGER NOT NULL CHECK(ordinal>=0),
+    legacy_item_id INTEGER REFERENCES items(id),
+    document_version_id TEXT REFERENCES document_versions(id),
+    material_sha256 TEXT NOT NULL CHECK(length(material_sha256)=64),
+    PRIMARY KEY(snapshot_id,ordinal),
+    CHECK(legacy_item_id IS NOT NULL OR document_version_id IS NOT NULL)
+);
+CREATE INDEX idx_report_input_members_document ON report_input_members(document_version_id);
+
+CREATE TABLE report_versions (
+    id TEXT PRIMARY KEY,
+    dataset_id TEXT NOT NULL,
+    report_key TEXT NOT NULL,
+    version INTEGER NOT NULL CHECK(version>=1),
+    input_snapshot_id TEXT NOT NULL REFERENCES report_input_snapshots(id),
+    mode TEXT NOT NULL CHECK(mode IN ('llm','structured_fallback','legacy_unknown')),
+    content TEXT NOT NULL,
+    content_sha256 TEXT NOT NULL CHECK(length(content_sha256)=64),
+    citations_json TEXT NOT NULL CHECK(json_valid(citations_json)),
+    coverage_json TEXT NOT NULL CHECK(json_valid(coverage_json)),
+    provider TEXT,
+    model TEXT,
+    prompt_template_id TEXT,
+    prompt_sha256 TEXT CHECK(prompt_sha256 IS NULL OR length(prompt_sha256)=64),
+    generated_at TEXT NOT NULL,
+    available_at TEXT NOT NULL,
+    supersedes_version_id TEXT REFERENCES report_versions(id),
+    UNIQUE(dataset_id,report_key,version),
+    CHECK(mode!='llm' OR (provider IS NOT NULL AND model IS NOT NULL
+                            AND prompt_template_id IS NOT NULL AND prompt_sha256 IS NOT NULL))
+);
+CREATE INDEX idx_report_versions_key ON report_versions(dataset_id,report_key,version DESC);
+
+CREATE TRIGGER report_versions_valid_append BEFORE INSERT ON report_versions
+WHEN NOT EXISTS(SELECT 1 FROM report_input_snapshots AS s
+                WHERE s.id=NEW.input_snapshot_id AND s.dataset_id=NEW.dataset_id
+                  AND s.report_key=NEW.report_key
+                  AND s.input_count=(SELECT COUNT(*) FROM report_input_members AS m
+                                     WHERE m.snapshot_id=s.id))
+  OR (NEW.version=1 AND NEW.supersedes_version_id IS NOT NULL)
+  OR (NEW.version>1 AND NOT EXISTS(
+        SELECT 1 FROM report_versions AS prior
+        WHERE prior.id=NEW.supersedes_version_id AND prior.dataset_id=NEW.dataset_id
+          AND prior.report_key=NEW.report_key AND prior.version=NEW.version-1))
+BEGIN SELECT RAISE(ABORT,'report version must follow a complete matching input snapshot and prior version'); END;
+
+CREATE TABLE report_publications (
+    dataset_id TEXT NOT NULL,
+    report_key TEXT NOT NULL,
+    current_version_id TEXT NOT NULL REFERENCES report_versions(id),
+    published_at TEXT NOT NULL,
+    PRIMARY KEY(dataset_id,report_key)
+);
+
+CREATE TRIGGER report_input_snapshots_no_update BEFORE UPDATE ON report_input_snapshots
+BEGIN SELECT RAISE(ABORT,'report input snapshots are immutable'); END;
+CREATE TRIGGER report_input_snapshots_no_delete BEFORE DELETE ON report_input_snapshots
+BEGIN SELECT RAISE(ABORT,'report input snapshots are immutable'); END;
+CREATE TRIGGER report_input_members_no_update BEFORE UPDATE ON report_input_members
+BEGIN SELECT RAISE(ABORT,'report input members are immutable'); END;
+CREATE TRIGGER report_input_members_no_delete BEFORE DELETE ON report_input_members
+BEGIN SELECT RAISE(ABORT,'report input members are immutable'); END;
+CREATE TRIGGER report_input_members_no_late_insert BEFORE INSERT ON report_input_members
+WHEN EXISTS(SELECT 1 FROM report_versions WHERE input_snapshot_id=NEW.snapshot_id)
+BEGIN SELECT RAISE(ABORT,'published report input is closed'); END;
+CREATE TRIGGER report_versions_no_update BEFORE UPDATE ON report_versions
+BEGIN SELECT RAISE(ABORT,'report versions are immutable'); END;
+CREATE TRIGGER report_versions_no_delete BEFORE DELETE ON report_versions
+BEGIN SELECT RAISE(ABORT,'report versions are immutable'); END;
+CREATE TRIGGER report_publications_match_insert BEFORE INSERT ON report_publications
+WHEN NOT EXISTS(SELECT 1 FROM report_versions AS v WHERE v.id=NEW.current_version_id
+                AND v.dataset_id=NEW.dataset_id AND v.report_key=NEW.report_key)
+BEGIN SELECT RAISE(ABORT,'report publication identity mismatch'); END;
+CREATE TRIGGER report_publications_match_update BEFORE UPDATE ON report_publications
+WHEN NOT EXISTS(SELECT 1 FROM report_versions AS v WHERE v.id=NEW.current_version_id
+                AND v.dataset_id=NEW.dataset_id AND v.report_key=NEW.report_key)
+BEGIN SELECT RAISE(ABORT,'report publication identity mismatch'); END;
+"""
+
+
+def _report_version_foundation(db: sqlite3.Connection) -> None:
+    _execute_script(db, REPORT_VERSION_SCHEMA_SQL)
+
+
 # Migration 1 freezes the exact legacy schema at main@88a2a1e. Future schema
 # changes must append a new Migration instead of editing this definition.
 MIGRATIONS = (
@@ -2071,6 +2183,8 @@ MIGRATIONS = (
         CURATION_STORY_METRICS_SCHEMA_SQL + "\ninitialize:empty-story-metrics-v1",
         _curation_story_metrics_foundation,
     ),
+    Migration(19, "versioned report input and publication foundation",
+              REPORT_VERSION_SCHEMA_SQL, _report_version_foundation),
 )
 CURRENT_SCHEMA_VERSION = MIGRATIONS[-1].version
 REQUIRED_MIGRATION_COLUMNS = {
@@ -2104,6 +2218,7 @@ EXPECTED_TABLES = LEGACY_ANCHORS | {
     "curation_search_documents", "curation_search_fts", "curation_search_state",
     "curation_search_dirty",
     "curation_story_metrics", "curation_story_metrics_state", "curation_story_metrics_dirty",
+    "report_input_snapshots", "report_input_members", "report_versions", "report_publications",
 }
 EXPECTED_ITEM_COLUMNS = {
     "id", "source_id", "url", "title", "title_zh", "summary", "raw_summary",
@@ -2409,7 +2524,33 @@ EXPECTED_CURATION_STORY_METRICS_COLUMNS = {
     },
     "curation_story_metrics_dirty": {"story_id", "reason", "queued_at"},
 }
+EXPECTED_REPORT_VERSION_COLUMNS = {
+    "report_input_snapshots": {
+        "id", "dataset_id", "report_key", "report_type", "report_date",
+        "window_start", "window_end", "window_basis", "timezone", "calendar_id",
+        "calendar_version", "as_of", "knowledge_checkpoint_id", "manifest_json",
+        "manifest_sha256", "input_count", "created_at",
+    },
+    "report_input_members": {
+        "snapshot_id", "ordinal", "legacy_item_id", "document_version_id",
+        "material_sha256",
+    },
+    "report_versions": {
+        "id", "dataset_id", "report_key", "version", "input_snapshot_id", "mode",
+        "content", "content_sha256", "citations_json", "coverage_json", "provider",
+        "model", "prompt_template_id", "prompt_sha256", "generated_at",
+        "available_at", "supersedes_version_id",
+    },
+    "report_publications": {
+        "dataset_id", "report_key", "current_version_id", "published_at",
+    },
+}
 EXPECTED_INGEST_TRIGGERS = {
+    "report_input_snapshots_no_update", "report_input_snapshots_no_delete",
+    "report_input_members_no_update", "report_input_members_no_delete",
+    "report_input_members_no_late_insert",
+    "report_versions_valid_append", "report_versions_no_update", "report_versions_no_delete",
+    "report_publications_match_insert", "report_publications_match_update",
     "curation_search_ai", "curation_search_ad", "curation_search_au",
     "curation_search_item_ai", "curation_search_item_au",
     "curation_search_document_ai", "curation_search_document_au",
@@ -2761,6 +2902,7 @@ def _assert_current_schema(db: sqlite3.Connection) -> None:
         })
         for table, required in (
             EXPECTED_CURATION_SEARCH_COLUMNS | EXPECTED_CURATION_STORY_METRICS_COLUMNS
+            | EXPECTED_REPORT_VERSION_COLUMNS
         ).items()
     }
     missing_search_columns = {
