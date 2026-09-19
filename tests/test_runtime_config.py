@@ -90,6 +90,7 @@ class RuntimeConfigurationTests(unittest.TestCase):
             values = {key: str(value) for key, value in service["environment"].items()}
             values["INFOHUB_ENVIRONMENT_ID"] = "windows-production"
             values["INFOHUB_CURATED_FEED_ENABLED"] = "true"
+            values["INFOHUB_CURATION_READ_ENABLED"] = "false"
             settings = config.load_runtime_settings(values, self.root)
             self.assertEqual(settings.database_path, Path("/app/data/app.db"))
             self.assertEqual(settings.backup_path, Path("/app/data/backups"))
@@ -109,6 +110,8 @@ class RuntimeConfigurationTests(unittest.TestCase):
         worker_values["INFOHUB_ENVIRONMENT_ID"] = "windows-production"
         web_values["INFOHUB_CURATED_FEED_ENABLED"] = "true"
         worker_values["INFOHUB_CURATED_FEED_ENABLED"] = "true"
+        web_values["INFOHUB_CURATION_READ_ENABLED"] = "false"
+        worker_values["INFOHUB_CURATION_READ_ENABLED"] = "false"
         self.assertFalse(config.load_runtime_settings(web_values, self.root).allow_network_tasks)
         self.assertTrue(config.load_runtime_settings(worker_values, self.root).allow_network_tasks)
         self.assertIn("/api/live", " ".join(compose["services"]["infohub"]["healthcheck"]["test"]))

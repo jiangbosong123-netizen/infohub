@@ -17,6 +17,7 @@ from ..config import (
     APP_VERSION,
     BASE_DIR,
     CURATED_FEED_ENABLED,
+    CURATION_READ_ENABLED,
     ENVIRONMENT,
     ENVIRONMENT_ID,
     DURABLE_JOBS_ENABLED,
@@ -25,6 +26,7 @@ from ..config import (
     SCHEDULER_ENABLED,
 )
 from ..database import get_db
+from ..curation_projection import display_curation, published_curation
 from ..provenance import publisher, display_title
 from ..runtime_health import read_worker_heartbeat
 from ..topics import GROUPS
@@ -243,11 +245,14 @@ def _date_label(d: datetime) -> str:
 def _decorate(rows) -> list[dict]:
     """把 DB 行加工成视图对象：时间、公司标签、所属热点簇等。"""
     ids = [r["id"] for r in rows]
+    publications: dict[int, dict[str, dict]] = {}
     cluster_map: dict[int, dict] = {}
     topic_map = {}
     if ids:
         marks = ",".join("?" * len(ids))
         with get_db() as db:
+            if CURATION_READ_ENABLED:
+                publications = published_curation(db, ids)
             for m in db.execute(
                 f"""SELECT cm.item_id, cl.id AS cluster_id, cl.source_count, cl.item_count
                     FROM story_items cm JOIN stories cl ON cl.id = cm.story_id
@@ -264,6 +269,7 @@ def _decorate(rows) -> list[dict]:
     keys = rows[0].keys() if rows else []
     out = []
     for r in rows:
+        r = display_curation(dict(r), publications.get(r["id"]))
         slugs = json.loads(r["companies"] or "[]")
         dt = _fmt_dt(r["published_at"])
         cl = cluster_map.get(r["id"])
@@ -283,6 +289,7 @@ def _decorate(rows) -> list[dict]:
             event_label=EVENT_NAMES.get(r["event_type"] or "", ""),
             reason=(r["reason"] or "") if "reason" in keys else "",
             ai_cat=(r["ai_cat"] or "") if "ai_cat" in keys else "",
+            curation_needs_review=r["curation_needs_review"],
             hms=dt.strftime("%H:%M"), date_key=dt.date().isoformat(),
             companies=[dict(slug=s, label=(company_rows.get(s) or {}).get("name_zh")
                             or (company_rows.get(s) or {}).get("name") or s) for s in slugs],
@@ -659,6 +666,7 @@ def story_detail(request: Request,story_id: str,page: int=Query(1,ge=1)):
             FROM story_items si JOIN items i ON i.id=si.item_id JOIN sources s ON s.id=i.source_id
             WHERE si.story_id=? AND COALESCE(i.tmt,1)!=0
             ORDER BY i.published_at DESC,i.id DESC LIMIT 51 OFFSET ?""",(story_id,(page-1)*50)).fetchall()
+        publications = published_curation(db, (r['id'] for r in rows[:50])) if CURATION_READ_ENABLED else {}
         source_rows = [dict(r) for r in db.execute("""SELECT i.*,s.name AS source_name FROM story_items si
             JOIN items i ON i.id=si.item_id JOIN sources s ON s.id=i.source_id
             WHERE si.story_id=? AND COALESCE(i.tmt,1)!=0""",(story_id,))]
@@ -672,7 +680,7 @@ def story_detail(request: Request,story_id: str,page: int=Query(1,ge=1)):
     unknown = sum(not publisher(r)[2] for r in source_rows)
     reports = []
     for row in rows[:50]:
-        data = dict(row)
+        data = display_curation(dict(row), publications.get(row['id']))
         data.update(title_display=display_title(data),publisher=publisher(data)[1],
                     published_label=_fmt_dt(row['published_at']).strftime('%m月%d日 %H:%M'))
         reports.append(data)

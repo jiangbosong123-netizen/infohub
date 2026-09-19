@@ -8,6 +8,7 @@
       {% if it.official %}<span class="badge official">官方</span>{% endif %}
       {% if it.event_label %}<span class="badge event">{{ it.event_label }}</span>{% endif %}
       {% if it.translated %}<span class="badge tr">译</span>{% endif %}
+      {% if it.curation_needs_review %}<span class="badge">AI 待复核</span>{% endif %}
       {% if it.via == 'reconcile' %}<span class="badge recon">对账补录</span>{% endif %}
       {% for c in it.companies %}<a class="chip sm" href="/topics/{{ c.slug }}">{{ c.label }}</a>{% endfor %}
       <span class="t-spacer"></span>

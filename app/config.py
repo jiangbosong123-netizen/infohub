@@ -76,6 +76,7 @@ class RuntimeSettings:
     scheduler_enabled: bool
     durable_jobs_enabled: bool
     curated_feed_enabled: bool
+    curation_read_enabled: bool
     process_role: str
     legacy_data_layout: bool
 
@@ -193,6 +194,7 @@ def load_runtime_settings(
     scheduler_enabled = _boolean(values, "INFOHUB_ENABLE_SCHEDULER", False)
     durable_jobs_enabled = _boolean(values, "INFOHUB_DURABLE_JOBS_ENABLED", False)
     curated_feed_enabled = _boolean(values, "INFOHUB_CURATED_FEED_ENABLED", False)
+    curation_read_enabled = _boolean(values, "INFOHUB_CURATION_READ_ENABLED", False)
     process_role = values.get("INFOHUB_PROCESS_ROLE", "web").strip().lower() or "web"
     if process_role not in _PROCESS_ROLES:
         raise RuntimeConfigurationError(
@@ -226,6 +228,7 @@ def load_runtime_settings(
         scheduler_enabled=scheduler_enabled,
         durable_jobs_enabled=durable_jobs_enabled,
         curated_feed_enabled=curated_feed_enabled,
+        curation_read_enabled=curation_read_enabled,
         process_role=process_role,
         legacy_data_layout=legacy_data_layout,
     )
@@ -242,6 +245,7 @@ ALLOW_NETWORK_TASKS = RUNTIME.allow_network_tasks
 SCHEDULER_ENABLED = RUNTIME.scheduler_enabled
 DURABLE_JOBS_ENABLED = RUNTIME.durable_jobs_enabled
 CURATED_FEED_ENABLED = RUNTIME.curated_feed_enabled
+CURATION_READ_ENABLED = RUNTIME.curation_read_enabled
 PROCESS_ROLE = RUNTIME.process_role
 
 WATCHLIST_PATH = BASE_DIR / "config" / "watchlist.yaml"

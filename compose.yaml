@@ -15,6 +15,7 @@ x-infohub-environment: &infohub-environment
   INFOHUB_RUNTIME_PATH: /app/data/runtime
   INFOHUB_DURABLE_JOBS_ENABLED: "true"
   INFOHUB_CURATED_FEED_ENABLED: ${INFOHUB_CURATED_FEED_ENABLED:-true}
+  INFOHUB_CURATION_READ_ENABLED: ${INFOHUB_CURATION_READ_ENABLED:-false}
   APP_TZ: ${APP_TZ:-Asia/Shanghai}
 
 services:
