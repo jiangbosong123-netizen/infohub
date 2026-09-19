@@ -26,11 +26,11 @@ from .jobs import (
     upsert_interval_schedule,
 )
 from .runtime_health import write_worker_heartbeat
-from .timeutil import format_utc
+from .timeutil import format_utc, utc_now
 
 
 log = logging.getLogger(__name__)
-JOB_KINDS = ("crawl", "ai", "reconcile", "report", "prune")
+JOB_KINDS = ("crawl", "ai", "reconcile", "report", "prune", "curation-search")
 
 
 def _next_daily(hour: int, minute: int, now: datetime) -> datetime:
@@ -73,6 +73,19 @@ def register_default_schedules(now: datetime | None = None) -> None:
             priority=priority,
             max_attempts=attempts,
         )
+    if config.CURATION_SEARCH_ENABLED:
+        upsert_interval_schedule(
+            schedule_id="curation-search:refresh", kind="curation-search",
+            next_due_at=current, interval_seconds=60, priority=15,
+            max_attempts=3,
+        )
+    else:
+        # A prior deployment may have enabled it. Queued jobs are harmless
+        # because the handler also checks the flag before touching the index.
+        from .database import get_db
+        with get_db() as db:
+            db.execute("""UPDATE schedules SET enabled=0,updated_at=?
+                          WHERE id='curation-search:refresh' AND enabled=1""", (utc_now(),))
 
 
 def _crawl() -> dict:
@@ -119,6 +132,20 @@ def _prune() -> dict:
     return {"deleted": deleted}
 
 
+def _curation_search_refresh() -> dict:
+    if not config.CURATION_SEARCH_ENABLED:
+        return {"status": "disabled", "batches": 0}
+    from .curation_search import advance_search_index
+    report = None
+    batches = 0
+    for _ in range(10):
+        report = advance_search_index(500)
+        batches += 1
+        if report.status == "ready" and report.dirty_remaining == 0:
+            break
+    return {"batches": batches, **report.to_dict()}
+
+
 def default_handlers() -> dict[str, Callable[[], object]]:
     return {
         "crawl": _crawl,
@@ -126,6 +153,7 @@ def default_handlers() -> dict[str, Callable[[], object]]:
         "reconcile": _reconcile,
         "report": _report,
         "prune": _prune,
+        "curation-search": _curation_search_refresh,
     }
 
 

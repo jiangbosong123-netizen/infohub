@@ -60,6 +60,38 @@ class WorkerRuntimeTests(unittest.TestCase):
         self.assertNotEqual(changed["report:daily"], first["report:daily"])
         self.assertEqual(changed["reconcile:daily"], first["reconcile:daily"])
 
+    def test_search_refresh_schedule_can_be_enabled_and_disabled(self):
+        with patch.object(config, "CURATION_SEARCH_ENABLED", True):
+            register_default_schedules(T0)
+        with database.get_db() as db:
+            row = db.execute("SELECT enabled,interval_seconds FROM schedules WHERE id='curation-search:refresh'").fetchone()
+            self.assertEqual(tuple(row), (1, 60))
+        with patch.object(config, "CURATION_SEARCH_ENABLED", False):
+            register_default_schedules(T0 + timedelta(minutes=1))
+        with database.get_db() as db:
+            self.assertEqual(db.execute("SELECT enabled FROM schedules WHERE id='curation-search:refresh'").fetchone()[0], 0)
+
+    def test_durable_search_refresh_job_builds_without_models(self):
+        with database.get_db() as db:
+            db.execute("INSERT INTO sources(id,key,name,channel,tier,type) VALUES(1,'test','Test','ai','media','rss')")
+            for item_id in range(1, 4):
+                db.execute("""INSERT INTO items(id,source_id,url,title,channel,published_at,fetched_at)
+                              VALUES(?,1,?,'Searchable item','ai',?,?)""",
+                           (item_id, f"https://example.test/{item_id}",
+                            "2026-09-10T09:00:00+00:00", "2026-09-10T09:01:00+00:00"))
+        enqueue_job(kind="curation-search", idempotency_key="refresh-fixture", scheduled_for=T0)
+        with patch.object(config, "CURATION_SEARCH_ENABLED", True):
+            result = process_one_job(worker_id="search-worker", now=T0)
+        self.assertEqual(result.state, "succeeded")
+        with database.get_db() as db:
+            state = db.execute("SELECT status,indexed_count FROM curation_search_state").fetchone()
+            self.assertEqual(tuple(state), ("ready", 3))
+        enqueue_job(kind="curation-search", idempotency_key="disabled-fixture", scheduled_for=T0)
+        with patch.object(config, "CURATION_SEARCH_ENABLED", False):
+            skipped = process_one_job(worker_id="search-worker", now=T0)
+        self.assertEqual(skipped.state, "succeeded")
+        self.assertIn('"status": "disabled"', skipped.result_ref)
+
     def test_new_worker_reclaims_expired_job_after_restart(self):
         job = enqueue_job(
             kind="crawl", idempotency_key="restart-fixture", scheduled_for=T0,
