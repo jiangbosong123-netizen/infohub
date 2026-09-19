@@ -27,6 +27,7 @@ from __future__ import annotations
   python cli.py legacy-curation-enqueue [AFTER_ID] [LIMIT]  # 分页排入旧策展转换任务（maintenance only）
   python cli.py legacy-curation-process [N]  # 处理最多 N 个离线转换任务（maintenance only）
   python cli.py curation-search-advance [N]  # 建立/刷新至多 N 条搜索文档（maintenance only，可续跑）
+  python cli.py curation-hot-advance [N]     # 建立/刷新至多 N 个热点统计（maintenance only，可续跑）
 """
 import json
 import logging
@@ -288,6 +289,15 @@ def cmd_curation_search_advance(limit: int) -> None:
     print(json.dumps(advance_search_index(limit).to_dict(), ensure_ascii=False, indent=2))
 
 
+def cmd_curation_hot_advance(limit: int) -> None:
+    if config.PROCESS_ROLE != "maintenance":
+        raise config.RuntimeConfigurationError("curation-hot-advance requires maintenance role")
+    from app.curation_hot_metrics import advance_hot_metrics
+    from app.db_admin import verify_database
+    verify_database(config.DB_PATH, require_current=True)
+    print(json.dumps(advance_hot_metrics(limit).to_dict(), ensure_ascii=False, indent=2))
+
+
 def main() -> None:
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
     cmd = sys.argv[1] if len(sys.argv) > 1 else ""
@@ -343,6 +353,8 @@ def main() -> None:
         cmd_legacy_curation_process(int(sys.argv[2]) if len(sys.argv) > 2 else 100)
     elif cmd == "curation-search-advance":
         cmd_curation_search_advance(int(sys.argv[2]) if len(sys.argv) > 2 else 200)
+    elif cmd == "curation-hot-advance":
+        cmd_curation_hot_advance(int(sys.argv[2]) if len(sys.argv) > 2 else 100)
     else:
         print(__doc__)
         sys.exit(1)

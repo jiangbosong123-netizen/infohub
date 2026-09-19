@@ -1,0 +1,19 @@
+{
+  "captured_at": "2026-09-19T21:13:43Z",
+  "evidence_version": "p13k-hot-metrics-build-rehearsal-v1",
+  "scope": "Isolated Mac SQLite consistent backup migrated to schema 18 and fully projected",
+  "story_rows_in_copy": 27108,
+  "metrics_rows": 27108,
+  "metrics_with_visible_members": 16495,
+  "batch_limit": 100,
+  "batches_to_ready": 273,
+  "build_elapsed_seconds": 0.8,
+  "final_status": "ready",
+  "final_dirty_remaining": 0,
+  "provider_calls": 0,
+  "limitations": [
+    "One Mac copy is not a Windows production performance guarantee",
+    "Portal hotspot reads and worker scheduling remain separate follow-up changes",
+    "Historical story membership quality is not established by projection completeness"
+  ]
+}
