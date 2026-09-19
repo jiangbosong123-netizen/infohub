@@ -345,14 +345,20 @@ def _query_items(channel: str = "all", company: str = "", event: str = "", cat: 
 
 def _top_clusters(limit: int = 10, channel: str = "all", topic: str = "", days: int = 2) -> list[dict]:
     cutoff = (datetime.now(timezone.utc) - timedelta(days=days)).isoformat()
+    cte, curation_join, visible, _, _ = portal_curation_sql(CURATION_READ_ENABLED)
+    any_visible = (f"AND EXISTS(SELECT 1 FROM story_items si JOIN items i ON i.id=si.item_id "
+                   f"{curation_join} WHERE si.story_id=st.id AND {visible})"
+                   if CURATION_READ_ENABLED else "")
     with get_db() as db:
         rows = db.execute(
-            """SELECT st.*,st.last_at AS updated_at FROM stories st
+            cte + f"""SELECT st.*,st.last_at AS updated_at FROM stories st
                WHERE st.redirect_to IS NULL AND st.item_count>0 AND st.last_at>=?
+               {any_visible}
                AND (?='all' OR EXISTS(SELECT 1 FROM story_items si JOIN items i ON i.id=si.item_id
-                   WHERE si.story_id=st.id AND i.channel=? AND COALESCE(i.tmt,1)!=0))
+                   {curation_join} WHERE si.story_id=st.id AND i.channel=? AND {visible}))
                AND (?='' OR EXISTS(SELECT 1 FROM story_items si JOIN item_topics it ON it.item_id=si.item_id
-                   JOIN items i ON i.id=si.item_id WHERE si.story_id=st.id AND it.topic_slug=? AND COALESCE(i.tmt,1)!=0))
+                   JOIN items i ON i.id=si.item_id {curation_join}
+                   WHERE si.story_id=st.id AND it.topic_slug=? AND {visible}))
                ORDER BY (st.source_count>=2) DESC,st.heat DESC,st.id LIMIT ?""",
             (cutoff,channel,channel,topic,topic,limit)).fetchall()
         names = {r["slug"]: dict(r) for r in db.execute("SELECT slug,name,name_zh FROM companies")}
@@ -469,11 +475,13 @@ def saved(request: Request, ids: str = ""):
             parsed.append(item_id)
     rows = []
     if parsed:
+        cte, curation_join, visible, _, _ = portal_curation_sql(CURATION_READ_ENABLED)
         marks = ",".join("?" * len(parsed))
         with get_db() as db:
-            rows = db.execute(f"""SELECT i.*,s.name AS source_name FROM items i
+            rows = db.execute(cte + f"""SELECT i.*,s.name AS source_name FROM items i
                 JOIN sources s ON s.id=i.source_id
-                WHERE i.id IN ({marks}) AND COALESCE(i.tmt,1)!=0
+                {curation_join}
+                WHERE i.id IN ({marks}) AND {visible}
                 ORDER BY i.published_at DESC,i.id DESC""", parsed).fetchall()
     days = []
     for item in _decorate(rows):
@@ -662,6 +670,7 @@ def topic_detail(request: Request,slug: str,mode: str='selected',page: int=Query
 
 @app.get('/story/{story_id}',response_class=HTMLResponse)
 def story_detail(request: Request,story_id: str,page: int=Query(1,ge=1)):
+    cte, curation_join, visible, _, _ = portal_curation_sql(CURATION_READ_ENABLED)
     with get_db() as db:
         story = db.execute('SELECT * FROM stories WHERE id=?',(story_id,)).fetchone()
         seen = set()
@@ -674,17 +683,20 @@ def story_detail(request: Request,story_id: str,page: int=Query(1,ge=1)):
             raise HTTPException(404,'事件不存在或暂无公开报道')
         if story['id'] != story_id:
             return RedirectResponse('/story/'+story['id'],status_code=302)
-        rows = db.execute("""SELECT i.*,s.name AS source_name,si.match_reason,si.match_score
+        rows = db.execute(cte + f"""SELECT i.*,s.name AS source_name,si.match_reason,si.match_score
             FROM story_items si JOIN items i ON i.id=si.item_id JOIN sources s ON s.id=i.source_id
-            WHERE si.story_id=? AND COALESCE(i.tmt,1)!=0
+            {curation_join}
+            WHERE si.story_id=? AND {visible}
             ORDER BY i.published_at DESC,i.id DESC LIMIT 51 OFFSET ?""",(story_id,(page-1)*50)).fetchall()
         publications = published_curation(db, (r['id'] for r in rows[:50])) if CURATION_READ_ENABLED else {}
-        source_rows = [dict(r) for r in db.execute("""SELECT i.*,s.name AS source_name FROM story_items si
+        source_rows = [dict(r) for r in db.execute(cte + f"""SELECT i.*,s.name AS source_name FROM story_items si
             JOIN items i ON i.id=si.item_id JOIN sources s ON s.id=i.source_id
-            WHERE si.story_id=? AND COALESCE(i.tmt,1)!=0""",(story_id,))]
-        tags = db.execute("""SELECT DISTINCT t.slug,t.name FROM story_items si
+            {curation_join}
+            WHERE si.story_id=? AND {visible}""",(story_id,))]
+        tags = db.execute(cte + f"""SELECT DISTINCT t.slug,t.name FROM story_items si
             JOIN item_topics it ON it.item_id=si.item_id JOIN topics t ON t.slug=it.topic_slug
-            JOIN items i ON i.id=si.item_id WHERE si.story_id=? AND t.enabled=1 AND COALESCE(i.tmt,1)!=0
+            JOIN items i ON i.id=si.item_id {curation_join}
+            WHERE si.story_id=? AND t.enabled=1 AND {visible}
             ORDER BY t.position""",(story_id,)).fetchall()
     if not source_rows:
         raise HTTPException(404,'暂无公开报道')
@@ -696,7 +708,10 @@ def story_detail(request: Request,story_id: str,page: int=Query(1,ge=1)):
         data.update(title_display=display_title(data),publisher=publisher(data)[1],
                     published_label=_fmt_dt(row['published_at']).strftime('%m月%d日 %H:%M'))
         reports.append(data)
-    return templates.TemplateResponse(request,'story.html',dict(story=dict(story),reports=reports,
+    story_view = dict(story)
+    if CURATION_READ_ENABLED:
+        story_view['item_count'] = len(source_rows)
+    return templates.TemplateResponse(request,'story.html',dict(story=story_view,reports=reports,
         sources=list(sources.values()),unknown=unknown,tags=tags,official_count=sum(r['official'] for r in source_rows),
         first_label=_fmt_dt(story['first_at']).strftime('%m月%d日 %H:%M'),
         last_label=_fmt_dt(story['last_at']).strftime('%m月%d日 %H:%M'),page=page,has_next=len(rows)>50))

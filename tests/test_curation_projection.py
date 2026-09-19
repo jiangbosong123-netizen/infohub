@@ -1,5 +1,6 @@
 import tempfile
 import unittest
+from datetime import datetime, timezone
 from pathlib import Path
 from unittest.mock import patch
 
@@ -115,6 +116,31 @@ class CurationProjectionTests(unittest.TestCase):
             self.assertEqual(topic.status_code, 200)
             self.assertEqual((topic.context["topic"]["total"], topic.context["topic"]["selected"]), (1, 1))
             self.assertEqual(topic.context["days"][0]["rows"][0]["score"], 80)
+
+    def test_saved_and_story_visibility_use_current_publication(self):
+        self._import()
+        now = datetime.now(timezone.utc).isoformat()
+        with database.get_db() as db:
+            db.execute("UPDATE items SET tmt=0 WHERE id=1")
+            db.execute("""INSERT INTO stories(id,anchor_item_id,title,channel,url,source_count,item_count,first_at,last_at)
+                          VALUES('story-one',1,'Story','ai','https://example.test/one',1,1,?,?)""", (now, now))
+            db.execute("""INSERT INTO story_items(item_id,story_id,match_reason,match_score)
+                          VALUES(1,'story-one','fixture',1.0)""")
+        client = TestClient(routes.app)
+        with patch.object(routes, "CURATION_READ_ENABLED", False):
+            self.assertEqual(client.get("/saved?ids=1").context["days"], [])
+            self.assertEqual(client.get("/story/story-one").status_code, 404)
+            self.assertEqual(routes._top_clusters(channel="ai"), [])
+        with patch.object(routes, "CURATION_READ_ENABLED", True):
+            saved = client.get("/saved?ids=1")
+            story = client.get("/story/story-one")
+            hot = routes._top_clusters(channel="ai")
+        self.assertEqual(saved.status_code, 200)
+        self.assertEqual(saved.context["days"][0]["rows"][0]["id"], 1)
+        self.assertEqual(story.status_code, 200)
+        self.assertEqual(story.context["story"]["item_count"], 1)
+        self.assertEqual(story.context["reports"][0]["title_zh"], "旧译文")
+        self.assertEqual([row["id"] for row in hot], ["story-one"])
 
 
 if __name__ == "__main__":
