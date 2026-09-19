@@ -19,6 +19,7 @@ from ..config import (
     CURATED_FEED_ENABLED,
     CURATION_READ_ENABLED,
     CURATION_SEARCH_ENABLED,
+    CURATION_HOT_ENABLED,
     ENVIRONMENT,
     ENVIRONMENT_ID,
     DURABLE_JOBS_ENABLED,
@@ -30,6 +31,7 @@ from ..database import get_db
 from ..curation_projection import display_curation, published_curation
 from ..curation_query import portal_curation_sql
 from ..curation_search_query import search_curated, search_index_usable
+from ..curation_hot_query import curated_top_clusters, hot_metrics_usable
 from ..provenance import publisher, display_title
 from ..runtime_health import read_worker_heartbeat
 from ..topics import GROUPS
@@ -352,22 +354,30 @@ def _top_clusters(limit: int = 10, channel: str = "all", topic: str = "", days: 
                    f"{curation_join} WHERE si.story_id=st.id AND {visible})"
                    if CURATION_READ_ENABLED else "")
     with get_db() as db:
-        rows = db.execute(
-            cte + f"""SELECT st.*,st.last_at AS updated_at FROM stories st
-               WHERE st.redirect_to IS NULL AND st.item_count>0 AND st.last_at>=?
-               {any_visible}
-               AND (?='all' OR EXISTS(SELECT 1 FROM story_items si JOIN items i ON i.id=si.item_id
-                   {curation_join} WHERE si.story_id=st.id AND i.channel=? AND {visible}))
-               AND (?='' OR EXISTS(SELECT 1 FROM story_items si JOIN item_topics it ON it.item_id=si.item_id
-                   JOIN items i ON i.id=si.item_id {curation_join}
-                   WHERE si.story_id=st.id AND it.topic_slug=? AND {visible}))
-               ORDER BY (st.source_count>=2) DESC,st.heat DESC,st.id LIMIT ?""",
-            (cutoff,channel,channel,topic,topic,limit)).fetchall()
+        db.execute("BEGIN")  # Read projection readiness and rows from one snapshot.
+        use_curated = CURATION_HOT_ENABLED and hot_metrics_usable(db)
+        if use_curated:
+            rows = curated_top_clusters(
+                db, limit=limit, channel=channel, topic=topic, cutoff=cutoff,
+            )
+        else:
+            rows = db.execute(
+                cte + f"""SELECT st.*,st.last_at AS updated_at FROM stories st
+                   WHERE st.redirect_to IS NULL AND st.item_count>0 AND st.last_at>=?
+                   {any_visible}
+                   AND (?='all' OR EXISTS(SELECT 1 FROM story_items si JOIN items i ON i.id=si.item_id
+                       {curation_join} WHERE si.story_id=st.id AND i.channel=? AND {visible}))
+                   AND (?='' OR EXISTS(SELECT 1 FROM story_items si JOIN item_topics it ON it.item_id=si.item_id
+                       JOIN items i ON i.id=si.item_id {curation_join}
+                       WHERE si.story_id=st.id AND it.topic_slug=? AND {visible}))
+                   ORDER BY (st.source_count>=2) DESC,st.heat DESC,st.id LIMIT ?""",
+                (cutoff,channel,channel,topic,topic,limit)).fetchall()
         names = {r["slug"]: dict(r) for r in db.execute("SELECT slug,name,name_zh FROM companies")}
     out = []
     for rank,r in enumerate(rows,1):
         value = dict(r)
-        value.update(rank=rank,heat=int(r['heat']*100), companies=[dict(slug=s,label=(names.get(s) or {}).get('name_zh')
+        value.update(rank=rank,heat=int(r['heat']*100),metrics_pending=CURATION_HOT_ENABLED and not use_curated,
+                     companies=[dict(slug=s,label=(names.get(s) or {}).get('name_zh')
                      or (names.get(s) or {}).get('name') or s) for s in json.loads(r['company_slugs'])])
         out.append(value)
     return out

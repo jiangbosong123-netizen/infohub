@@ -97,3 +97,9 @@ P13k 增加可续跑的热点统计构建器：每事务最多 100 个旧事件�
 可见性、重要性分和译题计算展示统计；用已知发布方身份去重而不是数采集源。
 断点、统计行和 dirty 确认同事务提交。全量 Mac 副本演练见
 [`p13k-hot-metrics-build-rehearsal.json`](evidence/p13k-hot-metrics-build-rehearsal.json)。
+
+P13l 增加独立的热点读开关；只有统计投影 ready、dirty 为空且行数完整时
+才读取新版报道数、已知发布方数、代表标题和按查询时刻衰减的热度。按频道和主题
+筛选会检查可见成员，不假设旧事件频道一定与所有成员一致；未就绪时展示旧口径提示。
+本机副本查询演练见
+[`p13l-hot-metrics-read-rehearsal.json`](evidence/p13l-hot-metrics-read-rehearsal.json)。

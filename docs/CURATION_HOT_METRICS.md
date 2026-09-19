@@ -22,8 +22,20 @@ acknowledgements share one transaction; failure leaves the batch retryable.
 The builder uses current relevance/importance visibility and score, current
 translation for the headline, and `publisher()` for known publisher identity.
 Zero-visible and redirected stories get a zero row so the completeness count
-can be checked against `COUNT(stories)`. The portal still reads legacy stats
-until a separate guarded cutover.
+can be checked against `COUNT(stories)`. P13l adds an independently controlled
+portal read switch, `INFOHUB_CURATION_HOT_ENABLED=true`, which requires the
+curation read projection. It reads these metrics only when the state is ready,
+the dirty queue is empty, and story and metric counts agree. Otherwise it
+displays the legacy values with an explicit old-metric notice. Turning the
+flag off restores the legacy path without reversing migration 18.
+
+The reader decays stored heat from `computed_at` to query time before sorting,
+then ranks known multi-publisher stories ahead of single-publisher stories.
+Channel and topic filters check *visible member items*; they cannot rely on
+`stories.channel`, because the Mac data contains mixed-channel legacy stories.
+The filter uses a set-based query so a page does not execute one curation
+lookup per story. This remains a portal ranking, not calibrated sentiment or
+an API-grade macro impact score.
 
 Dirty triggers cover legacy story/membership edits, item fields that affect
 visibility, ranking, provenance or display, document version changes, and
@@ -37,5 +49,6 @@ Versioned `events` remain the future API entity; these metrics only keep the
 legacy portal honest during migration. The table can be discarded without
 altering event history or source documents. Mac copy migration evidence is in
 `docs/evidence/p13j-hot-metrics-schema-rehearsal.json` and the isolated full
-build in `docs/evidence/p13k-hot-metrics-build-rehearsal.json`; Windows
+build in `docs/evidence/p13k-hot-metrics-build-rehearsal.json`, and guarded
+read timing in `docs/evidence/p13l-hot-metrics-read-rehearsal.json`; Windows
 production has not been migrated.

@@ -1,0 +1,18 @@
+{
+  "captured_at": "2026-09-19T21:19:04Z",
+  "evidence_version": "p13l-hot-metrics-read-rehearsal-v1",
+  "scope": "Isolated Mac SQLite backup migrated and fully projected before local query timing",
+  "mixed_channel_memberships_in_source": 254,
+  "index_usable": true,
+  "sample_queries": [
+    {"case": "all_48h", "rows": 50, "elapsed_ms": 10.27},
+    {"case": "ai_48h", "rows": 50, "elapsed_ms": 6.63},
+    {"case": "topic_14d", "rows": 50, "elapsed_ms": 6.74}
+  ],
+  "provider_calls": 0,
+  "limitations": [
+    "Single-run Mac timings are not a Windows production latency guarantee",
+    "Automatic hot metrics refresh is a separate follow-up unit",
+    "Windows production and its database were not changed"
+  ]
+}

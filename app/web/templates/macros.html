@@ -30,6 +30,7 @@
 {% endmacro %}
 
 {% macro focus_list(clusters) %}
+{% if clusters and clusters[0].metrics_pending %}<p class="hint">热点统计正在更新，暂时显示旧口径数值。</p>{% endif %}
 <ol class="hotlist event-list">
 {% for c in clusters %}
 <li id="cluster-{{ c.id }}"><span class="rank r{{ loop.index if loop.index <= 3 else 0 }}">{{ loop.index }}</span>
