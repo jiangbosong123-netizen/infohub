@@ -24,6 +24,8 @@ from __future__ import annotations
   python cli.py raw-verify             # 全量校验原始载荷 CAS 引用和哈希
   python cli.py legacy-backfill [N]    # 可续跑迁移旧记录，每事务批 N 条（maintenance only）
   python cli.py legacy-event-project   # 将旧 story 映射为 shadow candidate event（maintenance only）
+  python cli.py legacy-curation-enqueue [AFTER_ID] [LIMIT]  # 分页排入旧策展转换任务（maintenance only）
+  python cli.py legacy-curation-process [N]  # 处理最多 N 个离线转换任务（maintenance only）
 """
 import json
 import logging
@@ -248,6 +250,34 @@ def cmd_legacy_event_project() -> None:
     print(json.dumps(report.to_dict(), ensure_ascii=False, indent=2))
 
 
+def cmd_legacy_curation_enqueue(after_id: int, limit: int) -> None:
+    if config.PROCESS_ROLE != "maintenance":
+        raise config.RuntimeConfigurationError("legacy-curation-enqueue requires maintenance role")
+    from app.db_admin import verify_database
+    from app.legacy_curation_import import enqueue_legacy_curation_batch
+    verify_database(config.DB_PATH, require_current=True)
+    print(json.dumps(enqueue_legacy_curation_batch(after_item_id=after_id, limit=limit),
+                     ensure_ascii=False, indent=2))
+
+
+def cmd_legacy_curation_process(limit: int) -> None:
+    if config.PROCESS_ROLE != "maintenance":
+        raise config.RuntimeConfigurationError("legacy-curation-process requires maintenance role")
+    if not 1 <= limit <= 500:
+        raise ValueError("limit must be between 1 and 500")
+    from dataclasses import asdict
+    from app.db_admin import verify_database
+    from app.legacy_curation_import import process_one_legacy_curation_import
+    verify_database(config.DB_PATH, require_current=True)
+    results = []
+    for _ in range(limit):
+        result = process_one_legacy_curation_import(worker_id="maintenance-legacy-import")
+        if result is None:
+            break
+        results.append(asdict(result))
+    print(json.dumps({"processed": len(results), "results": results}, ensure_ascii=False, indent=2))
+
+
 def main() -> None:
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
     cmd = sys.argv[1] if len(sys.argv) > 1 else ""
@@ -296,6 +326,11 @@ def main() -> None:
         cmd_legacy_backfill(int(sys.argv[2]) if len(sys.argv) > 2 else 250)
     elif cmd == "legacy-event-project":
         cmd_legacy_event_project()
+    elif cmd == "legacy-curation-enqueue":
+        cmd_legacy_curation_enqueue(int(sys.argv[2]) if len(sys.argv) > 2 else 0,
+                                    int(sys.argv[3]) if len(sys.argv) > 3 else 100)
+    elif cmd == "legacy-curation-process":
+        cmd_legacy_curation_process(int(sys.argv[2]) if len(sys.argv) > 2 else 100)
     else:
         print(__doc__)
         sys.exit(1)

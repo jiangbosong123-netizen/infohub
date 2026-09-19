@@ -18,6 +18,25 @@ P13a 将旧 `items` 表中的复合策展结果拆成四种独立任务：
 本次输入中的 evidence ID；重要性必须声明 `editorial_importance_not_probability`。
 其他尚未进入 P13 的分析 schema 继续由通用 envelope 验证器处理。
 
-本阶段只建立契约和旧字段转换规则，不调用模型、不批量导入生产数据，也不切换门户读取路径。
-P13b 才会建立带 lease 的迁移 worker，把转换结果写入不可变 run/attempt/result/publication 链；
-P13c 再建立经过发布指针控制的旧门户兼容投影。
+P13b 增加离线导入器。只有 P07 已回填、且当前文档版本的 primary 输入是
+`legacy_excerpt` 的条目才可排队；导入器会校验 CAS 哈希及冻结快照与文档版本的一致性。
+它不读取后来可能改变的 `items` 当前字段，因此中断重试不会把另一版内容误挂到旧版本。
+每个文档版本 × 任务有独立幂等键，先写 run/zero-cost 授权/attempt，再原子发布结果并完成 job。
+若已有相同对象与任务的 publication，导入器只完成 job，不覆盖人工或新模型结果。
+
+仅在**隔离副本**上按以下顺序运行；P07 回填必须先完成。进程角色需设为 `maintenance`：
+
+```bash
+python cli.py legacy-curation-enqueue 0 100
+python cli.py legacy-curation-process 100
+```
+
+`legacy-curation-enqueue` 返回 `next_after_item_id`；继续下一页时将这个数字作为第一个参数。
+重放同一页只会确保相同 job，不产生第二份结果。`legacy-curation-process` 每次最多处理
+500 个独立任务，失败任务进入已有的 retry/dead-letter 状态；不自动调用付费模型。
+旧模型名和提示词不可证明时写 `historical_unknown`，原始模型响应无法补造，费用只记录
+零成本**导入授权**而非历史模型费用。摘要的旧来源证据标记 `partial`、结果标记
+`needs_review`，并不表示逐句事实经过核实。
+
+本阶段不批量导入生产数据，也不切换门户读取路径。P13c 再建立经过发布指针控制的
+旧门户兼容投影。
