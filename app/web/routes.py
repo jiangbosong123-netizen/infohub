@@ -27,6 +27,7 @@ from ..config import (
 )
 from ..database import get_db
 from ..curation_projection import display_curation, published_curation
+from ..curation_query import portal_curation_sql
 from ..provenance import publisher, display_title
 from ..runtime_health import read_worker_heartbeat
 from ..topics import GROUPS
@@ -39,9 +40,9 @@ CHANNEL_TABS = [("all", "全部"), ("ai", "AI"), ("robot", "机器人"), ("stock
 STARTED_AT = datetime.now(timezone.utc)
 
 
-def _selected_clause(alias: str = "i") -> str:
+def _selected_clause(alias: str = "i", score_expr: str | None = None) -> str:
     """High-signal entries: strong AI score, official source, or corroborated event."""
-    return f"""(COALESCE({alias}.score, 0) >= 70 OR {alias}.official=1 OR EXISTS (
+    return f"""(COALESCE({score_expr or f'{alias}.score'}, 0) >= 70 OR {alias}.official=1 OR EXISTS (
         SELECT 1 FROM story_items selected_si
         JOIN stories selected_st ON selected_st.id=selected_si.story_id
         WHERE selected_si.item_id={alias}.id AND selected_st.redirect_to IS NULL
@@ -303,15 +304,16 @@ def _decorate(rows) -> list[dict]:
 def _query_items(channel: str = "all", company: str = "", event: str = "", cat: str = "",
                  mode: str = "selected", limit: int = 60, offset: int = 0):
     """Selected is a deduplicated event feed; all preserves every visible report."""
-    where = " WHERE COALESCE(i.tmt, 1) != 0"
+    cte, curation_join, visible, score_expr, category_expr = portal_curation_sql(CURATION_READ_ENABLED)
+    where = f" WHERE {visible}"
     params: list = []
     if mode == "selected" and CURATED_FEED_ENABLED:
-        where += " AND " + _selected_clause()
+        where += " AND " + _selected_clause(score_expr=score_expr)
     if channel and channel != "all":
         where += " AND i.channel=?"
         params.append(channel)
     if cat:
-        where += " AND i.ai_cat=?"
+        where += f" AND {category_expr}=?"
         params.append(cat)
     if company:
         where += (" AND EXISTS (SELECT 1 FROM item_companies ic JOIN companies c "
@@ -321,19 +323,20 @@ def _query_items(channel: str = "all", company: str = "", event: str = "", cat: 
         where += " AND i.event_type=?"
         params.append(event)
 
-    base = """SELECT i.*, s.name AS source_name, si.story_id
+    base = f"""SELECT i.*, s.name AS source_name, si.story_id
+              {', cv.score AS curation_rank_score' if CURATION_READ_ENABLED else ''}
               FROM items i JOIN sources s ON s.id=i.source_id
-              LEFT JOIN story_items si ON si.item_id=i.id""" + where
+              LEFT JOIN story_items si ON si.item_id=i.id""" + curation_join + where
     if mode == "selected":
-        sql = """WITH eligible AS (""" + base + """), ranked AS (
+        sql = (cte + ", " if cte else "WITH ") + """eligible AS (""" + base + f"""), ranked AS (
             SELECT eligible.*, ROW_NUMBER() OVER (
                 PARTITION BY COALESCE(story_id, 'item:' || id)
-                ORDER BY published_at DESC, official DESC, COALESCE(score,-1) DESC, id DESC
+                ORDER BY published_at DESC, official DESC, COALESCE({'curation_rank_score' if CURATION_READ_ENABLED else 'score'},-1) DESC, id DESC
             ) AS story_rank FROM eligible)
             SELECT * FROM ranked WHERE story_rank=1
             ORDER BY published_at DESC,id DESC LIMIT ? OFFSET ?"""
     else:
-        sql = base + " ORDER BY i.published_at DESC,i.id DESC LIMIT ? OFFSET ?"
+        sql = cte + base + " ORDER BY i.published_at DESC,i.id DESC LIMIT ? OFFSET ?"
     params += [limit, offset]
     with get_db() as db:
         rows = db.execute(sql, params).fetchall()
@@ -597,13 +600,19 @@ def about_heat():
 
 
 def _topic_stats(db):
-    selected = _selected_clause() if CURATED_FEED_ENABLED else "1=1"
-    return [dict(r) for r in db.execute(f"""SELECT t.*,COUNT(i.id) AS total,
+    cte, _, _, score_expr, _ = portal_curation_sql(CURATION_READ_ENABLED)
+    selected = _selected_clause(score_expr=score_expr) if CURATED_FEED_ENABLED else "1=1"
+    item_join = ("LEFT JOIN curation_values cv ON cv.item_id=it.item_id "
+                 "LEFT JOIN items i ON i.id=it.item_id AND cv.visible=1"
+                 if CURATION_READ_ENABLED else
+                 "LEFT JOIN items i ON i.id=it.item_id AND COALESCE(i.tmt,1)!=0")
+    return [dict(r) for r in db.execute(cte + f"""SELECT t.*,COUNT(i.id) AS total,
         COALESCE(SUM(CASE WHEN i.id IS NOT NULL AND {selected} THEN 1 ELSE 0 END),0) AS selected,
         MAX(i.published_at) AS last_at FROM topics t
         LEFT JOIN item_topics it ON it.topic_slug=t.slug
-        LEFT JOIN items i ON i.id=it.item_id AND COALESCE(i.tmt,1)!=0
-        WHERE t.enabled=1 GROUP BY t.slug ORDER BY t.position""")]
+        {item_join}
+        WHERE t.enabled=1
+        GROUP BY t.slug ORDER BY t.position""")]
 
 
 @app.get('/topics',response_class=HTMLResponse)
@@ -618,25 +627,28 @@ def topics_index(request: Request):
 @app.get('/topics/{slug}',response_class=HTMLResponse)
 def topic_detail(request: Request,slug: str,mode: str='selected',page: int=Query(1,ge=1)):
     mode = mode if mode in ('all','selected') else 'selected'
-    selected = " AND " + _selected_clause() if mode=='selected' and CURATED_FEED_ENABLED else ''
+    cte, curation_join, visible, score_expr, _ = portal_curation_sql(CURATION_READ_ENABLED)
+    selected = " AND " + _selected_clause(score_expr=score_expr) if mode=='selected' and CURATED_FEED_ENABLED else ''
     with get_db() as db:
         topic = next((t for t in _topic_stats(db) if t['slug']==slug),None)
         if topic is None:
             raise HTTPException(404,'主题不存在')
-        base = f"""SELECT i.*,s.name AS source_name,si.story_id FROM item_topics it
+        base = f"""SELECT i.*,s.name AS source_name,si.story_id
+            {', cv.score AS curation_rank_score' if CURATION_READ_ENABLED else ''} FROM item_topics it
             JOIN items i ON i.id=it.item_id JOIN sources s ON s.id=i.source_id
             LEFT JOIN story_items si ON si.item_id=i.id
-            WHERE it.topic_slug=? AND COALESCE(i.tmt,1)!=0 {selected}"""
+            {curation_join}
+            WHERE it.topic_slug=? AND {visible} {selected}"""
         if mode == 'selected':
-            sql = """WITH eligible AS (""" + base + """), ranked AS (
+            sql = (cte + ", " if cte else "WITH ") + """eligible AS (""" + base + f"""), ranked AS (
                 SELECT eligible.*,ROW_NUMBER() OVER (
                     PARTITION BY COALESCE(story_id,'item:' || id)
-                    ORDER BY published_at DESC,official DESC,COALESCE(score,-1) DESC,id DESC
+                    ORDER BY published_at DESC,official DESC,COALESCE({'curation_rank_score' if CURATION_READ_ENABLED else 'score'},-1) DESC,id DESC
                 ) AS story_rank FROM eligible)
                 SELECT * FROM ranked WHERE story_rank=1
                 ORDER BY published_at DESC,id DESC LIMIT 21 OFFSET ?"""
         else:
-            sql = base + " ORDER BY i.published_at DESC,i.id DESC LIMIT 21 OFFSET ?"
+            sql = cte + base + " ORDER BY i.published_at DESC,i.id DESC LIMIT 21 OFFSET ?"
         rows = db.execute(sql,(slug,(page-1)*20)).fetchall()
     days = []
     for item in _decorate(rows[:20]):

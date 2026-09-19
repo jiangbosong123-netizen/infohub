@@ -97,6 +97,25 @@ class CurationProjectionTests(unittest.TestCase):
         self.assertIn("旧译文", current.text)
         self.assertIn("AI 待复核", current.text)
 
+    def test_feed_filter_score_and_topic_use_published_values_before_pagination(self):
+        self._import()
+        with database.get_db() as db:
+            db.execute("UPDATE items SET tmt=0,score=5,ai_cat='product' WHERE id=1")
+            db.execute("""INSERT INTO topics(slug,name,group_key,description,rules,position)
+                          VALUES('test-topic','测试主题','ai','','{}',1)""")
+            db.execute("INSERT INTO item_topics(item_id,topic_slug,evidence) VALUES(1,'test-topic','fixture')")
+        client = TestClient(routes.app)
+        with patch.object(routes, "CURATION_READ_ENABLED", False), patch.object(routes, "CURATED_FEED_ENABLED", True):
+            self.assertEqual(routes._query_items(mode="selected"), [])
+            self.assertEqual(client.get("/topics/test-topic").context["topic"]["total"], 0)
+        with patch.object(routes, "CURATION_READ_ENABLED", True), patch.object(routes, "CURATED_FEED_ENABLED", True):
+            self.assertEqual([r["id"] for r in routes._query_items(mode="selected", cat="model", limit=1)], [1])
+            self.assertEqual(routes._query_items(mode="all", cat="product"), [])
+            topic = client.get("/topics/test-topic")
+            self.assertEqual(topic.status_code, 200)
+            self.assertEqual((topic.context["topic"]["total"], topic.context["topic"]["selected"]), (1, 1))
+            self.assertEqual(topic.context["days"][0]["rows"][0]["score"], 80)
+
 
 if __name__ == "__main__":
     unittest.main()
