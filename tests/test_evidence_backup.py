@@ -1,4 +1,5 @@
 import json
+import os
 import sqlite3
 import tempfile
 import unittest
@@ -14,6 +15,7 @@ from app.report_generation import prepare_report_generation, record_report_respo
 from app.report_inputs import freeze_calendar_daily
 from app.report_query import published_calendar_report
 from app.report_versions import publish_structured_report
+from app.portal_smoke import smoke_restored_bundle
 
 
 class EvidenceBackupTests(unittest.TestCase):
@@ -115,6 +117,12 @@ class EvidenceBackupTests(unittest.TestCase):
         with sqlite3.connect(f"file:{restored / 'database.db'}?mode=ro", uri=True) as db:
             self.assertEqual(db.execute("SELECT COUNT(*) FROM items").fetchone()[0], 1)
             self.assertEqual(db.execute("SELECT COUNT(*) FROM report_generation_runs").fetchone()[0], 1)
+        with patch.dict(os.environ, {"INFOHUB_REPORT_READ_ENABLED": "true"}):
+            smoke = smoke_restored_bundle(restored)
+        self.assertEqual(smoke["status"], "ok")
+        self.assertTrue(smoke["bundle_unchanged"])
+        self.assertIn("daily_versioned", {entry["name"] for entry in smoke["checks"]})
+        self.assertTrue(all(entry["http_status"] == 200 for entry in smoke["checks"]))
         with patch.object(database, "DB_PATH", restored / "database.db"), patch.object(
             config, "DB_PATH", restored / "database.db"
         ):
@@ -133,6 +141,17 @@ class EvidenceBackupTests(unittest.TestCase):
         with self.assertRaises(EvidenceBackupError):
             restore_backup_bundle(bundle, restored)
         self.assertFalse(restored.exists())
+
+    def test_portal_smoke_catches_read_failure_with_intact_sqlite(self):
+        with database.get_db() as db:
+            db.execute("UPDATE items SET published_at='invalid-time' WHERE id=1")
+        bundle = self.root / "backups" / "bad-time.bundle"
+        create_backup_bundle(bundle)
+        result = smoke_restored_bundle(bundle)
+        self.assertEqual(result["status"], "failed")
+        self.assertTrue(result["bundle_unchanged"])
+        self.assertIn("home", {entry["name"] for entry in result["checks"]
+                               if entry["status"] == "failed"})
 
 
 if __name__ == "__main__":

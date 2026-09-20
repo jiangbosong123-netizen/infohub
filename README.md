@@ -167,6 +167,7 @@ python cli.py db-backup                 # 手动创建一致性备份，不覆�
 python cli.py db-bundle-backup          # 备份 SQLite 与实际引用的全部 CAS 证据
 python cli.py db-bundle-verify PATH     # 校验备份包中的数据库与证据
 python cli.py db-bundle-restore BUNDLE DEST  # 恢复到新的隔离目录，不切换当前服务
+python cli.py db-bundle-smoke PATH     # 在临时数据库副本上打开主要门户页面
 python cli.py db-migrate                # 仅迁移；需要变更的旧库会先备份
 python cli.py db-verify                 # 要求完整性通过且schema为当前版本
 python cli.py runtime-config            # 显示非敏感运行配置和实际数据路径
@@ -194,6 +195,9 @@ NLP 固定样本、分组防泄漏和标注状态规则见 [评估数据说明](
 写入清单并在发布整个目录前校验；转移到另一台机器后执行 `db-bundle-verify`。
 `db-bundle-restore` 只接受不存在的新目录，恢复并复核数据库和所有证据文件；不会覆盖运行库、
 修改环境变量或启动服务。
+`db-bundle-smoke` 接受未修改的备份包或刚恢复的目录，把数据库再复制到临时位置，
+离线打开首页、主题、搜索、日报及可用的详情页并逐项输出 HTTP 状态。它不会启动常驻服务，
+也不会修改传入的备份目录。真正切换后仍须单独验证 worker 与 `/api/ready`。
 操作前先暂停 worker，避免备份期间与未来的 blob 清理任务竞争；命令不会自动停止服务。
 
 初始化会自动把历史中文标题纳入 FTS 搜索索引；重复运行不会重复迁移或重复备份。

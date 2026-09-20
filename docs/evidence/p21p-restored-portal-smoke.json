@@ -1,0 +1,58 @@
+{
+  "module": "p21p-restored-portal-smoke",
+  "source": "isolated Mac SQLite copy",
+  "schema_version": 21,
+  "items": 34130,
+  "legacy_reports": 9,
+  "backup_sha256_matches_restore": true,
+  "portal": {
+    "status": "ok",
+    "checks": [
+      {
+        "name": "home",
+        "status": "ok",
+        "http_status": 200
+      },
+      {
+        "name": "topics",
+        "status": "ok",
+        "http_status": 200
+      },
+      {
+        "name": "search",
+        "status": "ok",
+        "http_status": 200
+      },
+      {
+        "name": "daily_list",
+        "status": "ok",
+        "http_status": 200
+      },
+      {
+        "name": "live",
+        "status": "ok",
+        "http_status": 200
+      },
+      {
+        "name": "daily_legacy",
+        "status": "ok",
+        "http_status": 200
+      },
+      {
+        "name": "topic_detail",
+        "status": "ok",
+        "http_status": 200
+      },
+      {
+        "name": "story_detail",
+        "status": "ok",
+        "http_status": 200
+      }
+    ],
+    "database_sha256": "0713af9bfbd4c0e2eab2f481f978462aa1f0bddebc9b87d475cc3be2adbca975",
+    "bundle_unchanged": true
+  },
+  "windows_touched": false,
+  "live_database_modified": false,
+  "provider_calls": 0
+}
