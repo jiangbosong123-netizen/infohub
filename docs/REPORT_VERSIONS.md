@@ -1,4 +1,4 @@
-# Reproducible reports: versioned foundation (P21a–P21g)
+# Reproducible reports: versioned foundation (P21a–P21h)
 
 Migration 19 adds four empty tables. It leaves `daily_reports` untouched and
 does not switch the generator, worker, portal, or API. A legacy report's text
@@ -138,3 +138,8 @@ P21g adds the [closed model draft contract](REPORT_DRAFTS.md) and source-indexed
 renderer. It checks citation membership and safely constructs Markdown, but
 does not claim that citation membership proves a model's factual assertion.
 No model call, LLM publication or worker change occurs in that unit.
+
+P21h adds the [immutable model-generation ledger](REPORT_GENERATION_LEDGER.md)
+as migration 20. Future LLM versions must link a valid attempt whose input,
+provider, model and prompt identity match. Existing report rows remain intact;
+recording response bytes, semantic review and publication are separate units.

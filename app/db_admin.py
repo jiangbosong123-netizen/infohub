@@ -2069,6 +2069,81 @@ def _report_version_foundation(db: sqlite3.Connection) -> None:
     _execute_script(db, REPORT_VERSION_SCHEMA_SQL)
 
 
+REPORT_GENERATION_SCHEMA_SQL = """
+CREATE TABLE report_generation_runs (
+    id TEXT PRIMARY KEY,
+    dataset_id TEXT NOT NULL,
+    input_snapshot_id TEXT NOT NULL REFERENCES report_input_snapshots(id),
+    provider TEXT NOT NULL CHECK(length(trim(provider))>0),
+    requested_model TEXT NOT NULL CHECK(length(trim(requested_model))>0),
+    prompt_template_id TEXT NOT NULL CHECK(length(trim(prompt_template_id))>0),
+    prompt_sha256 TEXT NOT NULL CHECK(length(prompt_sha256)=64),
+    rendered_prompt_ref TEXT NOT NULL CHECK(length(trim(rendered_prompt_ref))>0),
+    rendered_prompt_sha256 TEXT NOT NULL CHECK(length(rendered_prompt_sha256)=64),
+    parameters_json TEXT NOT NULL CHECK(json_valid(parameters_json)),
+    prepared_at TEXT NOT NULL,
+    UNIQUE(input_snapshot_id,provider,requested_model,prompt_template_id,
+           prompt_sha256,rendered_prompt_sha256,parameters_json)
+);
+CREATE INDEX idx_report_generation_runs_input ON report_generation_runs(input_snapshot_id,prepared_at);
+CREATE TRIGGER report_generation_runs_match BEFORE INSERT ON report_generation_runs
+WHEN NOT EXISTS(SELECT 1 FROM report_input_snapshots s
+                WHERE s.id=NEW.input_snapshot_id AND s.dataset_id=NEW.dataset_id)
+BEGIN SELECT RAISE(ABORT,'report generation input identity mismatch'); END;
+CREATE TRIGGER report_generation_runs_no_update BEFORE UPDATE ON report_generation_runs
+BEGIN SELECT RAISE(ABORT,'report generation runs are immutable'); END;
+CREATE TRIGGER report_generation_runs_no_delete BEFORE DELETE ON report_generation_runs
+BEGIN SELECT RAISE(ABORT,'report generation runs are immutable'); END;
+
+CREATE TABLE report_generation_attempts (
+    id TEXT PRIMARY KEY,
+    run_id TEXT NOT NULL REFERENCES report_generation_runs(id),
+    attempt_number INTEGER NOT NULL CHECK(attempt_number>=1),
+    status TEXT NOT NULL CHECK(status IN ('valid_draft','invalid_draft','failed','refused')),
+    resolved_model TEXT NOT NULL CHECK(length(trim(resolved_model))>0),
+    provider_request_id TEXT,
+    raw_response_ref TEXT,
+    raw_response_sha256 TEXT CHECK(raw_response_sha256 IS NULL OR length(raw_response_sha256)=64),
+    validated_draft_json TEXT CHECK(validated_draft_json IS NULL OR json_valid(validated_draft_json)),
+    validation_report_json TEXT NOT NULL CHECK(json_valid(validation_report_json)),
+    input_tokens INTEGER CHECK(input_tokens IS NULL OR input_tokens>=0),
+    output_tokens INTEGER CHECK(output_tokens IS NULL OR output_tokens>=0),
+    cost_microusd INTEGER CHECK(cost_microusd IS NULL OR cost_microusd>=0),
+    usage_status TEXT NOT NULL CHECK(usage_status IN ('reported','estimated','unknown')),
+    started_at TEXT NOT NULL,
+    finished_at TEXT NOT NULL,
+    recorded_at TEXT NOT NULL,
+    UNIQUE(run_id,attempt_number),
+    CHECK((raw_response_ref IS NULL)=(raw_response_sha256 IS NULL)),
+    CHECK(status NOT IN ('valid_draft','invalid_draft') OR raw_response_ref IS NOT NULL),
+    CHECK((status='valid_draft')=(validated_draft_json IS NOT NULL)),
+    CHECK(usage_status!='unknown' OR (input_tokens IS NULL AND output_tokens IS NULL
+                                     AND cost_microusd IS NULL))
+);
+CREATE INDEX idx_report_generation_attempts_run ON report_generation_attempts(run_id,attempt_number);
+CREATE TRIGGER report_generation_attempts_no_update BEFORE UPDATE ON report_generation_attempts
+BEGIN SELECT RAISE(ABORT,'report generation attempts are immutable'); END;
+CREATE TRIGGER report_generation_attempts_no_delete BEFORE DELETE ON report_generation_attempts
+BEGIN SELECT RAISE(ABORT,'report generation attempts are immutable'); END;
+
+ALTER TABLE report_versions ADD COLUMN generation_attempt_id TEXT REFERENCES report_generation_attempts(id);
+CREATE TRIGGER report_versions_generation_provenance BEFORE INSERT ON report_versions
+WHEN (NEW.mode='llm' AND NOT EXISTS(
+    SELECT 1 FROM report_generation_attempts a
+    JOIN report_generation_runs r ON r.id=a.run_id
+    WHERE a.id=NEW.generation_attempt_id AND a.status='valid_draft'
+      AND r.input_snapshot_id=NEW.input_snapshot_id AND r.dataset_id=NEW.dataset_id
+      AND r.provider=NEW.provider AND r.requested_model=NEW.model
+      AND r.prompt_template_id=NEW.prompt_template_id AND r.prompt_sha256=NEW.prompt_sha256
+)) OR (NEW.mode!='llm' AND NEW.generation_attempt_id IS NOT NULL)
+BEGIN SELECT RAISE(ABORT,'report version generation provenance mismatch'); END;
+"""
+
+
+def _report_generation_foundation(db: sqlite3.Connection) -> None:
+    _execute_script(db, REPORT_GENERATION_SCHEMA_SQL)
+
+
 # Migration 1 freezes the exact legacy schema at main@88a2a1e. Future schema
 # changes must append a new Migration instead of editing this definition.
 MIGRATIONS = (
@@ -2185,6 +2260,8 @@ MIGRATIONS = (
     ),
     Migration(19, "versioned report input and publication foundation",
               REPORT_VERSION_SCHEMA_SQL, _report_version_foundation),
+    Migration(20, "immutable report model generation ledger",
+              REPORT_GENERATION_SCHEMA_SQL, _report_generation_foundation),
 )
 CURRENT_SCHEMA_VERSION = MIGRATIONS[-1].version
 REQUIRED_MIGRATION_COLUMNS = {
@@ -2219,6 +2296,7 @@ EXPECTED_TABLES = LEGACY_ANCHORS | {
     "curation_search_dirty",
     "curation_story_metrics", "curation_story_metrics_state", "curation_story_metrics_dirty",
     "report_input_snapshots", "report_input_members", "report_versions", "report_publications",
+    "report_generation_runs", "report_generation_attempts",
 }
 EXPECTED_ITEM_COLUMNS = {
     "id", "source_id", "url", "title", "title_zh", "summary", "raw_summary",
@@ -2539,13 +2617,28 @@ EXPECTED_REPORT_VERSION_COLUMNS = {
         "id", "dataset_id", "report_key", "version", "input_snapshot_id", "mode",
         "content", "content_sha256", "citations_json", "coverage_json", "provider",
         "model", "prompt_template_id", "prompt_sha256", "generated_at",
-        "available_at", "supersedes_version_id",
+        "available_at", "supersedes_version_id", "generation_attempt_id",
     },
     "report_publications": {
         "dataset_id", "report_key", "current_version_id", "published_at",
     },
+    "report_generation_runs": {
+        "id", "dataset_id", "input_snapshot_id", "provider", "requested_model",
+        "prompt_template_id", "prompt_sha256", "rendered_prompt_ref",
+        "rendered_prompt_sha256", "parameters_json", "prepared_at",
+    },
+    "report_generation_attempts": {
+        "id", "run_id", "attempt_number", "status", "resolved_model",
+        "provider_request_id", "raw_response_ref", "raw_response_sha256",
+        "validated_draft_json", "validation_report_json", "input_tokens",
+        "output_tokens", "cost_microusd", "usage_status", "started_at",
+        "finished_at", "recorded_at",
+    },
 }
 EXPECTED_INGEST_TRIGGERS = {
+    "report_generation_runs_match", "report_generation_runs_no_update",
+    "report_generation_runs_no_delete", "report_generation_attempts_no_update",
+    "report_generation_attempts_no_delete", "report_versions_generation_provenance",
     "report_input_snapshots_no_update", "report_input_snapshots_no_delete",
     "report_input_members_no_update", "report_input_members_no_delete",
     "report_input_members_no_late_insert",

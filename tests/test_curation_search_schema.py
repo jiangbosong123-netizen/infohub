@@ -25,8 +25,8 @@ class CurationSearchSchemaTests(unittest.TestCase):
                           VALUES(1,1,'https://example.test/a','Original','ai',
                           '2026-09-10T09:00:00+00:00','2026-09-10T09:01:00+00:00')""")
         report = db_admin.migrate_database(self.path)
-        self.assertEqual(report.applied_versions, (17, 18, 19))
-        self.assertEqual(db_admin.verify_database(self.path, require_current=True).schema_version, 19)
+        self.assertEqual(report.applied_versions, tuple(range(17, db_admin.CURRENT_SCHEMA_VERSION + 1)))
+        self.assertEqual(db_admin.verify_database(self.path, require_current=True).schema_version, db_admin.CURRENT_SCHEMA_VERSION)
         with sqlite3.connect(self.path) as db:
             self.assertEqual(db.execute("SELECT COUNT(*) FROM curation_search_documents").fetchone()[0], 0)
             self.assertEqual(db.execute("SELECT status,last_item_id FROM curation_search_state").fetchone(), ("empty", 0))

@@ -86,13 +86,28 @@ class ReportPublicationTests(unittest.TestCase):
         with database.get_db() as db:
             snapshot = db.execute("SELECT dataset_id,report_key FROM report_input_snapshots WHERE id=?",
                                   (newer["snapshot_id"],)).fetchone()
+            db.execute("""INSERT INTO report_generation_runs(
+                id,dataset_id,input_snapshot_id,provider,requested_model,prompt_template_id,
+                prompt_sha256,rendered_prompt_ref,rendered_prompt_sha256,parameters_json,prepared_at)
+                VALUES('test-run',?,?,'test','test-model','report-v1',?,
+                       'test/prompt',?,'{}','2026-09-19T08:45:00Z')""",
+                       (snapshot["dataset_id"], newer["snapshot_id"], "b" * 64, "c" * 64))
+            db.execute("""INSERT INTO report_generation_attempts(
+                id,run_id,attempt_number,status,resolved_model,raw_response_ref,
+                raw_response_sha256,validated_draft_json,validation_report_json,
+                usage_status,started_at,finished_at,recorded_at)
+                VALUES('test-attempt','test-run',1,'valid_draft','test-model',
+                       'test/response',?,'{}','{}','unknown',
+                       '2026-09-19T08:45:00Z','2026-09-19T08:46:00Z','2026-09-19T08:46:00Z')""",
+                       ("d" * 64,))
             db.execute("""INSERT INTO report_versions(
                           id,dataset_id,report_key,version,input_snapshot_id,mode,content,
                           content_sha256,citations_json,coverage_json,provider,model,
-                          prompt_template_id,prompt_sha256,generated_at,available_at,supersedes_version_id)
+                          prompt_template_id,prompt_sha256,generated_at,available_at,
+                          supersedes_version_id,generation_attempt_id)
                           VALUES('llm-version',?,?,2,?,'llm','validated LLM report',?,
                                  '[]','{}','test','test-model','report-v1',?,
-                                 '2026-09-19T09:00:00Z','2026-09-19T09:00:00Z',?)""",
+                                 '2026-09-19T09:00:00Z','2026-09-19T09:00:00Z',?,'test-attempt')""",
                        (snapshot["dataset_id"], snapshot["report_key"], newer["snapshot_id"],
                         "a" * 64, "b" * 64, first["version_id"]))
             db.execute("UPDATE report_publications SET current_version_id='llm-version' WHERE report_key=?",
