@@ -45,11 +45,14 @@ SQLite 备份从 P06a 起不再代表完整数据集，必须和 blob 一起保�
    CAS 文件，写清单、对副本逐项校验，再原子发布整个备份目录；
 3. 将整个 `.bundle` 目录复制到另一存储位置，对复制后的目录执行
    `db-bundle-verify PATH`；
-4. 恢复演练把 `database.db` 和 `blobs/` 复制到隔离目录，再执行 `db-verify` 与
-   `evidence-verify`（通过 `INFOHUB_DB_PATH` 和 `INFOHUB_BLOB_PATH` 指向副本）。
+4. 运行 `db-bundle-restore BUNDLE DEST` 到一个不存在的隔离目录。命令恢复并校验
+   `database.db` 与 `blobs/`，不会覆盖当前运行库或自动切换服务；再用指向该副本的
+   `INFOHUB_DB_PATH` 和 `INFOHUB_BLOB_PATH` 执行门户/API 读路径冒烟测试。
 
 原有 `db-backup` 只备份 SQLite，仍可用于迁移前的快速回滚点，不能单独充当完整证据备份。
 `db-bundle-backup` 要求当前 schema，不会替旧数据库自动迁移，也不会自动暂停 worker。
+若该备份早于已经对外发布的数据，正式切换前还需按数据集 epoch 规则处理外部同步游标；
+仅恢复到隔离目录不改变当前数据集 epoch。
 
 写入顺序保证已提交 DB 引用之前 blob 已存在；暂停 worker 后复制不会与写入竞争。
 备份包只包含快照数据库引用的 blob，无引用的残留对象不在备份中。不能用缺失 blob 的数据库
@@ -58,6 +61,10 @@ SQLite 备份从 P06a 起不再代表完整数据集，必须和 blob 一起保�
 [Mac 副本备份演练](evidence/p21n-evidence-backup-bundle.json) 从隔离的本地旧库副本升级后生成备份包，
 复制到另一目录并核验数据库摘要，34,088 条文章和 9 份旧日报数量保持不变。旧库没有新 CAS
 引用，因此缺失、篡改和含证据的备份路径由专门测试覆盖；该演练不代表 Windows 生产恢复已通过。
+
+[隔离恢复演练](evidence/p21o-isolated-bundle-restore.json) 将更新后的 Mac 数据库副本打包并恢复到
+全新目录，复核数据库摘要、34,122 条文章和 9 份旧日报。此时本地旧库仍无 CAS 引用；含原文、
+日报提示词与响应的恢复后读取另由固定测试覆盖。Windows 生产库仍未迁移或恢复。
 
 ## 兼容与回滚
 

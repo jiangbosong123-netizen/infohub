@@ -1,14 +1,19 @@
 import json
+import sqlite3
 import tempfile
 import unittest
 from pathlib import Path
 from unittest.mock import patch
 
 from app import config, database
-from app.evidence_backup import EvidenceBackupError, create_backup_bundle, verify_backup_bundle
-from app.ingest import begin_ingest_run, observe_candidate
+from app.evidence_backup import (
+    EvidenceBackupError, create_backup_bundle, restore_backup_bundle, verify_backup_bundle,
+)
+from app.ingest import begin_ingest_run, observe_candidate, verify_payload
 from app.report_generation import prepare_report_generation, record_report_response
 from app.report_inputs import freeze_calendar_daily
+from app.report_query import published_calendar_report
+from app.report_versions import publish_structured_report
 
 
 class EvidenceBackupTests(unittest.TestCase):
@@ -39,6 +44,7 @@ class EvidenceBackupTests(unittest.TestCase):
             {"url": "https://example.test/one", "title": "Evidence"}, ordinal=0,
         )
         snapshot = freeze_calendar_daily("2026-09-18")["snapshot_id"]
+        self.snapshot = snapshot
         run = prepare_report_generation(
             snapshot_id=snapshot, provider="local", requested_model="test-model",
             prompt_template_id="daily-v1", prompt_template_text="Template {{ items }}",
@@ -91,6 +97,42 @@ class EvidenceBackupTests(unittest.TestCase):
         manifest_path.write_text(json.dumps(manifest))
         with self.assertRaises(EvidenceBackupError):
             verify_backup_bundle(target)
+
+    def test_restore_into_new_directory_keeps_live_data_and_evidence_readable(self):
+        publish_structured_report(self.snapshot)
+        bundle = self.root / "backups" / "restorable.bundle"
+        create_backup_bundle(bundle)
+        live_bytes = self.db_path.read_bytes()
+        restored = self.root / "recovered" / "data"
+        result = restore_backup_bundle(bundle, restored)
+        self.assertEqual(result["status"], "ok")
+        self.assertEqual(result["unique_blobs"], 3)
+        self.assertEqual(self.db_path.read_bytes(), live_bytes)
+        self.assertEqual(verify_payload(self.raw.payload_ref, self.raw.payload_sha256,
+                                        restored / "blobs").read_bytes(),
+                         verify_payload(self.raw.payload_ref, self.raw.payload_sha256,
+                                        self.blob_path).read_bytes())
+        with sqlite3.connect(f"file:{restored / 'database.db'}?mode=ro", uri=True) as db:
+            self.assertEqual(db.execute("SELECT COUNT(*) FROM items").fetchone()[0], 1)
+            self.assertEqual(db.execute("SELECT COUNT(*) FROM report_generation_runs").fetchone()[0], 1)
+        with patch.object(database, "DB_PATH", restored / "database.db"), patch.object(
+            config, "DB_PATH", restored / "database.db"
+        ):
+            with database.get_db() as restored_db:
+                report = published_calendar_report(restored_db, "2026-09-18")
+            self.assertEqual(report["mode"], "structured_fallback")
+            self.assertEqual(report["citation_count"], 1)
+        with self.assertRaises(FileExistsError):
+            restore_backup_bundle(bundle, restored)
+
+    def test_tampered_bundle_cannot_create_restore_destination(self):
+        bundle = self.root / "backups" / "damaged.bundle"
+        create_backup_bundle(bundle)
+        (bundle / "blobs" / self.raw.payload_ref).unlink()
+        restored = self.root / "recovered" / "damaged"
+        with self.assertRaises(EvidenceBackupError):
+            restore_backup_bundle(bundle, restored)
+        self.assertFalse(restored.exists())
 
 
 if __name__ == "__main__":

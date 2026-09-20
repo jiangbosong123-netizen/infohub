@@ -148,3 +148,54 @@ def create_backup_bundle(destination: Path | str | None = None) -> dict:
     finally:
         if stage.exists():
             shutil.rmtree(stage)
+
+
+def restore_backup_bundle(bundle: Path | str, destination: Path | str) -> dict:
+    """Restore a verified bundle to a new isolated directory without switching live data."""
+    source = Path(bundle).expanduser().resolve(strict=True)
+    verified = verify_backup_bundle(source)
+    target = Path(destination).expanduser().resolve()
+    try:
+        target.relative_to(source)
+    except ValueError:
+        pass
+    else:
+        raise EvidenceBackupError("restore destination cannot be inside its bundle")
+    target.parent.mkdir(parents=True, exist_ok=True)
+    if target.exists():
+        raise FileExistsError(f"restore destination already exists: {target}")
+    stage = target.parent / f".{target.name}.{uuid4().hex}.tmp"
+    stage.mkdir()
+    try:
+        for name in ("database.db", "manifest.json"):
+            with (source / name).open("rb") as reader, (stage / name).open("xb") as writer:
+                shutil.copyfileobj(reader, writer, length=1024 * 1024)
+                writer.flush()
+                os.fsync(writer.fileno())
+        for digest in _referenced_hashes(stage / "database.db"):
+            relative = Path("sha256") / digest[:2] / digest
+            source_file = verify_payload(relative.as_posix(), digest, source / "blobs")
+            restored = stage / "blobs" / relative
+            restored.parent.mkdir(parents=True, exist_ok=True)
+            with source_file.open("rb") as reader, restored.open("xb") as writer:
+                shutil.copyfileobj(reader, writer, length=1024 * 1024)
+                writer.flush()
+                os.fsync(writer.fileno())
+            verify_payload(relative.as_posix(), digest, stage / "blobs")
+        staged = verify_backup_bundle(stage)
+        if staged["database_sha256"] != verified["database_sha256"]:
+            raise EvidenceBackupError("restored database differs from backup source")
+        _sync_directory(stage)
+        if target.exists():
+            raise FileExistsError(f"restore destination already exists: {target}")
+        os.replace(stage, target)
+        _sync_directory(target.parent)
+        result = verify_backup_bundle(target)
+        return {
+            **result,
+            "database_path": str(target / "database.db"),
+            "blob_path": str(target / "blobs"),
+        }
+    finally:
+        if stage.exists():
+            shutil.rmtree(stage)

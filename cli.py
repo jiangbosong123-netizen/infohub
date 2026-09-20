@@ -13,6 +13,7 @@ from __future__ import annotations
   python cli.py db-backup [DEST]       # 创建并校验一致性备份
   python cli.py db-bundle-backup [DEST] # 同批备份 SQLite 与其引用的 CAS 文件
   python cli.py db-bundle-verify PATH   # 校验完整备份包
+  python cli.py db-bundle-restore BUNDLE DEST  # 恢复到全新隔离目录，不切换线上库
   python cli.py db-migrate             # 仅执行安全迁移（旧库会先备份）
   python cli.py db-verify [PATH]       # 严格验证当前版本数据库
   python cli.py runtime-config         # 显示当前环境、角色与数据路径（不含密钥）
@@ -101,6 +102,11 @@ def cmd_db_bundle_backup(destination: str | None = None) -> None:
 def cmd_db_bundle_verify(path: str) -> None:
     from app.evidence_backup import verify_backup_bundle
     print(json.dumps(verify_backup_bundle(path), ensure_ascii=False, indent=2))
+
+
+def cmd_db_bundle_restore(bundle: str, destination: str) -> None:
+    from app.evidence_backup import restore_backup_bundle
+    print(json.dumps(restore_backup_bundle(bundle, destination), ensure_ascii=False, indent=2))
 
 
 def cmd_db_migrate() -> None:
@@ -400,6 +406,8 @@ def main() -> None:
         cmd_db_bundle_backup(sys.argv[2] if len(sys.argv) > 2 else None)
     elif cmd == "db-bundle-verify" and len(sys.argv) == 3:
         cmd_db_bundle_verify(sys.argv[2])
+    elif cmd == "db-bundle-restore" and len(sys.argv) == 4:
+        cmd_db_bundle_restore(sys.argv[2], sys.argv[3])
     elif cmd == "db-migrate":
         cmd_db_migrate()
     elif cmd == "db-verify":
