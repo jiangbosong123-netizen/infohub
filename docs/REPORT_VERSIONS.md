@@ -1,4 +1,4 @@
-# Reproducible reports: versioned foundation (P21a–P21e)
+# Reproducible reports: versioned foundation (P21a–P21f)
 
 Migration 19 adds four empty tables. It leaves `daily_reports` untouched and
 does not switch the generator, worker, portal, or API. A legacy report's text
@@ -28,8 +28,9 @@ validation fails, and switch back without deleting history.
 The portal and scheduled writer now have separate opt-in switches; a guarded
 model-generated path is still future work. Natural-day windows and future US
 market-session windows are separate report types; no market calendar is
-invented here. With the new write switch off, the current legacy generator
-can still overwrite `daily_reports`. No Windows production migration has run.
+invented here. With the new write switch off, manual legacy generation can
+still deliberately overwrite `daily_reports`; scheduled retries cannot.
+No Windows production migration has run.
 
 P21b adds the maintenance-only `python cli.py report-snapshot YYYY-MM-DD`
 command. It freezes up to 120 currently visible items for a natural day in one
@@ -120,3 +121,15 @@ The [Mac-copy worker rehearsal](evidence/p21e-report-worker-rehearsal.json)
 published 34 cited entries for a previously unpublished day, skipped a retry,
 and left all 9 legacy reports unchanged. SQLite integrity and foreign keys
 passed; this is not a Windows production rehearsal.
+
+P21f makes the default scheduled legacy path safe during retries and rollback.
+It checks for an existing legacy row or versioned publication before running
+the old generator, and uses an insert-only final write that checks the
+versioned pointer again. This prevents a late job retry from overwriting an
+existing legacy LLM report, and prevents disabling the new write switch from
+creating a legacy report over a published version. An explicit maintenance
+`report` command still supports deliberate legacy regeneration. No schema
+change or model call is introduced by this safeguard.
+The [Mac-copy retry rehearsal](evidence/p21f-legacy-retry-rehearsal.json)
+confirmed existing-row preservation, first-write/retry behavior, and rollback
+after versioned publication without altering the 9 prior legacy rows.

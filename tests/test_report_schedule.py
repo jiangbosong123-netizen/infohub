@@ -5,8 +5,9 @@ from unittest.mock import patch
 from zoneinfo import ZoneInfo
 
 from app import config, database
+from app.ai.daily import generate_daily
 from app.report_inputs import freeze_calendar_daily
-from app.report_schedule import generate_scheduled_report
+from app.report_schedule import generate_legacy_scheduled_report, generate_scheduled_report
 
 
 class ScheduledReportTests(unittest.TestCase):
@@ -60,3 +61,42 @@ class ScheduledReportTests(unittest.TestCase):
         with database.get_db() as db:
             self.assertEqual(db.execute("SELECT COUNT(*) FROM report_versions").fetchone()[0], 0)
             self.assertEqual(db.execute("SELECT content FROM daily_reports").fetchone()[0], "late legacy")
+
+    def test_legacy_worker_writes_once_and_retry_preserves_content(self):
+        first = generate_legacy_scheduled_report("2026-09-18")
+        self.assertEqual(first["status"], "legacy_written")
+        with database.get_db() as db:
+            before = tuple(db.execute("SELECT content,created_at FROM daily_reports").fetchone())
+            db.execute("UPDATE items SET title='Changed later' WHERE id=1")
+        self.assertEqual(generate_legacy_scheduled_report("2026-09-18")["status"], "legacy_preserved")
+        with database.get_db() as db:
+            self.assertEqual(tuple(db.execute("SELECT content,created_at FROM daily_reports").fetchone()), before)
+
+    def test_explicit_legacy_regeneration_remains_available(self):
+        self.assertEqual(generate_legacy_scheduled_report("2026-09-18")["status"], "legacy_written")
+        with database.get_db() as db:
+            db.execute("UPDATE items SET title='Explicitly revised' WHERE id=1")
+        self.assertEqual(generate_daily("2026-09-18"), "2026-09-18")
+        with database.get_db() as db:
+            self.assertIn("Explicitly revised", db.execute("SELECT content FROM daily_reports").fetchone()[0])
+
+    def test_legacy_worker_cannot_replace_published_version(self):
+        self.assertEqual(generate_scheduled_report("2026-09-18")["status"], "published")
+        self.assertEqual(generate_legacy_scheduled_report("2026-09-18")["status"], "already_published")
+        with database.get_db() as db:
+            self.assertEqual(db.execute("SELECT COUNT(*) FROM daily_reports").fetchone()[0], 0)
+
+    def test_legacy_final_insert_rechecks_versioned_pointer(self):
+        from app.ai import daily
+
+        original = daily._collect
+
+        def collect_then_publish(day):
+            result = original(day)
+            self.assertEqual(generate_scheduled_report(day)["status"], "published")
+            return result
+
+        with patch.object(daily, "_collect", side_effect=collect_then_publish):
+            self.assertEqual(generate_legacy_scheduled_report("2026-09-18")["status"], "already_published")
+        with database.get_db() as db:
+            self.assertEqual(db.execute("SELECT COUNT(*) FROM daily_reports").fetchone()[0], 0)

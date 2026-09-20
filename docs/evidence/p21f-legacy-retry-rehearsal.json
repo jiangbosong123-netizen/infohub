@@ -1,0 +1,15 @@
+{
+  "source": "Mac data/app.db isolated SQLite backup",
+  "legacy_reports_before": 9,
+  "original_legacy_rows_unchanged": true,
+  "existing_legacy_status": "legacy_preserved",
+  "fresh_legacy_status": "legacy_written",
+  "legacy_retry_status": "legacy_preserved",
+  "versioned_status": "published",
+  "rollback_to_legacy_status": "already_published",
+  "new_legacy_rows": 1,
+  "published_versions": 1,
+  "integrity": "ok",
+  "foreign_key_violations": 0,
+  "windows_production_changed": false
+}

@@ -42,8 +42,8 @@ schedule 的下一次时间保存在 SQLite。进程停机期间错过多个周�
 领取后有带 token 的租约，心跳线程持续续租；worker 被杀死后租约到期，新进程会把旧 attempt
 标为 `lease_expired` 并重试同一 job。失败按任务上限进入 retry_wait 或 dead_letter。
 
-现有 handler 是 at-least-once 兼容层：URL 唯一约束、默认旧日报的日期 upsert 和派生索引事务提供基础
-幂等。启用 `INFOHUB_REPORT_READ_ENABLED=true` 和 `INFOHUB_REPORT_WRITE_ENABLED=true` 后，
+现有 handler 是 at-least-once 兼容层：URL 唯一约束、旧日报定时任务的仅首次插入和派生索引事务提供基础
+幂等；手工 `report` 命令仍可明确要求覆盖旧日报。启用 `INFOHUB_REPORT_READ_ENABLED=true` 和 `INFOHUB_REPORT_WRITE_ENABLED=true` 后，
 日报任务改用冻结输入及不可变版本，同一天已有旧日报或已发布版本时跳过。
 它们尚未全部通过 `publish_job_result` 生成对外 change。P06及后续领域 PR 必须逐步把
 可见结果接入原子发布入口，不能因为 P05 有 durable job 就宣称所有领域写入已经 exactly-once。

@@ -36,9 +36,10 @@ class WorkerRuntimeTests(unittest.TestCase):
 
     def test_report_worker_switch_keeps_legacy_as_default(self):
         with patch.object(config, "REPORT_WRITE_ENABLED", False), patch(
-            "app.ai.daily.generate_daily", return_value="2026-09-18"
+            "app.report_schedule.generate_legacy_scheduled_report",
+            return_value={"date": "2026-09-18", "status": "legacy_written"},
         ) as legacy:
-            self.assertEqual(_report(), {"date": "2026-09-18"})
+            self.assertEqual(_report()["status"], "legacy_written")
             legacy.assert_called_once()
         with patch.object(config, "REPORT_WRITE_ENABLED", True), patch(
             "app.report_schedule.generate_scheduled_report",
