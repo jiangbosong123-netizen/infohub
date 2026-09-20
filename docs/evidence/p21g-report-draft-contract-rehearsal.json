@@ -1,0 +1,17 @@
+{
+  "source": "Mac data/app.db isolated SQLite backup",
+  "date": "2026-09-10",
+  "frozen_inputs": 120,
+  "channels": [
+    "stock",
+    "robot",
+    "ai"
+  ],
+  "claims": 3,
+  "validated_citations": 3,
+  "all_links_from_frozen_input": true,
+  "unverified_claim_status": "not_automatically_verified",
+  "new_report_versions": 0,
+  "legacy_reports": 9,
+  "windows_production_changed": false
+}

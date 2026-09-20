@@ -1,4 +1,4 @@
-# Reproducible reports: versioned foundation (P21a–P21f)
+# Reproducible reports: versioned foundation (P21a–P21g)
 
 Migration 19 adds four empty tables. It leaves `daily_reports` untouched and
 does not switch the generator, worker, portal, or API. A legacy report's text
@@ -133,3 +133,8 @@ change or model call is introduced by this safeguard.
 The [Mac-copy retry rehearsal](evidence/p21f-legacy-retry-rehearsal.json)
 confirmed existing-row preservation, first-write/retry behavior, and rollback
 after versioned publication without altering the 9 prior legacy rows.
+
+P21g adds the [closed model draft contract](REPORT_DRAFTS.md) and source-indexed
+renderer. It checks citation membership and safely constructs Markdown, but
+does not claim that citation membership proves a model's factual assertion.
+No model call, LLM publication or worker change occurs in that unit.
