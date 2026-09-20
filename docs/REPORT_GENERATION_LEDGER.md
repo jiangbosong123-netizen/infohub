@@ -92,3 +92,19 @@ or remote sessions. The [Mac-copy workflow rehearsal](evidence/p21k-report-revie
 used a synthetic response, showed its source, and recorded a fixture rejection
 because no human source check occurred. It changed no report version or
 legacy daily row and made no provider call.
+
+P21l adds maintenance-only `report-publish-reviewed REVIEW_ID`. It verifies
+the approved review digest, exact raw response, prompt CAS, frozen input and
+citation contract before inserting an immutable `llm` report version. The
+insert and publication-pointer update share one transaction. Repeating the
+same review is idempotent. A legacy daily row, a previously published model
+version, or a newer input snapshot prevents replacement; a reviewed version
+may supersede a structured fallback from the same or older snapshot. The
+previous version remains queryable. This command does not call a provider or
+weaken the scheduled structured fallback path.
+
+The [Mac-copy publication rehearsal](evidence/p21l-reviewed-report-publication.json)
+used a **synthetic fixture approval**, not a real human source review. It
+confirmed fallback-to-model revision 2, portal citation display and retry
+idempotence while leaving all 9 original legacy reports unchanged. No model
+provider or Windows production system was contacted.

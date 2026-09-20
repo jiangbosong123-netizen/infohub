@@ -1,0 +1,17 @@
+{
+  "source": "Mac data/app.db isolated SQLite backup",
+  "approval_type": "synthetic fixture only; not a real source review",
+  "fallback_status": "published",
+  "publication_status": "published",
+  "published_version": 2,
+  "retry_status": "already_exists",
+  "portal_mode": "llm",
+  "portal_citation_count": 1,
+  "report_versions": 2,
+  "legacy_report_count": 9,
+  "legacy_unchanged": true,
+  "integrity": "ok",
+  "foreign_key_violations": 0,
+  "provider_calls": 0,
+  "windows_production_changed": false
+}

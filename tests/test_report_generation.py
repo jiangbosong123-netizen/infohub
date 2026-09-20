@@ -10,7 +10,10 @@ from app import config, database
 from app.ingest import PayloadIntegrityError, verify_payload
 from app.report_generation import prepare_report_generation, record_report_response
 from app.report_inputs import freeze_calendar_daily
+from app.report_llm_publish import publish_reviewed_report
 from app.report_review import record_manual_review, review_preview
+from app.report_versions import publish_structured_report
+from app.report_query import published_calendar_report
 
 
 T0 = "2026-09-19T08:00:00Z"
@@ -145,6 +148,76 @@ class ReportGenerationRecordingTests(unittest.TestCase):
                 cli.cmd_report_review_preview("attempt")
             with self.assertRaisesRegex(config.RuntimeConfigurationError, "maintenance role"):
                 cli.cmd_report_review("attempt", "approved", "0" * 64, "reason")
+            with self.assertRaisesRegex(config.RuntimeConfigurationError, "maintenance role"):
+                cli.cmd_report_publish_reviewed("review")
+
+    def _approved_review(self):
+        run_id = self._prepare()["run_id"]
+        attempt = record_report_response(run_id=run_id, response=self._valid_response(),
+                                         resolved_model="test-model", started_at=T0, finished_at=T1)
+        preview = review_preview(attempt["attempt_id"])
+        return record_manual_review(attempt_id=attempt["attempt_id"], decision="approved",
+                                    expected_digest=preview["review_digest"], reviewer_id="operator",
+                                    reason="read original source")["review_id"]
+
+    def test_approved_draft_can_replace_structured_fallback_once(self):
+        fallback = publish_structured_report(self.snapshot)
+        self.assertEqual(fallback["status"], "published")
+        review_id = self._approved_review()
+        published = publish_reviewed_report(review_id)
+        self.assertEqual((published["status"], published["version"]), ("published", 2))
+        self.assertEqual(publish_reviewed_report(review_id)["status"], "already_exists")
+        with database.get_db() as db:
+            report = published_calendar_report(db, "2026-09-18")
+            self.assertEqual(report["mode"], "llm")
+            self.assertEqual(report["citation_count"], 1)
+            self.assertIn("存在一篇报道", report["content"])
+            self.assertEqual(db.execute("SELECT COUNT(*) FROM report_versions").fetchone()[0], 2)
+            self.assertEqual(db.execute("SELECT COUNT(*) FROM daily_reports").fetchone()[0], 0)
+
+    def test_rejected_or_legacy_date_is_not_published(self):
+        run_id = self._prepare()["run_id"]
+        attempt = record_report_response(run_id=run_id, response=self._valid_response(),
+                                         resolved_model="test-model", started_at=T0, finished_at=T1)
+        with self.assertRaisesRegex(ValueError, "missing"):
+            publish_reviewed_report("unknown-review")
+        preview = review_preview(attempt["attempt_id"])
+        rejected = record_manual_review(attempt_id=attempt["attempt_id"], decision="rejected",
+                                        expected_digest=preview["review_digest"], reviewer_id="operator",
+                                        reason="claim not supported")
+        with self.assertRaisesRegex(ValueError, "no valid approval"):
+            publish_reviewed_report(rejected["review_id"])
+        with database.get_db() as db:
+            self.assertEqual(db.execute("SELECT COUNT(*) FROM report_versions").fetchone()[0], 0)
+
+    def test_existing_legacy_report_is_preserved_after_approval(self):
+        review_id = self._approved_review()
+        with database.get_db() as db:
+            db.execute("INSERT INTO daily_reports(date,content,created_at) VALUES('2026-09-18','old report',?)", (T0,))
+        self.assertEqual(publish_reviewed_report(review_id)["status"], "legacy_preserved")
+        with database.get_db() as db:
+            self.assertEqual(db.execute("SELECT content FROM daily_reports").fetchone()[0], "old report")
+            self.assertEqual(db.execute("SELECT COUNT(*) FROM report_versions").fetchone()[0], 0)
+
+    def test_second_approved_draft_cannot_displace_existing_llm(self):
+        first_review = self._approved_review()
+        first = publish_reviewed_report(first_review)
+        other = prepare_report_generation(
+            snapshot_id=self.snapshot, provider="local", requested_model="test-model",
+            prompt_template_id="daily-v1", prompt_template_text="Template {{ items }}",
+            rendered_prompt="Template: evidence input 1", parameters={"temperature": 1}, now=T0,
+        )
+        attempt = record_report_response(run_id=other["run_id"], response=self._valid_response(),
+                                         resolved_model="test-model", started_at=T0, finished_at=T1)
+        preview = review_preview(attempt["attempt_id"])
+        second_review = record_manual_review(
+            attempt_id=attempt["attempt_id"], decision="approved",
+            expected_digest=preview["review_digest"], reviewer_id="operator",
+            reason="read original source",
+        )
+        protected = publish_reviewed_report(second_review["review_id"])
+        self.assertEqual(protected["status"], "preserved_llm")
+        self.assertEqual(protected["version_id"], first["version_id"])
 
 
 if __name__ == "__main__":
