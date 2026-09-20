@@ -20,12 +20,8 @@ updated or deleted. The database rejects a valid draft without a raw response
 reference or validated JSON, and rejects an LLM version whose attempt uses a
 different snapshot, dataset, provider, model or prompt identity.
 
-This is a **schema boundary**, not an invocation path. It does not yet store
-CAS objects, verify bytes against the declared hashes, enforce model budget,
-perform semantic review, or approve/publish a draft. Those actions require
-separate guarded code and tests. Until then the scheduled worker continues to
-publish only the deterministic structured fallback on its opt-in path; the
-default legacy path remains guarded against retry overwrites.
+P21h is a **schema boundary**, not an invocation path. It introduces no model
+call or publication path.
 
 The [isolated Mac-copy migration rehearsal](evidence/p21h-report-generation-migration.json)
 staged migrations 1–19 and applied only migration 20. All 33,569 article rows
@@ -33,3 +29,28 @@ and the digest of 9 legacy reports were unchanged; the two new tables were
 empty, SQLite integrity was `ok`, and foreign keys passed. This is not a
 Windows production migration. A fresh production backup and copy rehearsal
 remain mandatory before any production deployment.
+
+P21i adds `prepare_report_generation` and `record_report_response`. The first
+requires a verified immutable snapshot, stores the exact rendered prompt in
+the existing content-addressed blob store, and records the provider, requested
+model, template hash and JSON parameters. Identical preparation is idempotent.
+The second verifies that prompt blob before accepting a response, stores raw
+response bytes in the same blob store, validates decoded JSON with the cited
+draft contract, and appends a `valid_draft` or `invalid_draft` attempt. Bad
+JSON and unsupported citations remain inspectable as raw bytes; validation
+reports contain fixed error codes rather than untrusted response text. The
+same response is idempotent and a run is limited to four distinct attempts.
+Neither function invokes a provider or publishes a report version.
+
+Both prompt and response CAS objects must be included in backups. The run
+currently stores the **requested** model while the attempt stores the
+resolved model returned by a future provider adapter. Usage and cost are
+recorded only when supplied; budget authorization and cost verification must
+precede a real paid provider call. `valid_draft` means structural references
+passed, not that a claim is supported by the cited article. Semantic review
+and an approval gate remain required before publication.
+
+The [Mac-copy recording rehearsal](evidence/p21i-report-generation-recording.json)
+stored one offline fixture prompt and one valid plus one invalid response
+against a 120-item frozen input. It created no report version, left all 9
+legacy reports unchanged, and made zero provider calls.

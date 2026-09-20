@@ -1,4 +1,4 @@
-# Reproducible reports: versioned foundation (P21a–P21h)
+# Reproducible reports: versioned foundation (P21a–P21i)
 
 Migration 19 adds four empty tables. It leaves `daily_reports` untouched and
 does not switch the generator, worker, portal, or API. A legacy report's text
@@ -143,3 +143,7 @@ P21h adds the [immutable model-generation ledger](REPORT_GENERATION_LEDGER.md)
 as migration 20. Future LLM versions must link a valid attempt whose input,
 provider, model and prompt identity match. Existing report rows remain intact;
 recording response bytes, semantic review and publication are separate units.
+
+P21i implements local prompt/response CAS recording and structural draft
+validation in the [generation ledger](REPORT_GENERATION_LEDGER.md). It does
+not invoke a provider or publish model output.
