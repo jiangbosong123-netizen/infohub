@@ -1,4 +1,4 @@
-# Reproducible reports: schema foundation (P21a)
+# Reproducible reports: schema and input capture (P21a–P21b)
 
 Migration 19 adds four empty tables. It leaves `daily_reports` untouched and
 does not switch the generator, worker, portal, or API. A legacy report's text
@@ -25,14 +25,36 @@ the database rejects a pointer to a different report key or dataset. This
 lets a later implementation retain a good published version if generation or
 validation fails, and switch back without deleting history.
 
-P21b must add the builder and validate JSON/hash/citation semantics before
-writing; SQLite only validates structure and foreign keys. P21c will add
-legacy backfill and a guarded portal read switch. P21d will move the scheduled
-generator behind this versioned write path. Natural-day windows and future
-US market-session windows are separate report types; no market calendar is
-invented by this migration. The current legacy generator can still overwrite
-`daily_reports` until that later cutover, so this PR does not claim P21 is
-complete. No Windows production migration has been run.
+The next unit must generate and validate report citations against this frozen
+input before inserting a report version. A later guarded cutover will move
+the scheduled generator and portal behind the versioned path. Natural-day
+windows and future US market-session windows are separate report types; no
+market calendar is invented here. The current legacy generator can still
+overwrite `daily_reports` until that later cutover. No Windows production
+migration has been run.
+
+P21b adds the maintenance-only `python cli.py report-snapshot YYYY-MM-DD`
+command. It freezes up to 120 currently visible items for a natural day in one
+transaction. It reserves up to 20 high-ranked items from each existing stock,
+AI, and robot channel, then fills remaining slots by the common score/heat/ID
+order. This avoids a large stock feed silently displacing every robot item.
+The manifest records eligible and selected counts per channel plus whether the
+global cap truncated material. It uses the current curation publications,
+excludes items fetched after capture time, fixes deterministic selection order,
+and stores exact
+display material plus source URLs and current publication IDs. Window bounds
+use the configured IANA time zone and correctly handle 23/25-hour DST days.
+Repeated capture with the same timestamp and material returns the same
+snapshot; changed or late material creates another immutable snapshot. A
+reader verifies the manifest digest, member count, ordinal references and
+per-material digests before use. Empty days create no snapshot.
+
+This is a capture of the *current* legacy state. Legacy `items` and their
+curation pointers can have changed since the claimed publication time;
+therefore the manifest explicitly says `legacy_mutable_unverified`. Its
+`as_of` is the capture time, not proof that the same material was visible at
+an earlier historical checkpoint. This unit still does not generate or publish
+a versioned report, nor change the daily portal or worker.
 
 The [isolated Mac-copy rehearsal](evidence/p21a-report-schema-rehearsal.json)
 staged prior migrations 1–18, then applied only migration 19. All 8 legacy
@@ -41,3 +63,8 @@ was `ok`, and foreign-key violations were zero. Because the Mac source was
 unversioned, this is a staged-copy check rather than a Windows production
 18-to-19 rehearsal; deployment still requires a fresh Windows backup and
 isolated-copy verification.
+
+The [Mac-copy input rehearsal](evidence/p21b-report-input-rehearsal.json)
+captures the busiest local date and checks the full snapshot back against its
+member rows without altering the 9 existing legacy reports. It is a capacity
+and preservation check on a Mac copy, not a Windows production test.
