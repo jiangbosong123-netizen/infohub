@@ -43,6 +43,19 @@ same response is idempotent and a run is limited to four distinct attempts.
 Neither function invokes a provider or publishes a report version.
 
 Both prompt and response CAS objects must be included in backups. The run
+`evidence-verify` command now checks their database references and SHA-256 alongside
+raw ingest and NLP analysis evidence. A backup remains incomplete until the copied SQLite file
+and copied blob directory pass `db-verify` and `evidence-verify` together;
+`db-backup` alone only backs up SQLite. A response-less failed/refused attempt
+has no response object to check.
+
+The [Mac-copy CAS audit rehearsal](evidence/p21m-cas-audit.json) upgraded an
+isolated copy of the local legacy database from schema 0 to 21. It retained
+all 34,088 item rows and 9 legacy reports. That copy has no raw/NLP/report
+CAS references, so the positive and missing/corrupt cases are covered by
+synthetic tests; the rehearsal alone does not prove a Windows blob backup.
+
+The run
 currently stores the **requested** model while the attempt stores the
 resolved model returned by a future provider adapter. Usage and cost are
 recorded only when supplied; budget authorization and cost verification must

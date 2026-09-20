@@ -7,7 +7,7 @@ from zoneinfo import ZoneInfo
 
 import cli
 from app import config, database
-from app.ingest import PayloadIntegrityError, verify_payload
+from app.ingest import PayloadIntegrityError, audit_evidence_payloads, verify_payload
 from app.report_generation import prepare_report_generation, record_report_response
 from app.report_inputs import freeze_calendar_daily
 from app.report_llm_publish import publish_reviewed_report
@@ -78,6 +78,27 @@ class ReportGenerationRecordingTests(unittest.TestCase):
                              self._valid_response())
             self.assertEqual(json.loads(attempt["validation_report_json"])["citation_count"], 1)
             self.assertEqual(attempt["usage_status"], "unknown")
+
+    def test_evidence_audit_covers_report_prompt_and_response(self):
+        run_id = self._prepare()["run_id"]
+        self.assertEqual(audit_evidence_payloads().to_dict()["report_prompts"]["verified"], 1)
+        self.assertEqual(audit_evidence_payloads().to_dict()["report_responses"]["records"], 0)
+        record_report_response(run_id=run_id, response=self._valid_response(),
+                               resolved_model="test-model", started_at=T0, finished_at=T1)
+        healthy = audit_evidence_payloads()
+        self.assertTrue(healthy.healthy)
+        self.assertEqual((healthy.report_prompts.records, healthy.report_responses.records), (1, 1))
+        with database.get_db() as db:
+            run = db.execute("SELECT * FROM report_generation_runs").fetchone()
+            attempt = db.execute("SELECT * FROM report_generation_attempts").fetchone()
+        verify_payload(run["rendered_prompt_ref"], run["rendered_prompt_sha256"]).write_bytes(b"corrupt")
+        verify_payload(attempt["raw_response_ref"], attempt["raw_response_sha256"]).unlink()
+        failed = audit_evidence_payloads()
+        self.assertFalse(failed.healthy)
+        self.assertEqual((failed.report_prompts.corrupt, failed.report_responses.missing), (1, 1))
+        with self.assertRaises(SystemExit) as error:
+            cli.cmd_evidence_verify()
+        self.assertEqual(error.exception.code, 1)
 
     def test_invalid_response_is_retained_but_not_validated(self):
         run_id = self._prepare()["run_id"]

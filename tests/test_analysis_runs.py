@@ -8,7 +8,7 @@ from app import config, database
 from app.analysis_runs import AnalysisInput, AnalysisRunError, prepare_analysis_run
 from app.analysis_attempts import authorize_attempt, record_attempt, register_budget_policy
 from app.analysis_results import publish_analysis_result
-from app.ingest import begin_ingest_run, observe_candidate
+from app.ingest import audit_evidence_payloads, begin_ingest_run, observe_candidate, store_payload
 from app.jobs import claim_job, enqueue_job
 
 T0=datetime(2026,9,17,16,0,tzinfo=timezone.utc)
@@ -114,6 +114,36 @@ class AnalysisRunTests(unittest.TestCase):
    self.assertEqual(db.execute("SELECT COUNT(*) FROM analysis_results").fetchone()[0],1)
    self.assertEqual(db.execute("SELECT COUNT(*) FROM analysis_publication_versions").fetchone()[0],1)
    self.assertEqual(db.execute("SELECT COUNT(*) FROM change_log").fetchone()[0],1)
+
+ def test_evidence_audit_checks_analysis_input_response_and_output(self):
+  prompt_sha,prompt_ref=store_payload(b"analysis prompt")
+  response_sha,response_ref=store_payload(b"analysis response")
+  job=self.job("cas-audit")
+  run=self.prepare(job,idempotency_key="analysis:cas-audit",
+                   rendered_input_ref=prompt_ref,rendered_input_sha256=prompt_sha)
+  self.policy()
+  auth=authorize_attempt(run_id=run.id,job_id=job.id,lease_token=job.lease_token,
+                         expected_input_version=self.doc,attempt_kind="primary",
+                         reserved_cost_microusd=100,idempotency_key="auth:cas-audit",now=T0)
+  attempt=record_attempt(authorization_id=auth.id,job_id=job.id,lease_token=job.lease_token,
+                         expected_input_version=self.doc,status="succeeded",started_at=T0,
+                         finished_at=T0,resolved_model="fixture-v1",usage_status="unknown",
+                         raw_response_ref=response_ref,raw_response_sha256=response_sha,now=T0)
+  output={"schema_version":"summary/1.0",
+          "subject":{"type":"document","version_id":self.doc},"status":"valid",
+          "evidence_ids":[self.raw],"data":{"summary":"Evidence-backed summary"}}
+  publish_analysis_result(job_id=job.id,lease_token=job.lease_token,
+                          expected_input_version=self.doc,run_id=run.id,attempt_id=attempt.id,
+                          validated_output=output,review_status="unreviewed",
+                          evidence_status="supported",idempotency_key="result:cas-audit",now=T0)
+  audit=audit_evidence_payloads()
+  self.assertTrue(audit.healthy)
+  self.assertEqual((audit.analysis_inputs.verified,audit.analysis_responses.verified,
+                    audit.analysis_outputs.verified),(1,1,1))
+  (self.blobs / response_ref).unlink()
+  failed=audit_evidence_payloads()
+  self.assertFalse(failed.healthy)
+  self.assertEqual((failed.analysis_responses.missing,failed.analysis_outputs.missing),(1,1))
 
  def test_unknown_evidence_and_bad_confidence_do_not_publish(self):
   job,run,attempt=self.completed_attempt("invalid-result")

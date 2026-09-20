@@ -94,6 +94,33 @@ class PayloadAudit:
         }
 
 
+@dataclass(frozen=True)
+class EvidenceAudit:
+    raw_records: PayloadAudit
+    analysis_inputs: PayloadAudit
+    analysis_responses: PayloadAudit
+    analysis_outputs: PayloadAudit
+    report_prompts: PayloadAudit
+    report_responses: PayloadAudit
+
+    @property
+    def healthy(self) -> bool:
+        return all((self.raw_records.healthy, self.analysis_inputs.healthy,
+                    self.analysis_responses.healthy, self.analysis_outputs.healthy,
+                    self.report_prompts.healthy, self.report_responses.healthy))
+
+    def to_dict(self) -> dict:
+        return {
+            "status": "ok" if self.healthy else "failed",
+            "raw_records": self.raw_records.to_dict(),
+            "analysis_inputs": self.analysis_inputs.to_dict(),
+            "analysis_responses": self.analysis_responses.to_dict(),
+            "analysis_outputs": self.analysis_outputs.to_dict(),
+            "report_prompts": self.report_prompts.to_dict(),
+            "report_responses": self.report_responses.to_dict(),
+        }
+
+
 def _canonical_time(value: datetime | str | None = None) -> str:
     if value is None:
         return format_utc(datetime.now(timezone.utc))
@@ -268,26 +295,79 @@ def verify_payload(payload_ref: str, payload_sha256: str, root: Path | None = No
     return target
 
 
-def audit_payloads(root: Path | None = None) -> PayloadAudit:
-    """Fully verify every referenced payload; intended for backup/release audits."""
-    with get_db() as db:
-        rows = db.execute(
-            "SELECT payload_ref,payload_sha256,size_bytes FROM raw_records ORDER BY id"
-        ).fetchall()
+def _audit_references(rows: list, root: Path | None = None) -> PayloadAudit:
     verified = missing = corrupt = 0
     for row in rows:
         try:
             target = verify_payload(row["payload_ref"], row["payload_sha256"], root)
-            if target.stat().st_size != row["size_bytes"]:
+            if "size_bytes" in row.keys() and target.stat().st_size != row["size_bytes"]:
                 raise PayloadIntegrityError("payload size does not match its record")
             verified += 1
-        except PayloadIntegrityError:
-            target = Path(root or config.BLOB_PATH).resolve() / row["payload_ref"]
-            if not target.exists():
-                missing += 1
-            else:
+        except (PayloadIntegrityError, ValueError, TypeError):
+            try:
+                target = payload_path(row["payload_sha256"], root)
+                canonical_ref = target.relative_to(Path(root or config.BLOB_PATH).resolve()).as_posix()
+            except (ValueError, TypeError):
                 corrupt += 1
+                continue
+            if row["payload_ref"] != canonical_ref or target.exists():
+                corrupt += 1
+            else:
+                missing += 1
     return PayloadAudit(len(rows), verified, missing, corrupt)
+
+
+def audit_payloads(root: Path | None = None) -> PayloadAudit:
+    """Verify raw ingest payloads (the historical raw-verify contract)."""
+    with get_db() as db:
+        rows = db.execute(
+            "SELECT payload_ref,payload_sha256,size_bytes FROM raw_records ORDER BY id"
+        ).fetchall()
+    return _audit_references(rows, root)
+
+
+def audit_evidence_payloads(root: Path | None = None) -> EvidenceAudit:
+    """Verify all database-referenced raw, analysis and report CAS objects."""
+    with get_db() as db:
+        raw = db.execute(
+            "SELECT payload_ref,payload_sha256,size_bytes FROM raw_records ORDER BY id"
+        ).fetchall()
+        analysis_inputs = db.execute(
+            """SELECT rendered_input_ref AS payload_ref,
+                      rendered_input_sha256 AS payload_sha256
+               FROM analysis_runs ORDER BY id"""
+        ).fetchall()
+        analysis_responses = db.execute(
+            """SELECT raw_response_ref AS payload_ref,
+                      raw_response_sha256 AS payload_sha256
+               FROM analysis_attempts
+               WHERE raw_response_ref IS NOT NULL OR raw_response_sha256 IS NOT NULL
+               ORDER BY id"""
+        ).fetchall()
+        analysis_outputs = db.execute(
+            """SELECT raw_output_ref AS payload_ref,
+                      raw_output_sha256 AS payload_sha256
+               FROM analysis_results
+               WHERE raw_output_ref IS NOT NULL OR raw_output_sha256 IS NOT NULL
+               ORDER BY id"""
+        ).fetchall()
+        prompts = db.execute(
+            """SELECT rendered_prompt_ref AS payload_ref,
+                      rendered_prompt_sha256 AS payload_sha256
+               FROM report_generation_runs ORDER BY id"""
+        ).fetchall()
+        responses = db.execute(
+            """SELECT raw_response_ref AS payload_ref,
+                      raw_response_sha256 AS payload_sha256
+               FROM report_generation_attempts
+               WHERE raw_response_ref IS NOT NULL OR raw_response_sha256 IS NOT NULL
+               ORDER BY id"""
+        ).fetchall()
+    return EvidenceAudit(
+        _audit_references(raw, root), _audit_references(analysis_inputs, root),
+        _audit_references(analysis_responses, root), _audit_references(analysis_outputs, root),
+        _audit_references(prompts, root), _audit_references(responses, root),
+    )
 
 
 def begin_ingest_run(

@@ -22,6 +22,7 @@ from __future__ import annotations
   python cli.py worker-health          # 检查当前版本 worker 心跳
   python cli.py prepare-release        # 安全迁移、同步静态配置并清除旧心跳
   python cli.py raw-verify             # 全量校验原始载荷 CAS 引用和哈希
+  python cli.py evidence-verify        # 校验原文、NLP 和日报的全部 CAS 引用
   python cli.py legacy-backfill [N]    # 可续跑迁移旧记录，每事务批 N 条（maintenance only）
   python cli.py legacy-event-project   # 将旧 story 映射为 shadow candidate event（maintenance only）
   python cli.py legacy-curation-enqueue [AFTER_ID] [LIMIT]  # 分页排入旧策展转换任务（maintenance only）
@@ -229,6 +230,14 @@ def cmd_raw_verify() -> None:
         raise SystemExit(1)
 
 
+def cmd_evidence_verify() -> None:
+    from app.ingest import audit_evidence_payloads
+    report = audit_evidence_payloads()
+    print(json.dumps(report.to_dict(), ensure_ascii=False, indent=2))
+    if not report.healthy:
+        raise SystemExit(1)
+
+
 def cmd_legacy_backfill(batch_size: int) -> None:
     if config.PROCESS_ROLE != "maintenance":
         raise config.RuntimeConfigurationError(
@@ -398,6 +407,8 @@ def main() -> None:
         cmd_prepare_release()
     elif cmd == "raw-verify":
         cmd_raw_verify()
+    elif cmd == "evidence-verify":
+        cmd_evidence_verify()
     elif cmd == "legacy-backfill":
         cmd_legacy_backfill(int(sys.argv[2]) if len(sys.argv) > 2 else 250)
     elif cmd == "legacy-event-project":

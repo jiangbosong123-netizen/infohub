@@ -229,8 +229,8 @@ worker 已停止且租约不再存活时，才可用当前 epoch 和明确原因
 追加更正版本，完全重复抓取只增加 observation。门户目前仍读 `items` 兼容投影，历史内容不会在
 没有 raw evidence 的情况下自动包装成“已验证版本”。具体边界见[来源时间说明](docs/SOURCE_TIME.md)
 与[文档版本说明](docs/DOCUMENT_VERSIONS.md)。
-运行 `python cli.py raw-verify` 可全量校验 DB 引用与 CAS
-文件；从这一版起，完整备份必须同时包含 SQLite 和 blobs，具体步骤见
+运行 `python cli.py raw-verify` 可校验采集原文；`python cli.py evidence-verify`
+还校验数据库引用的 NLP 输入/响应/输出、日报提示词和原始响应。完整备份必须同时包含 SQLite 和 blobs，具体步骤见
 [采集证据说明](docs/INGEST_EVIDENCE.md)。
 
 历史 `items`、discovery 和日报通过可续跑 P07 任务建立稳定映射；旧发布时间与摘要明确标为未核实，

@@ -42,9 +42,10 @@ SQLite 备份从 P06a 起不再代表完整数据集，必须和 blob 一起保�
 
 1. 暂停唯一 worker，保留 web 读取；
 2. 执行一致性 `db-backup`；
-3. 对运行库执行 `raw-verify`；
+3. 对运行库执行 `evidence-verify`（包含采集原文、NLP 输入/响应/输出及日报提示词、响应）；
 4. 复制 `data/blobs/sha256` 与数据库备份到同一备份批次并记录清单；
-5. 恢复演练同时还原 DB 与 blob，再执行 `db-verify` 和 `raw-verify`。
+5. 恢复演练同时还原 DB 与 blob，再对还原路径执行 `db-verify` 和 `evidence-verify`
+   （通过 `INFOHUB_DB_PATH` 和 `INFOHUB_BLOB_PATH` 指向隔离副本）。
 
 写入顺序保证已提交 DB 引用之前 blob 已存在；暂停 worker 后复制不会产生新的引用。额外的无引用
 blob 可以保留，绝不能用缺失 blob 的数据库启动文档发布。
