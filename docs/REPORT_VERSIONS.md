@@ -1,4 +1,4 @@
-# Reproducible reports: schema and input capture (P21a–P21b)
+# Reproducible reports: versioned foundation (P21a–P21c)
 
 Migration 19 adds four empty tables. It leaves `daily_reports` untouched and
 does not switch the generator, worker, portal, or API. A legacy report's text
@@ -25,8 +25,7 @@ the database rejects a pointer to a different report key or dataset. This
 lets a later implementation retain a good published version if generation or
 validation fails, and switch back without deleting history.
 
-The next unit must generate and validate report citations against this frozen
-input before inserting a report version. A later guarded cutover will move
+The next units will add a guarded model-generated path and move
 the scheduled generator and portal behind the versioned path. Natural-day
 windows and future US market-session windows are separate report types; no
 market calendar is invented here. The current legacy generator can still
@@ -68,3 +67,25 @@ The [Mac-copy input rehearsal](evidence/p21b-report-input-rehearsal.json)
 captures the busiest local date and checks the full snapshot back against its
 member rows without altering the 9 existing legacy reports. It is a capacity
 and preservation check on a Mac copy, not a Windows production test.
+
+P21c adds the maintenance-only `python cli.py report-publish SNAPSHOT_ID`
+command. It verifies the frozen manifest and member digests, then builds a
+deterministic `structured_fallback` with a source link and machine citation
+for every displayed item. The renderer only restates frozen headlines, source
+names and displayed times; it does not turn a legacy AI summary into a fresh
+unsupported claim. Output is capped at 20 entries per channel and its coverage
+records the eligible, selected and actually reported counts. Bad URLs or input
+verification failures leave all report versions and pointers untouched.
+
+Publishing appends a new version and atomically moves the separate pointer.
+Repeated work on the same snapshot is idempotent; an older snapshot cannot
+replace a newer one. A structured fallback will not replace an already
+published LLM version. Late material captured in a new snapshot can produce a
+new revision, with the previous content still queryable. This is a versioned
+report side path: scheduled legacy generation and `/daily` still read/write
+`daily_reports` until a later guarded cutover.
+
+The [Mac-copy publication rehearsal](evidence/p21c-structured-report-rehearsal.json)
+generated 41 cited entries from 120 frozen inputs for the busiest local day.
+The 9 legacy daily rows were unchanged; SQLite integrity and foreign keys
+passed. Windows production was not changed.
