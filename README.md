@@ -164,6 +164,8 @@ SQLite backup API 在配置的 `INFOHUB_BACKUP_PATH` 创建带环境标签的一
 ```bash
 python cli.py db-status                 # 只读检查；兼容尚未登记的已知旧库
 python cli.py db-backup                 # 手动创建一致性备份，不覆盖已有文件
+python cli.py db-bundle-backup          # 备份 SQLite 与实际引用的全部 CAS 证据
+python cli.py db-bundle-verify PATH     # 校验备份包中的数据库与证据
 python cli.py db-migrate                # 仅迁移；需要变更的旧库会先备份
 python cli.py db-verify                 # 要求完整性通过且schema为当前版本
 python cli.py runtime-config            # 显示非敏感运行配置和实际数据路径
@@ -187,6 +189,9 @@ NLP 固定样本、分组防泄漏和标注状态规则见 [评估数据说明](
 命令输出中的 `file_sha256` 是指定 `.db` 文件的校验值；`db-backup` 生成的是单文件备份，
 可用该值核对传输。运行中的 WAL 数据库还可能有 `-wal` 内容，不能仅凭主文件校验值代表
 整个实时数据集。
+`db-bundle-backup` 用 SQLite backup API 建立快照，复制该快照实际引用的 CAS 文件，
+写入清单并在发布整个目录前校验；转移到另一台机器后执行 `db-bundle-verify`。
+操作前先暂停 worker，避免备份期间与未来的 blob 清理任务竞争；命令不会自动停止服务。
 
 初始化会自动把历史中文标题纳入 FTS 搜索索引；重复运行不会重复迁移或重复备份。
 新增 `nh3` 用于清洗日报 HTML。`INFOHUB_CURATED_FEED_ENABLED=true` 时，精选按事件去重，

@@ -38,17 +38,26 @@ P06a 建立采集运行、来源配置快照、不可变载荷和重复观察的
 
 ## 备份与恢复
 
-SQLite 备份从 P06a 起不再代表完整数据集，必须和 blob 一起保全：
+SQLite 备份从 P06a 起不再代表完整数据集，必须和 blob 一起保全。推荐完整备份流程：
 
 1. 暂停唯一 worker，保留 web 读取；
-2. 执行一致性 `db-backup`；
-3. 对运行库执行 `evidence-verify`（包含采集原文、NLP 输入/响应/输出及日报提示词、响应）；
-4. 复制 `data/blobs/sha256` 与数据库备份到同一备份批次并记录清单；
-5. 恢复演练同时还原 DB 与 blob，再对还原路径执行 `db-verify` 和 `evidence-verify`
-   （通过 `INFOHUB_DB_PATH` 和 `INFOHUB_BLOB_PATH` 指向隔离副本）。
+2. 执行 `db-bundle-backup [DEST]`。命令创建 SQLite 一致性快照，只复制该快照引用的
+   CAS 文件，写清单、对副本逐项校验，再原子发布整个备份目录；
+3. 将整个 `.bundle` 目录复制到另一存储位置，对复制后的目录执行
+   `db-bundle-verify PATH`；
+4. 恢复演练把 `database.db` 和 `blobs/` 复制到隔离目录，再执行 `db-verify` 与
+   `evidence-verify`（通过 `INFOHUB_DB_PATH` 和 `INFOHUB_BLOB_PATH` 指向副本）。
 
-写入顺序保证已提交 DB 引用之前 blob 已存在；暂停 worker 后复制不会产生新的引用。额外的无引用
-blob 可以保留，绝不能用缺失 blob 的数据库启动文档发布。
+原有 `db-backup` 只备份 SQLite，仍可用于迁移前的快速回滚点，不能单独充当完整证据备份。
+`db-bundle-backup` 要求当前 schema，不会替旧数据库自动迁移，也不会自动暂停 worker。
+
+写入顺序保证已提交 DB 引用之前 blob 已存在；暂停 worker 后复制不会与写入竞争。
+备份包只包含快照数据库引用的 blob，无引用的残留对象不在备份中。不能用缺失 blob 的数据库
+启动文档发布。备份包验证不代替定期的离机副本和实际恢复演练。
+
+[Mac 副本备份演练](evidence/p21n-evidence-backup-bundle.json) 从隔离的本地旧库副本升级后生成备份包，
+复制到另一目录并核验数据库摘要，34,088 条文章和 9 份旧日报数量保持不变。旧库没有新 CAS
+引用，因此缺失、篡改和含证据的备份路径由专门测试覆盖；该演练不代表 Windows 生产恢复已通过。
 
 ## 兼容与回滚
 

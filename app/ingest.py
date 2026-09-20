@@ -12,6 +12,8 @@ import hashlib
 import json
 import os
 import re
+import sqlite3
+from contextlib import closing
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
@@ -326,9 +328,18 @@ def audit_payloads(root: Path | None = None) -> PayloadAudit:
     return _audit_references(rows, root)
 
 
-def audit_evidence_payloads(root: Path | None = None) -> EvidenceAudit:
+def audit_evidence_payloads(
+    root: Path | None = None, database_path: Path | None = None,
+) -> EvidenceAudit:
     """Verify all database-referenced raw, analysis and report CAS objects."""
-    with get_db() as db:
+    if database_path is None:
+        connection = get_db()
+    else:
+        connection = sqlite3.connect(
+            Path(database_path).resolve(strict=True).as_uri() + "?mode=ro", uri=True,
+        )
+        connection.row_factory = sqlite3.Row
+    with closing(connection) as db:
         raw = db.execute(
             "SELECT payload_ref,payload_sha256,size_bytes FROM raw_records ORDER BY id"
         ).fetchall()
