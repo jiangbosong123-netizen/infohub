@@ -132,6 +132,9 @@ def _reconcile() -> dict:
 
 
 def _report() -> dict:
+    if config.REPORT_WRITE_ENABLED:
+        from .report_schedule import generate_scheduled_report
+        return generate_scheduled_report()
     from .ai.daily import generate_daily
     return {"date": generate_daily()}
 

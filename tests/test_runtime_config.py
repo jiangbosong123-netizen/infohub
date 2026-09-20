@@ -30,6 +30,7 @@ class RuntimeConfigurationTests(unittest.TestCase):
         self.assertFalse(settings.scheduler_enabled)
         self.assertFalse(settings.durable_jobs_enabled)
         self.assertFalse(settings.report_read_enabled)
+        self.assertFalse(settings.report_write_enabled)
         self.assertEqual(settings.process_role, "web")
 
     def test_legacy_local_layout_requires_explicit_compatibility_flag(self):
@@ -63,6 +64,15 @@ class RuntimeConfigurationTests(unittest.TestCase):
         self.assertTrue(config.load_runtime_settings(
             {"INFOHUB_REPORT_READ_ENABLED": "true"}, self.root
         ).report_read_enabled)
+
+    def test_report_write_requires_visible_read_path(self):
+        with self.assertRaisesRegex(config.RuntimeConfigurationError, "requires INFOHUB_REPORT_READ_ENABLED"):
+            config.load_runtime_settings({"INFOHUB_REPORT_WRITE_ENABLED": "true"}, self.root)
+        settings = config.load_runtime_settings({
+            "INFOHUB_REPORT_READ_ENABLED": "true",
+            "INFOHUB_REPORT_WRITE_ENABLED": "true",
+        }, self.root)
+        self.assertTrue(settings.report_write_enabled)
 
     def test_production_requires_identity_paths_and_task_flags(self):
         cases = (
@@ -119,6 +129,7 @@ class RuntimeConfigurationTests(unittest.TestCase):
             values["INFOHUB_CURATION_SEARCH_ENABLED"] = "false"
             values["INFOHUB_CURATION_HOT_ENABLED"] = "false"
             values["INFOHUB_REPORT_READ_ENABLED"] = "false"
+            values["INFOHUB_REPORT_WRITE_ENABLED"] = "false"
             settings = config.load_runtime_settings(values, self.root)
             self.assertEqual(settings.database_path, Path("/app/data/app.db"))
             self.assertEqual(settings.backup_path, Path("/app/data/backups"))
@@ -146,6 +157,8 @@ class RuntimeConfigurationTests(unittest.TestCase):
         worker_values["INFOHUB_CURATION_HOT_ENABLED"] = "false"
         web_values["INFOHUB_REPORT_READ_ENABLED"] = "false"
         worker_values["INFOHUB_REPORT_READ_ENABLED"] = "false"
+        web_values["INFOHUB_REPORT_WRITE_ENABLED"] = "false"
+        worker_values["INFOHUB_REPORT_WRITE_ENABLED"] = "false"
         self.assertFalse(config.load_runtime_settings(web_values, self.root).allow_network_tasks)
         self.assertTrue(config.load_runtime_settings(worker_values, self.root).allow_network_tasks)
         self.assertIn("/api/live", " ".join(compose["services"]["infohub"]["healthcheck"]["test"]))

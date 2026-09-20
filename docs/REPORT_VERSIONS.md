@@ -1,4 +1,4 @@
-# Reproducible reports: versioned foundation (P21a–P21d)
+# Reproducible reports: versioned foundation (P21a–P21e)
 
 Migration 19 adds four empty tables. It leaves `daily_reports` untouched and
 does not switch the generator, worker, portal, or API. A legacy report's text
@@ -103,3 +103,21 @@ migration. The legacy scheduled writer is not changed in this unit.
 The [isolated Mac-copy portal rehearsal](evidence/p21d-report-read-rehearsal.json)
 returned HTTP 200 for both list and detail, displayed the version/provenance
 labels, and retained the corresponding legacy row.
+
+P21e introduces a separate `INFOHUB_REPORT_WRITE_ENABLED=false` switch for
+the scheduled worker. Enabling it requires the read switch, so a newly written
+report remains visible. The enabled worker freezes yesterday's calendar-day
+material and publishes one cited structured version. It skips a date that
+already has a legacy daily row or a versioned publication, including on a
+durable-job retry. Both conditions are checked before capture and again under
+the publication transaction; a race may leave an unused immutable snapshot,
+but cannot replace the existing report. Empty dates create no publication.
+Manual maintenance publication retains its explicit revision behavior.
+The original legacy generator remains the default while the write switch is
+off; it is not silently redirected or retroactively marked reproducible.
+No paid model is invoked by the new scheduled path. Windows production still
+requires the complete staged release and a fresh isolated database rehearsal.
+The [Mac-copy worker rehearsal](evidence/p21e-report-worker-rehearsal.json)
+published 34 cited entries for a previously unpublished day, skipped a retry,
+and left all 9 legacy reports unchanged. SQLite integrity and foreign keys
+passed; this is not a Windows production rehearsal.

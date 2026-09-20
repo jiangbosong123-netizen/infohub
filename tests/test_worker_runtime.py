@@ -12,7 +12,7 @@ from app.runtime_health import (
     worker_heartbeat_path,
     write_worker_heartbeat,
 )
-from app.worker import process_one_job, register_default_schedules
+from app.worker import _report, process_one_job, register_default_schedules
 
 
 T0 = datetime(2026, 9, 15, 12, 0, tzinfo=timezone.utc)
@@ -33,6 +33,19 @@ class WorkerRuntimeTests(unittest.TestCase):
             item.start()
             self.addCleanup(item.stop)
         database.init_schema()
+
+    def test_report_worker_switch_keeps_legacy_as_default(self):
+        with patch.object(config, "REPORT_WRITE_ENABLED", False), patch(
+            "app.ai.daily.generate_daily", return_value="2026-09-18"
+        ) as legacy:
+            self.assertEqual(_report(), {"date": "2026-09-18"})
+            legacy.assert_called_once()
+        with patch.object(config, "REPORT_WRITE_ENABLED", True), patch(
+            "app.report_schedule.generate_scheduled_report",
+            return_value={"date": "2026-09-18", "status": "already_published"},
+        ) as versioned:
+            self.assertEqual(_report()["status"], "already_published")
+            versioned.assert_called_once()
 
     def test_default_schedules_are_durable_and_restart_preserves_due_time(self):
         register_default_schedules(T0)

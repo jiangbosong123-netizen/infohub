@@ -85,7 +85,7 @@ def structured_report(manifest: dict) -> tuple[str, list[dict], dict]:
     return "\n".join(lines).rstrip() + "\n", citations, coverage
 
 
-def publish_structured_report(snapshot_id: str) -> dict:
+def publish_structured_report(snapshot_id: str, *, protect_existing: bool = False) -> dict:
     """Append one version and move the pointer, preserving any published LLM."""
     manifest = load_frozen_manifest(snapshot_id)
     content, citations, coverage = structured_report(manifest)
@@ -98,6 +98,18 @@ def publish_structured_report(snapshot_id: str) -> dict:
         ).fetchone()
         if snapshot is None or snapshot["report_key"] != manifest["report_key"]:
             raise ValueError("report input snapshot changed")
+        if protect_existing:
+            legacy = db.execute(
+                "SELECT 1 FROM daily_reports WHERE date=?", (manifest["date"],)
+            ).fetchone()
+            if legacy:
+                return {"status": "legacy_preserved"}
+            published = db.execute(
+                "SELECT current_version_id FROM report_publications WHERE dataset_id=? AND report_key=?",
+                (snapshot["dataset_id"], snapshot["report_key"]),
+            ).fetchone()
+            if published:
+                return {"status": "already_published", "version_id": published[0]}
         existing = db.execute(
             """SELECT id,version FROM report_versions
                WHERE dataset_id=? AND report_key=? AND input_snapshot_id=?

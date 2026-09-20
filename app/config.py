@@ -80,6 +80,7 @@ class RuntimeSettings:
     curation_search_enabled: bool
     curation_hot_enabled: bool
     report_read_enabled: bool
+    report_write_enabled: bool
     process_role: str
     legacy_data_layout: bool
 
@@ -209,6 +210,11 @@ def load_runtime_settings(
             "INFOHUB_CURATION_HOT_ENABLED=true requires INFOHUB_CURATION_READ_ENABLED=true"
         )
     report_read_enabled = _boolean(values, "INFOHUB_REPORT_READ_ENABLED", False)
+    report_write_enabled = _boolean(values, "INFOHUB_REPORT_WRITE_ENABLED", False)
+    if report_write_enabled and not report_read_enabled:
+        raise RuntimeConfigurationError(
+            "INFOHUB_REPORT_WRITE_ENABLED=true requires INFOHUB_REPORT_READ_ENABLED=true"
+        )
     process_role = values.get("INFOHUB_PROCESS_ROLE", "web").strip().lower() or "web"
     if process_role not in _PROCESS_ROLES:
         raise RuntimeConfigurationError(
@@ -246,6 +252,7 @@ def load_runtime_settings(
         curation_search_enabled=curation_search_enabled,
         curation_hot_enabled=curation_hot_enabled,
         report_read_enabled=report_read_enabled,
+        report_write_enabled=report_write_enabled,
         process_role=process_role,
         legacy_data_layout=legacy_data_layout,
     )
@@ -266,6 +273,7 @@ CURATION_READ_ENABLED = RUNTIME.curation_read_enabled
 CURATION_SEARCH_ENABLED = RUNTIME.curation_search_enabled
 CURATION_HOT_ENABLED = RUNTIME.curation_hot_enabled
 REPORT_READ_ENABLED = RUNTIME.report_read_enabled
+REPORT_WRITE_ENABLED = RUNTIME.report_write_enabled
 PROCESS_ROLE = RUNTIME.process_role
 
 WATCHLIST_PATH = BASE_DIR / "config" / "watchlist.yaml"
