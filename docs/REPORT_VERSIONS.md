@@ -25,12 +25,11 @@ the database rejects a pointer to a different report key or dataset. This
 lets a later implementation retain a good published version if generation or
 validation fails, and switch back without deleting history.
 
-The next units will add a guarded model-generated path and move
-the scheduled generator and portal behind the versioned path. Natural-day
-windows and future US market-session windows are separate report types; no
-market calendar is invented here. The current legacy generator can still
-overwrite `daily_reports` until that later cutover. No Windows production
-migration has been run.
+The portal and scheduled writer now have separate opt-in switches; a guarded
+model-generated path is still future work. Natural-day windows and future US
+market-session windows are separate report types; no market calendar is
+invented here. With the new write switch off, the current legacy generator
+can still overwrite `daily_reports`. No Windows production migration has run.
 
 P21b adds the maintenance-only `python cli.py report-snapshot YYYY-MM-DD`
 command. It freezes up to 120 currently visible items for a natural day in one
