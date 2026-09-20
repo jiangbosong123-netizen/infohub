@@ -72,3 +72,23 @@ production publication remains disabled until that workflow is tested.
 The [Mac-copy review migration rehearsal](evidence/p21j-report-review-migration.json)
 staged through version 20 and applied only version 21 without changing the
 33,569 article rows, 9 legacy reports or existing report versions.
+
+P21k adds a maintenance-only operator workflow. `report-review-preview ATTEMPT_ID`
+verifies prompt and response CAS bytes, reparses the raw response,
+revalidates the closed draft contract, and prints each claim beside the
+frozen source title, publisher and URL. It returns a `review_digest` of the
+exact validated draft. The operator must read the cited original material;
+the snapshot may only contain a headline or a mutable legacy summary.
+`report-review ATTEMPT_ID approved|rejected DIGEST REASON` requires the same
+digest, uses the local OS account as the self-attested reviewer, verifies CAS
+again and appends one immutable decision. Repeating the same decision is
+idempotent; a conflicting decision is rejected. Invalid drafts can only be
+rejected. Both commands require the maintenance process role and a verified
+current-schema database. Neither command publishes a report.
+
+The local OS username is an audit label, not a separate authentication
+mechanism; it must not be treated as verified identity across shared accounts
+or remote sessions. The [Mac-copy workflow rehearsal](evidence/p21k-report-review-workflow.json)
+used a synthetic response, showed its source, and recorded a fixture rejection
+because no human source check occurred. It changed no report version or
+legacy daily row and made no provider call.

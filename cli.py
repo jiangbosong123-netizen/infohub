@@ -30,6 +30,8 @@ from __future__ import annotations
   python cli.py curation-hot-advance [N]     # 建立/刷新至多 N 个热点统计（maintenance only，可续跑）
   python cli.py report-snapshot YYYY-MM-DD    # 冻结自然日日报素材，不生成报告（maintenance only）
   python cli.py report-publish SNAPSHOT_ID     # 从冻结素材发布带引用结构化日报（maintenance only）
+  python cli.py report-review-preview ATTEMPT_ID  # 查看模型草稿、冻结证据与复核摘要（maintenance only）
+  python cli.py report-review ATTEMPT_ID approved|rejected DIGEST REASON  # 记录人工决定（maintenance only）
 """
 import json
 import logging
@@ -319,6 +321,29 @@ def cmd_report_publish(snapshot_id: str) -> None:
     print(json.dumps(publish_structured_report(snapshot_id), ensure_ascii=False, indent=2))
 
 
+def cmd_report_review_preview(attempt_id: str) -> None:
+    if config.PROCESS_ROLE != "maintenance":
+        raise config.RuntimeConfigurationError("report-review-preview requires maintenance role")
+    from app.db_admin import verify_database
+    from app.report_review import review_preview
+    verify_database(config.DB_PATH, require_current=True)
+    print(json.dumps(review_preview(attempt_id), ensure_ascii=False, indent=2))
+
+
+def cmd_report_review(attempt_id: str, decision: str, digest: str, reason: str) -> None:
+    if config.PROCESS_ROLE != "maintenance":
+        raise config.RuntimeConfigurationError("report-review requires maintenance role")
+    import getpass
+    from app.db_admin import verify_database
+    from app.report_review import record_manual_review
+    verify_database(config.DB_PATH, require_current=True)
+    result = record_manual_review(
+        attempt_id=attempt_id, decision=decision, expected_digest=digest,
+        reviewer_id=getpass.getuser(), reason=reason,
+    )
+    print(json.dumps(result, ensure_ascii=False, indent=2))
+
+
 def main() -> None:
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
     cmd = sys.argv[1] if len(sys.argv) > 1 else ""
@@ -380,6 +405,10 @@ def main() -> None:
         cmd_report_snapshot(sys.argv[2])
     elif cmd == "report-publish" and len(sys.argv) == 3:
         cmd_report_publish(sys.argv[2])
+    elif cmd == "report-review-preview" and len(sys.argv) == 3:
+        cmd_report_review_preview(sys.argv[2])
+    elif cmd == "report-review" and len(sys.argv) >= 6:
+        cmd_report_review(sys.argv[2], sys.argv[3], sys.argv[4], " ".join(sys.argv[5:]))
     else:
         print(__doc__)
         sys.exit(1)

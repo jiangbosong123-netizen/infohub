@@ -5,10 +5,12 @@ from pathlib import Path
 from unittest.mock import patch
 from zoneinfo import ZoneInfo
 
+import cli
 from app import config, database
 from app.ingest import PayloadIntegrityError, verify_payload
 from app.report_generation import prepare_report_generation, record_report_response
 from app.report_inputs import freeze_calendar_daily
+from app.report_review import record_manual_review, review_preview
 
 
 T0 = "2026-09-19T08:00:00Z"
@@ -100,6 +102,49 @@ class ReportGenerationRecordingTests(unittest.TestCase):
                                    resolved_model="test-model", started_at=T0, finished_at=T1)
         with database.get_db() as db:
             self.assertEqual(db.execute("SELECT COUNT(*) FROM report_generation_attempts").fetchone()[0], 1)
+
+    def test_manual_review_binds_exact_draft_and_preserves_decision(self):
+        run_id = self._prepare()["run_id"]
+        attempt = record_report_response(run_id=run_id, response=self._valid_response(),
+                                         resolved_model="test-model", started_at=T0, finished_at=T1)
+        preview = review_preview(attempt["attempt_id"])
+        self.assertEqual(preview["claims"][0]["sources"][0]["source_url"], "https://example.test/one")
+        with self.assertRaisesRegex(ValueError, "changed since preview"):
+            record_manual_review(attempt_id=attempt["attempt_id"], decision="approved",
+                                 expected_digest="0" * 64, reviewer_id="operator", reason="checked source")
+        recorded = record_manual_review(attempt_id=attempt["attempt_id"], decision="approved",
+                                        expected_digest=preview["review_digest"], reviewer_id="operator",
+                                        reason="checked source")
+        self.assertEqual(recorded["status"], "recorded")
+        self.assertEqual(record_manual_review(attempt_id=attempt["attempt_id"], decision="approved",
+                                              expected_digest=preview["review_digest"], reviewer_id="operator",
+                                              reason="checked source")["status"], "already_reviewed")
+        with self.assertRaisesRegex(ValueError, "different review"):
+            record_manual_review(attempt_id=attempt["attempt_id"], decision="rejected",
+                                 expected_digest=preview["review_digest"], reviewer_id="operator", reason="changed")
+        with database.get_db() as db:
+            self.assertEqual(db.execute("SELECT COUNT(*) FROM report_generation_reviews").fetchone()[0], 1)
+            self.assertEqual(db.execute("SELECT COUNT(*) FROM report_versions").fetchone()[0], 0)
+
+    def test_invalid_draft_can_only_be_rejected(self):
+        run_id = self._prepare()["run_id"]
+        attempt = record_report_response(run_id=run_id, response="{bad-json",
+                                         resolved_model="test-model", started_at=T0, finished_at=T1)
+        preview = review_preview(attempt["attempt_id"])
+        self.assertEqual(preview["claims"], [])
+        with self.assertRaisesRegex(ValueError, "cannot be approved"):
+            record_manual_review(attempt_id=attempt["attempt_id"], decision="approved",
+                                 expected_digest=preview["review_digest"], reviewer_id="operator", reason="no")
+        self.assertEqual(record_manual_review(attempt_id=attempt["attempt_id"], decision="rejected",
+                                              expected_digest=preview["review_digest"], reviewer_id="operator",
+                                              reason="invalid JSON")["decision"], "rejected")
+
+    def test_review_cli_rejects_web_role(self):
+        with patch.object(config, "PROCESS_ROLE", "web"):
+            with self.assertRaisesRegex(config.RuntimeConfigurationError, "maintenance role"):
+                cli.cmd_report_review_preview("attempt")
+            with self.assertRaisesRegex(config.RuntimeConfigurationError, "maintenance role"):
+                cli.cmd_report_review("attempt", "approved", "0" * 64, "reason")
 
 
 if __name__ == "__main__":

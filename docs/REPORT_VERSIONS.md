@@ -1,4 +1,4 @@
-# Reproducible reports: versioned foundation (P21a–P21j)
+# Reproducible reports: versioned foundation (P21a–P21k)
 
 Migration 19 adds four empty tables. It leaves `daily_reports` untouched and
 does not switch the generator, worker, portal, or API. A legacy report's text
@@ -152,3 +152,7 @@ P21j adds the [manual review ledger](REPORT_GENERATION_LEDGER.md) and database
 insert gate: a new model report version cannot be stored without a valid
 draft attempt and approved review. The review workflow and portal publication
 are intentionally not enabled by this schema unit.
+
+P21k adds the [maintenance-only review workflow](REPORT_GENERATION_LEDGER.md),
+which binds an operator decision to the exact validated draft and verified
+prompt/response blobs. The workflow does not auto-approve or publish reports.
