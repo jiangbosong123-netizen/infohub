@@ -54,3 +54,21 @@ The [Mac-copy recording rehearsal](evidence/p21i-report-generation-recording.jso
 stored one offline fixture prompt and one valid plus one invalid response
 against a 120-item frozen input. It created no report version, left all 9
 legacy reports unchanged, and made zero provider calls.
+
+P21j adds append-only `report_generation_reviews` as migration 21. A review
+names one generation attempt, a manual source-check reviewer, a nonempty
+reason, decision, draft digest and time. The database rejects approval of an
+invalid draft and rejects mutation or deletion of a recorded decision. It
+also replaces the version-insert trigger: a newly inserted `llm` version now
+requires both a matching valid attempt and its approved manual review.
+Previously stored LLM versions remain readable without retroactively
+fabricating a review. A rejected draft requires a new generation attempt
+before approval; the old decision stays in the audit trail.
+
+The schema does not authenticate the reviewer or perform the source check on
+their behalf. A later maintenance-only workflow must verify the raw CAS
+response, binding digest, and reviewer identity before inserting a review;
+production publication remains disabled until that workflow is tested.
+The [Mac-copy review migration rehearsal](evidence/p21j-report-review-migration.json)
+staged through version 20 and applied only version 21 without changing the
+33,569 article rows, 9 legacy reports or existing report versions.

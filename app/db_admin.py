@@ -2144,6 +2144,50 @@ def _report_generation_foundation(db: sqlite3.Connection) -> None:
     _execute_script(db, REPORT_GENERATION_SCHEMA_SQL)
 
 
+REPORT_REVIEW_SCHEMA_SQL = """
+CREATE TABLE report_generation_reviews (
+    id TEXT PRIMARY KEY,
+    attempt_id TEXT NOT NULL UNIQUE REFERENCES report_generation_attempts(id),
+    decision TEXT NOT NULL CHECK(decision IN ('approved','rejected')),
+    review_type TEXT NOT NULL CHECK(review_type='manual_source_check'),
+    reviewer_id TEXT NOT NULL CHECK(length(trim(reviewer_id))>0),
+    reason TEXT NOT NULL CHECK(length(trim(reason))>0),
+    draft_sha256 TEXT NOT NULL CHECK(length(draft_sha256)=64),
+    reviewed_at TEXT NOT NULL
+);
+CREATE INDEX idx_report_generation_reviews_attempt ON report_generation_reviews(attempt_id);
+CREATE TRIGGER report_generation_reviews_valid_approval BEFORE INSERT ON report_generation_reviews
+WHEN NEW.decision='approved' AND NOT EXISTS(
+    SELECT 1 FROM report_generation_attempts a
+    WHERE a.id=NEW.attempt_id AND a.status='valid_draft'
+      AND a.validated_draft_json IS NOT NULL
+)
+BEGIN SELECT RAISE(ABORT,'only a valid report draft can be approved'); END;
+CREATE TRIGGER report_generation_reviews_no_update BEFORE UPDATE ON report_generation_reviews
+BEGIN SELECT RAISE(ABORT,'report generation reviews are immutable'); END;
+CREATE TRIGGER report_generation_reviews_no_delete BEFORE DELETE ON report_generation_reviews
+BEGIN SELECT RAISE(ABORT,'report generation reviews are immutable'); END;
+
+DROP TRIGGER report_versions_generation_provenance;
+CREATE TRIGGER report_versions_generation_provenance BEFORE INSERT ON report_versions
+WHEN (NEW.mode='llm' AND NOT EXISTS(
+    SELECT 1 FROM report_generation_attempts a
+    JOIN report_generation_runs r ON r.id=a.run_id
+    JOIN report_generation_reviews review ON review.attempt_id=a.id
+    WHERE a.id=NEW.generation_attempt_id AND a.status='valid_draft'
+      AND review.decision='approved' AND review.review_type='manual_source_check'
+      AND r.input_snapshot_id=NEW.input_snapshot_id AND r.dataset_id=NEW.dataset_id
+      AND r.provider=NEW.provider AND r.requested_model=NEW.model
+      AND r.prompt_template_id=NEW.prompt_template_id AND r.prompt_sha256=NEW.prompt_sha256
+)) OR (NEW.mode!='llm' AND NEW.generation_attempt_id IS NOT NULL)
+BEGIN SELECT RAISE(ABORT,'report version generation or review provenance mismatch'); END;
+"""
+
+
+def _report_review_foundation(db: sqlite3.Connection) -> None:
+    _execute_script(db, REPORT_REVIEW_SCHEMA_SQL)
+
+
 # Migration 1 freezes the exact legacy schema at main@88a2a1e. Future schema
 # changes must append a new Migration instead of editing this definition.
 MIGRATIONS = (
@@ -2262,6 +2306,8 @@ MIGRATIONS = (
               REPORT_VERSION_SCHEMA_SQL, _report_version_foundation),
     Migration(20, "immutable report model generation ledger",
               REPORT_GENERATION_SCHEMA_SQL, _report_generation_foundation),
+    Migration(21, "manual report draft review gate",
+              REPORT_REVIEW_SCHEMA_SQL, _report_review_foundation),
 )
 CURRENT_SCHEMA_VERSION = MIGRATIONS[-1].version
 REQUIRED_MIGRATION_COLUMNS = {
@@ -2297,6 +2343,7 @@ EXPECTED_TABLES = LEGACY_ANCHORS | {
     "curation_story_metrics", "curation_story_metrics_state", "curation_story_metrics_dirty",
     "report_input_snapshots", "report_input_members", "report_versions", "report_publications",
     "report_generation_runs", "report_generation_attempts",
+    "report_generation_reviews",
 }
 EXPECTED_ITEM_COLUMNS = {
     "id", "source_id", "url", "title", "title_zh", "summary", "raw_summary",
@@ -2634,8 +2681,14 @@ EXPECTED_REPORT_VERSION_COLUMNS = {
         "output_tokens", "cost_microusd", "usage_status", "started_at",
         "finished_at", "recorded_at",
     },
+    "report_generation_reviews": {
+        "id", "attempt_id", "decision", "review_type", "reviewer_id",
+        "reason", "draft_sha256", "reviewed_at",
+    },
 }
 EXPECTED_INGEST_TRIGGERS = {
+    "report_generation_reviews_valid_approval", "report_generation_reviews_no_update",
+    "report_generation_reviews_no_delete",
     "report_generation_runs_match", "report_generation_runs_no_update",
     "report_generation_runs_no_delete", "report_generation_attempts_no_update",
     "report_generation_attempts_no_delete", "report_versions_generation_provenance",

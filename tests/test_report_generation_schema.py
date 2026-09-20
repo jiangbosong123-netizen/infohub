@@ -68,8 +68,8 @@ class ReportGenerationSchemaTests(unittest.TestCase):
                        'legacy-provider','legacy-model','legacy-prompt',?,?,?)""",
                        (dataset, HASH, HASH, NOW, NOW))
         report = db_admin.migrate_database(self.path)
-        self.assertEqual(report.applied_versions, (20,))
-        self.assertEqual(db_admin.verify_database(self.path, require_current=True).schema_version, 20)
+        self.assertEqual(report.applied_versions, (20, 21))
+        self.assertEqual(db_admin.verify_database(self.path, require_current=True).schema_version, db_admin.CURRENT_SCHEMA_VERSION)
         with sqlite3.connect(self.path) as db:
             self.assertEqual(db.execute("SELECT content FROM daily_reports").fetchone()[0], "old text")
             self.assertEqual(db.execute("SELECT COUNT(*) FROM report_generation_runs").fetchone()[0], 0)
@@ -82,20 +82,37 @@ class ReportGenerationSchemaTests(unittest.TestCase):
         with sqlite3.connect(self.path) as db:
             db.execute("PRAGMA foreign_keys=ON")
             dataset = self._input(db)
-            with self.assertRaisesRegex(sqlite3.IntegrityError, "generation provenance"):
+            with self.assertRaisesRegex(sqlite3.IntegrityError, "review provenance"):
                 self._version(db, dataset, attempt_id=None)
             with self.assertRaisesRegex(sqlite3.IntegrityError, "identity mismatch"):
                 self._run(db, "wrong-dataset")
             self._run(db, dataset)
             self._attempt(db, attempt_id="invalid", number=1, status="invalid_draft")
-            with self.assertRaisesRegex(sqlite3.IntegrityError, "generation provenance"):
+            with self.assertRaisesRegex(sqlite3.IntegrityError, "only a valid report draft"):
+                db.execute("""INSERT INTO report_generation_reviews(
+                    id,attempt_id,decision,review_type,reviewer_id,reason,draft_sha256,reviewed_at)
+                    VALUES('bad-review','invalid','approved','manual_source_check',
+                           'operator','source checked',?,?)""", (HASH, NOW))
+            db.execute("""INSERT INTO report_generation_reviews(
+                id,attempt_id,decision,review_type,reviewer_id,reason,draft_sha256,reviewed_at)
+                VALUES('reject-one','invalid','rejected','manual_source_check',
+                       'operator','unsupported claim',?,?)""", (HASH, NOW))
+            with self.assertRaisesRegex(sqlite3.IntegrityError, "review provenance"):
                 self._version(db, dataset, attempt_id="invalid")
             self._attempt(db, attempt_id="valid", number=2, status="valid_draft")
+            with self.assertRaisesRegex(sqlite3.IntegrityError, "review provenance"):
+                self._version(db, dataset, attempt_id="valid")
+            db.execute("""INSERT INTO report_generation_reviews(
+                id,attempt_id,decision,review_type,reviewer_id,reason,draft_sha256,reviewed_at)
+                VALUES('review-one','valid','approved','manual_source_check',
+                       'operator','source checked',?,?)""", (HASH, NOW))
             self._version(db, dataset, attempt_id="valid")
             with self.assertRaisesRegex(sqlite3.IntegrityError, "immutable"):
                 db.execute("UPDATE report_generation_attempts SET status='failed' WHERE id='valid'")
             with self.assertRaisesRegex(sqlite3.IntegrityError, "immutable"):
                 db.execute("DELETE FROM report_generation_runs WHERE id='run-one'")
+            with self.assertRaisesRegex(sqlite3.IntegrityError, "immutable"):
+                db.execute("UPDATE report_generation_reviews SET decision='rejected' WHERE id='review-one'")
             self.assertEqual(db.execute("SELECT generation_attempt_id FROM report_versions").fetchone()[0], "valid")
 
 

@@ -100,6 +100,11 @@ class ReportPublicationTests(unittest.TestCase):
                        'test/response',?,'{}','{}','unknown',
                        '2026-09-19T08:45:00Z','2026-09-19T08:46:00Z','2026-09-19T08:46:00Z')""",
                        ("d" * 64,))
+            db.execute("""INSERT INTO report_generation_reviews(
+                id,attempt_id,decision,review_type,reviewer_id,reason,draft_sha256,reviewed_at)
+                VALUES('test-review','test-attempt','approved','manual_source_check',
+                       'test-reviewer','fixture source check',?,
+                       '2026-09-19T08:50:00Z')""", ("e" * 64,))
             db.execute("""INSERT INTO report_versions(
                           id,dataset_id,report_key,version,input_snapshot_id,mode,content,
                           content_sha256,citations_json,coverage_json,provider,model,
