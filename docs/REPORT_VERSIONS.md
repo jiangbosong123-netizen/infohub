@@ -1,4 +1,4 @@
-# Reproducible reports: versioned foundation (P21a–P21c)
+# Reproducible reports: versioned foundation (P21a–P21d)
 
 Migration 19 adds four empty tables. It leaves `daily_reports` untouched and
 does not switch the generator, worker, portal, or API. A legacy report's text
@@ -89,3 +89,17 @@ The [Mac-copy publication rehearsal](evidence/p21c-structured-report-rehearsal.j
 generated 41 cited entries from 120 frozen inputs for the busiest local day.
 The 9 legacy daily rows were unchanged; SQLite integrity and foreign keys
 passed. Windows production was not changed.
+
+P21d adds a portal read switch, `INFOHUB_REPORT_READ_ENABLED=false` by
+default. When enabled, `/daily` shows published calendar-day versions for the
+configured time zone and retains legacy-only dates. `/daily/{date}` validates
+the published content digest, frozen input, citation references, and coverage
+status before rendering; unavailable or invalid versions fall back to the
+legacy daily row, with a visible warning for validation failure. The page
+labels old versus versioned content, generation mode, revision number,
+capture `as_of`, citation count, and the legacy point-in-time limitation.
+Turning the flag off restores the old portal read without reversing the
+migration. The legacy scheduled writer is not changed in this unit.
+The [isolated Mac-copy portal rehearsal](evidence/p21d-report-read-rehearsal.json)
+returned HTTP 200 for both list and detail, displayed the version/provenance
+labels, and retained the corresponding legacy row.

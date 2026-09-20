@@ -1,0 +1,12 @@
+{
+  "source": "Mac local database; isolated SQLite backup, not Windows production",
+  "date": "2026-09-14",
+  "snapshot_input_count": 120,
+  "published_version": 1,
+  "list_status": 200,
+  "detail_status": 200,
+  "version_and_provenance_visible": true,
+  "legacy_daily_row_preserved": true,
+  "integrity": "ok",
+  "foreign_key_violations": 0
+}

@@ -20,6 +20,7 @@ from ..config import (
     CURATION_READ_ENABLED,
     CURATION_SEARCH_ENABLED,
     CURATION_HOT_ENABLED,
+    REPORT_READ_ENABLED,
     ENVIRONMENT,
     ENVIRONMENT_ID,
     DURABLE_JOBS_ENABLED,
@@ -32,6 +33,7 @@ from ..curation_projection import display_curation, published_curation
 from ..curation_query import portal_curation_sql
 from ..curation_search_query import search_curated, search_index_usable
 from ..curation_hot_query import curated_top_clusters, hot_metrics_usable
+from ..report_query import published_calendar_dates, published_calendar_report
 from ..provenance import publisher, display_title
 from ..runtime_health import read_worker_heartbeat
 from ..topics import GROUPS
@@ -431,19 +433,40 @@ def hot(request: Request):
 @app.get("/daily", response_class=HTMLResponse)
 def daily_list(request: Request):
     with get_db() as db:
-        reports = db.execute("SELECT date, created_at FROM daily_reports ORDER BY date DESC").fetchall()
+        legacy = db.execute("SELECT date, created_at FROM daily_reports ORDER BY date DESC").fetchall()
+        reports = {row["date"]: {"date": row["date"], "created_at": row["created_at"],
+                                 "source_label": "旧版日报"} for row in legacy}
+        if REPORT_READ_ENABLED:
+            for row in published_calendar_dates(db):
+                reports[row["date"]] = {"date": row["date"], "created_at": row["created_at"],
+                                        "source_label": f"版本 {row['version']} · "
+                                                        + ("模型生成" if row["mode"] == "llm" else "结构化摘要")}
     return templates.TemplateResponse(request, "daily_list.html", dict(
-        reports=[dict(r, created_rel=_relative(r["created_at"])) for r in reports]))
+        reports=[dict(row, created_rel=_relative(row["created_at"]))
+                 for _, row in sorted(reports.items(), reverse=True)]))
 
 
 @app.get("/daily/{date}", response_class=HTMLResponse)
 def daily_detail(request: Request, date: str):
+    report = None
+    notice = ""
     with get_db() as db:
-        row = db.execute("SELECT * FROM daily_reports WHERE date=?", (date,)).fetchone()
-    if not row:
+        if REPORT_READ_ENABLED:
+            try:
+                report = published_calendar_report(db, date)
+            except (ValueError, KeyError, TypeError):
+                notice = "新版日报校验失败，已显示旧版内容。"
+        legacy = db.execute("SELECT * FROM daily_reports WHERE date=?", (date,)).fetchone()
+    if report is None and legacy is None:
         return RedirectResponse("/daily", status_code=302)
+    if report is None:
+        content, source_label = legacy["content"], "旧版日报"
+    else:
+        content = report["content"]
+        source_label = f"版本 {report['version']} · " + ("模型生成" if report["mode"] == "llm" else "结构化摘要")
     return templates.TemplateResponse(request, "daily_detail.html",
-                                      dict(date=date, html=render_markdown(row["content"])))
+                                      dict(date=date, html=render_markdown(content),
+                                           source_label=source_label, notice=notice, report=report))
 
 
 @app.get("/search", response_class=HTMLResponse)
