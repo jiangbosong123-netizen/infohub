@@ -5,12 +5,15 @@ from __future__ import annotations
 import hashlib
 import json
 from dataclasses import asdict, dataclass
+from datetime import datetime
 from pathlib import Path
 from typing import Iterable
 
 ALLOWED_SPLITS = {"train", "dev", "test", "security"}
 ALLOWED_ANNOTATION_STATES = {"unlabeled", "single_annotator", "adjudicated", "synthetic_fixture"}
 SCHEMA_VERSION = "evaluation-dataset-v1"
+MINIMUM_GOLD_TARGETS = {"documents": 600, "event_groups": 150,
+                        "impact_annotations": 300, "security_cases": 50}
 
 
 class EvaluationDatasetError(RuntimeError):
@@ -71,6 +74,42 @@ def _require_text(value: object, field: str, case_id: str) -> str:
     return value
 
 
+def _review_time(value: object, case_id: str) -> None:
+    stamp = _require_text(value, "recorded_at", case_id)
+    try:
+        parsed = datetime.fromisoformat(stamp.replace("Z", "+00:00"))
+    except ValueError as exc:
+        raise EvaluationDatasetError(f"case {case_id} has invalid review time") from exc
+    if parsed.tzinfo is None:
+        raise EvaluationDatasetError(f"case {case_id} review time must include timezone")
+
+
+def _validate_adjudication(case_id: str, annotation: dict, digest: str) -> None:
+    reviews = annotation.get("reviews")
+    if not isinstance(reviews, list) or len(reviews) != 2:
+        raise EvaluationDatasetError(f"case {case_id} requires two independent human reviews")
+    reviewers: set[str] = set()
+    for review in reviews:
+        if not isinstance(review, dict):
+            raise EvaluationDatasetError(f"case {case_id} has invalid review")
+        reviewer = _require_text(review.get("reviewer_id"), "reviewer_id", case_id)
+        if reviewer in reviewers or review.get("source") != "human" or review.get("independent") is not True:
+            raise EvaluationDatasetError(f"case {case_id} requires distinct independent human reviewers")
+        if review.get("content_sha256") != digest or not isinstance(review.get("labels"), dict) or not review["labels"]:
+            raise EvaluationDatasetError(f"case {case_id} review lacks frozen-content labels")
+        _review_time(review.get("recorded_at"), case_id)
+        reviewers.add(reviewer)
+    decision = annotation.get("adjudication")
+    if not isinstance(decision, dict):
+        raise EvaluationDatasetError(f"case {case_id} requires a human adjudication")
+    adjudicator = _require_text(decision.get("adjudicator_id"), "adjudicator_id", case_id)
+    if (adjudicator in reviewers or decision.get("source") != "human"
+            or decision.get("content_sha256") != digest
+            or decision.get("labels") != annotation.get("labels")):
+        raise EvaluationDatasetError(f"case {case_id} has invalid adjudication provenance")
+    _review_time(decision.get("recorded_at"), case_id)
+
+
 def validate_evaluation_dataset(path: Path | str) -> EvaluationReport:
     root = Path(path)
     manifest = _load_json(root / "manifest.json")
@@ -91,6 +130,7 @@ def validate_evaluation_dataset(path: Path | str) -> EvaluationReport:
     documents: set[str] = set()
     impact_count = 0
     security_count = 0
+    language_counts: dict[str, int] = {}
     warnings: list[str] = []
 
     for case in cases:
@@ -115,6 +155,8 @@ def validate_evaluation_dataset(path: Path | str) -> EvaluationReport:
                 )
         document_ref = _require_text(case.get("document_ref"), "document_ref", case_id)
         documents.add(document_ref)
+        language = _require_text(case.get("language"), "language", case_id)
+        language_counts[language] = language_counts.get(language, 0) + 1
         storage = case.get("text_storage")
         if storage == "synthetic_embedded":
             text = _require_text(case.get("text"), "text", case_id)
@@ -128,6 +170,11 @@ def validate_evaluation_dataset(path: Path | str) -> EvaluationReport:
             digest = _require_text(case.get("content_sha256"), "content_sha256", case_id)
         else:
             raise EvaluationDatasetError(f"case {case_id} has unsupported text_storage")
+        previous_content_split = group_splits.setdefault(("content", digest), split)
+        if previous_content_split != split:
+            raise EvaluationDatasetError(
+                f"content hash {digest} leaks across {previous_content_split} and {split}"
+            )
         previous_document = hashes.setdefault(document_ref, digest)
         if previous_document != digest:
             raise EvaluationDatasetError(f"document {document_ref} has conflicting hashes")
@@ -141,18 +188,26 @@ def validate_evaluation_dataset(path: Path | str) -> EvaluationReport:
         labels = annotation.get("labels")
         if not isinstance(labels, dict):
             raise EvaluationDatasetError(f"case {case_id} labels must be an object")
+        if state == "unlabeled" and labels:
+            raise EvaluationDatasetError(f"case {case_id} has labels while marked unlabeled")
+        if annotation.get("generated_by_model") and state in {"single_annotator", "adjudicated"}:
+            raise EvaluationDatasetError(f"case {case_id} cannot use model output as gold")
+        if state == "adjudicated":
+            if storage != "restricted_reference":
+                raise EvaluationDatasetError(f"case {case_id} synthetic text cannot become gold")
+            if not labels:
+                raise EvaluationDatasetError(f"case {case_id} has no adjudicated labels")
+            _validate_adjudication(case_id, annotation, digest)
         impact = labels.get("impact")
         if isinstance(impact, list):
             impact_count += len(impact)
-        if annotation.get("generated_by_model") and state in {"single_annotator", "adjudicated"}:
-            raise EvaluationDatasetError(f"case {case_id} cannot use model output as gold")
 
-    target_values = {
-        "documents": int(targets.get("documents", 0)),
-        "event_groups": int(targets.get("event_groups", 0)),
-        "impact_annotations": int(targets.get("impact_annotations", 0)),
-        "security_cases": int(targets.get("security_cases", 0)),
-    }
+    target_values = {}
+    for key, minimum in MINIMUM_GOLD_TARGETS.items():
+        declared = targets.get(key, minimum)
+        if type(declared) is not int or declared < 0:
+            raise EvaluationDatasetError(f"manifest has invalid target {key}")
+        target_values[key] = max(minimum, declared)
     actual = {
         "documents": len(documents), "event_groups": len(event_groups),
         "impact_annotations": impact_count, "security_cases": security_count,
@@ -162,6 +217,10 @@ def validate_evaluation_dataset(path: Path | str) -> EvaluationReport:
         not any(gaps.values())
         and states.get("adjudicated", 0) == len(cases)
         and len(cases) > 0
+        and language_counts.get("en", 0) >= 200
+        and language_counts.get("zh", 0) >= 200
+        and all(split_counts[name] > 0 for name in ALLOWED_SPLITS)
+        and manifest.get("source_database_verified_at_admission") is True
     )
     if not publishable:
         warnings.append("dataset is not publishable gold; target size and/or adjudication is incomplete")

@@ -1,0 +1,38 @@
+{
+  "recorded_date": "2026-09-21",
+  "environment": "Private files in Mac isolated rehearsal directory; source is the 600 unlabeled candidates from P24",
+  "admission_version": "evaluation-admission-v1",
+  "dataset_version": "mac-isolated-unlabeled-v1",
+  "candidate_documents": 600,
+  "source_database_verified_read_only": true,
+  "connected_components": 541,
+  "split_counts": {"train": 420, "dev": 90, "test": 90, "security": 0},
+  "split_language_counts": {
+    "train": {"en": 245, "zh": 175},
+    "dev": {"en": 51, "zh": 39},
+    "test": {"en": 56, "zh": 34}
+  },
+  "split_sec_related": {"train": 47, "dev": 9, "test": 11},
+  "split_us_market_linked": {"train": 166, "dev": 40, "test": 41},
+  "cross_split_leaks": {
+    "event_group": 0,
+    "origin_group": 0,
+    "content_sha256": 0,
+    "document_ref": 0
+  },
+  "annotation_state": {"unlabeled": 600},
+  "impact_annotations": 0,
+  "security_cases": 0,
+  "target_gaps": {"impact_annotations": 300, "security_cases": 50},
+  "publishable_gold": false,
+  "validation": "passed; structurally valid unlabeled dataset only",
+  "limitations": [
+    "No human annotation, adjudication, model evaluation, or accuracy claim was produced.",
+    "Legacy event and canonical-URL origin grouping can miss syndication, translation, and announcement revisions; a human leakage review remains required.",
+    "The 70/15/15 split does not yet reserve a temporal or source-held-out blind set.",
+    "Restricted content remains in the private database; only references and hashes were written to private files.",
+    "Windows production remained off and was not changed."
+  ],
+  "live_database_modified": false,
+  "windows_touched": false
+}
