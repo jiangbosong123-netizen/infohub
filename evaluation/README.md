@@ -177,3 +177,28 @@ python -m app.evaluation_review_intake \
 
 合成数据的入册机制演练见
 [`p30-human-review-intake-rehearsal.json`](../docs/evidence/p30-human-review-intake-rehearsal.json)。
+
+## 第三人相关性裁定
+
+两份不同标注者的相关性复核进入私有数据集后，可用
+`app.evaluation_adjudication` 对**指定 case**做第三人裁定。批次目录包含
+`manifest.json` 和 `decisions.jsonl`；manifest 的 `schema_version` 为
+`human-relevance-adjudication-batch-v1`，需绑定来源数据集版本、manifest/cases
+哈希，提供与前两人不同的 `adjudicator_id`，并声明 `source="human"`、
+`model_assistance=false`。每条决定必须有 case ID、冻结内容 hash、带时区的裁定时间、
+最终 `relevance` 标签和非空理由。时间不能早于前两份复核。
+
+```bash
+python -m app.evaluation_adjudication \
+  --dataset /absolute/private/path/evaluation-two-reviews-v1 \
+  --batch /absolute/private/path/adjudicator-batch \
+  --output /absolute/private/path/evaluation-adjudicated-v1 \
+  --dataset-version evaluation-adjudicated-v1
+```
+
+输出是新私有版本，保留两人的原始意见及第三人的理由；未列入批次的 case 保持原状态。
+只有该 case 的 `annotation.labels` 变成裁定结果。**单个 case 裁定不代表整套 600
+份数据成为 gold**：最低样本、语言、安全案例、impact 标注、全体裁定、来源验证及
+盲测人工复核仍须全部达标。工具不能核实身份或防止人为虚假声明；真实候选目前尚无
+人工复核或裁定。合成流程测试见
+[`p32-relevance-adjudication.json`](../docs/evidence/p32-relevance-adjudication.json)。

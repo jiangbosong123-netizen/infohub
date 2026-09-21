@@ -1,0 +1,24 @@
+{
+  "recorded_date": "2026-09-21",
+  "module": "app.evaluation_adjudication",
+  "environment": "Synthetic private workflow fixture only; no real human adjudications",
+  "validated_behaviors": [
+    "Only a third adjudicator can decide a case with two distinct frozen-content human reviews.",
+    "A decision must follow both reviews in time and contain a relevance label and reason.",
+    "A batch is bound to exact source manifest and case hashes and creates a new private dataset version.",
+    "Undecided cases retain their prior state; one decided fixture case does not make the dataset publishable gold.",
+    "A stale batch, repeat reviewer or incomplete review trace fails before output publication."
+  ],
+  "real_candidate_documents": 600,
+  "real_human_reviews": 0,
+  "real_adjudicated_cases": 0,
+  "publishable_gold": false,
+  "limitations": [
+    "Fixture identities and decisions are synthetic and do not represent real people or reviewed news.",
+    "The code cannot prove human identity, true independence or that frozen source content was actually read.",
+    "Only relevance adjudication is supported here; event, tone and impact judgments need separate task contracts.",
+    "No model-quality or production-readiness claim is supported."
+  ],
+  "live_database_modified": false,
+  "windows_touched": false
+}
