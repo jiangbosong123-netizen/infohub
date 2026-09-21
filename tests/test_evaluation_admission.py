@@ -132,6 +132,15 @@ class EvaluationAdmissionTests(unittest.TestCase):
             })
         return rows
 
+    def test_balanced_split_follows_spec_ratio(self):
+        self.rows = self.blind_rows()
+        self.write_plan()
+        report = admit_sampling_plan(self.plan, self.root / "balanced",
+                                     dataset_version="balanced-v3")
+        self.assertEqual(report.split_counts,
+                         {"dev": 24, "security": 0, "test": 24, "train": 72})
+        self.assertFalse(report.publishable_gold)
+
     def test_blind_split_reserves_recent_window_and_entire_source(self):
         self.rows = self.blind_rows()
         self.rows[0]["event_group_ref"] = self.rows[-1]["event_group_ref"]
@@ -140,8 +149,13 @@ class EvaluationAdmissionTests(unittest.TestCase):
         report = admit_sampling_plan(self.plan, output, dataset_version="blind-v1",
                                      split_policy="blind-holdout")
         self.assertEqual(report.holdout_status, "planned_unreviewed")
+        self.assertEqual(report.split_counts["test"], 24)
+        self.assertEqual(report.split_counts["dev"], 24)
+        self.assertEqual(report.split_counts["train"], 72)
         self.assertFalse(report.publishable_gold)
         manifest = json.loads((output / "manifest.json").read_text())
+        self.assertEqual(manifest["admission_version"], "evaluation-admission-v3")
+        self.assertEqual(manifest["split_target_ratios"], {"train": .60, "dev": .20, "test": .20})
         cases = [json.loads(line) for line in (output / "cases.jsonl").read_text().splitlines()]
         review = manifest["holdout_review"]
         self.assertEqual(review["status"], "pending")

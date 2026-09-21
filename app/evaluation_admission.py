@@ -17,7 +17,8 @@ from .evaluation_sampling import (
     _connect_read_only, _json, _load_pool, _sha,
 )
 
-ADMISSION_VERSION = "evaluation-admission-v2"
+ADMISSION_VERSION = "evaluation-admission-v3"
+SPLIT_TARGETS = {"train": 0.60, "dev": 0.20, "test": 0.20}
 TARGET_PLAN = {"documents": 600, "event_groups": 150,
                "impact_annotations": 300, "security_cases": 50}
 SPLITS = ("train", "dev", "test")
@@ -133,9 +134,9 @@ def _verify_source_database(rows: list[dict], manifest: dict, database: Path) ->
 
 
 def _split_components(components: list[list[dict]], seed: str) -> dict[str, str]:
-    """Keep connected evidence together while approaching 70/15/15 by document count."""
+    """Keep connected evidence together while approaching SPEC's 60/20/20 split."""
     total = sum(map(len, components))
-    targets = {"train": total * 0.70, "dev": total * 0.15, "test": total * 0.15}
+    targets = {name: total * share for name, share in SPLIT_TARGETS.items()}
     counts: Counter[str] = Counter()
     assignment: dict[str, str] = {}
     ordered = sorted(components, key=lambda group: _digest(
@@ -168,8 +169,8 @@ def _blind_holdout_split(components: list[list[dict]], seed: str) -> tuple[dict[
     total = sum(map(len, components))
     if total < 100:
         raise EvaluationDatasetError("blind holdout requires at least 100 candidates")
-    target_test = round(total * 0.15)
-    max_test = round(total * 0.20)
+    target_test = round(total * SPLIT_TARGETS["test"])
+    max_test = round(total * 0.25)
     min_recent = max(10, round(total * 0.05))
     max_recent = round(target_test * 0.75)
     timestamps = [[_published_at(row) for row in group] for group in components]
@@ -220,7 +221,7 @@ def _blind_holdout_split(components: list[list[dict]], seed: str) -> tuple[dict[
 
     dev_groups: set[int] = set()
     dev_count = 0
-    target_dev = round(total * 0.15)
+    target_dev = round(total * SPLIT_TARGETS["dev"])
     for index in ordered:
         if dev_count >= target_dev:
             break
@@ -312,6 +313,7 @@ def admit_sampling_plan(input_dir: Path | str, output_dir: Path | str,
         "source_snapshot_fingerprint": manifest.get("database_snapshot_fingerprint"),
         "source_database_verified_at_admission": database is not None,
         "split_policy": split_policy,
+        "split_target_ratios": SPLIT_TARGETS,
         "split_seed": seed,
     }
     if holdout_plan is not None:
