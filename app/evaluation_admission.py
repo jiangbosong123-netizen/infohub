@@ -8,6 +8,7 @@ import json
 import re
 from collections import Counter, defaultdict
 from dataclasses import asdict, dataclass
+from datetime import datetime, timezone
 from pathlib import Path
 
 from .evaluation import EvaluationDatasetError, validate_evaluation_dataset
@@ -16,7 +17,7 @@ from .evaluation_sampling import (
     _connect_read_only, _json, _load_pool, _sha,
 )
 
-ADMISSION_VERSION = "evaluation-admission-v1"
+ADMISSION_VERSION = "evaluation-admission-v2"
 TARGET_PLAN = {"documents": 600, "event_groups": 150,
                "impact_annotations": 300, "security_cases": 50}
 SPLITS = ("train", "dev", "test")
@@ -30,6 +31,7 @@ class AdmissionReport:
     components: int
     split_counts: dict[str, int]
     source_database_verified: bool
+    holdout_status: str
     publishable_gold: bool
     warnings: tuple[str, ...]
 
@@ -146,9 +148,113 @@ def _split_components(components: list[list[dict]], seed: str) -> dict[str, str]
     return assignment
 
 
+def _published_at(row: dict) -> datetime | None:
+    value = row.get("published_at")
+    if value is None:
+        return None
+    if not isinstance(value, str):
+        raise EvaluationDatasetError("candidate published_at must be a timestamp or null")
+    try:
+        stamp = datetime.fromisoformat(value.replace("Z", "+00:00"))
+    except ValueError as exc:
+        raise EvaluationDatasetError("candidate published_at is invalid") from exc
+    if stamp.tzinfo is None:
+        raise EvaluationDatasetError("candidate published_at requires timezone")
+    return stamp.astimezone(timezone.utc)
+
+
+def _blind_holdout_split(components: list[list[dict]], seed: str) -> tuple[dict[str, str], dict]:
+    """Reserve a recent window and one source; never separate connected evidence."""
+    total = sum(map(len, components))
+    if total < 100:
+        raise EvaluationDatasetError("blind holdout requires at least 100 candidates")
+    target_test = round(total * 0.15)
+    max_test = round(total * 0.20)
+    min_recent = max(10, round(total * 0.05))
+    max_recent = round(target_test * 0.75)
+    timestamps = [[_published_at(row) for row in group] for group in components]
+    dates = sorted({stamp.date() for group in timestamps for stamp in group if stamp}, reverse=True)
+    recent_groups: set[int] | None = None
+    cutoff = None
+    for day in dates:
+        selected = {index for index, group in enumerate(timestamps)
+                    if any(stamp and stamp.date() >= day for stamp in group)}
+        count = sum(len(components[index]) for index in selected)
+        if min_recent <= count <= max_recent:
+            recent_groups, cutoff = selected, day
+            break
+        if count > max_recent:
+            break
+    if recent_groups is None or cutoff is None:
+        raise EvaluationDatasetError("no bounded recent window fits the blind-test budget")
+
+    source_groups: dict[str, set[int]] = defaultdict(set)
+    source_documents: Counter[str] = Counter()
+    for index, group in enumerate(components):
+        for row in group:
+            source_groups[row["source_ref"]].add(index)
+            source_documents[row["source_ref"]] += 1
+    eligible = []
+    for source, indices in source_groups.items():
+        selected = recent_groups | indices
+        count = sum(len(components[index]) for index in selected)
+        if (max(5, round(total * 0.01)) <= source_documents[source] <= round(total * 0.05)
+                and indices - recent_groups and count <= target_test):
+            eligible.append((abs(count - round(total * 0.12)),
+                             _digest((seed + ":source:" + source).encode()), source, selected))
+    if not eligible:
+        raise EvaluationDatasetError("no source fits the blind-test budget")
+    _, _, heldout_source, test_groups = min(eligible)
+
+    ordered = sorted(range(len(components)), key=lambda index: _digest(
+        (seed + ":" + min(row["candidate_id"] for row in components[index])).encode()))
+    test_count = sum(len(components[index]) for index in test_groups)
+    for index in ordered:
+        if test_count >= target_test:
+            break
+        if index not in test_groups and test_count + len(components[index]) <= max_test:
+            test_groups.add(index)
+            test_count += len(components[index])
+    if test_count < target_test:
+        raise EvaluationDatasetError("connected groups cannot fill the blind-test budget")
+
+    dev_groups: set[int] = set()
+    dev_count = 0
+    target_dev = round(total * 0.15)
+    for index in ordered:
+        if dev_count >= target_dev:
+            break
+        if index not in test_groups:
+            dev_groups.add(index)
+            dev_count += len(components[index])
+    if not dev_groups or len(test_groups) + len(dev_groups) == len(components):
+        raise EvaluationDatasetError("blind split leaves no training or development components")
+    assignment = {}
+    for index, group in enumerate(components):
+        split = "test" if index in test_groups else "dev" if index in dev_groups else "train"
+        for row in group:
+            assignment[row["candidate_id"]] = split
+    cutoff_text = cutoff.isoformat() + "T00:00:00Z"
+    recent_documents = sum(1 for group in components for row in group
+                           if (stamp := _published_at(row)) is not None
+                           and stamp.date() >= cutoff)
+    source_count = source_documents[heldout_source]
+    if any(assignment[row["candidate_id"]] != "test" for group in components for row in group
+           if row["source_ref"] == heldout_source
+           or ((stamp := _published_at(row)) is not None and stamp.date() >= cutoff)):
+        raise EvaluationDatasetError("blind holdout leaked outside test")
+    return assignment, {
+        "status": "pending_human_review", "heldout_after": cutoff_text,
+        "heldout_source_refs": [heldout_source],
+        "recent_documents": recent_documents, "source_documents": source_count,
+        "test_documents": test_count,
+    }
+
+
 def admit_sampling_plan(input_dir: Path | str, output_dir: Path | str,
                         *, dataset_version: str, seed: str = "infohub-admission-v1",
-                        database: Path | str | None = None) -> AdmissionReport:
+                        database: Path | str | None = None,
+                        split_policy: str = "balanced") -> AdmissionReport:
     source = Path(input_dir)
     target = Path(output_dir)
     if source.resolve() == target.resolve():
@@ -157,6 +263,8 @@ def admit_sampling_plan(input_dir: Path | str, output_dir: Path | str,
         raise EvaluationDatasetError("dataset_version must be a simple nonempty identifier")
     if not seed:
         raise EvaluationDatasetError("seed must be nonempty")
+    if split_policy not in {"balanced", "blind-holdout"}:
+        raise EvaluationDatasetError("unsupported split_policy")
     repository = Path(__file__).parents[1].resolve()
     if target.resolve().is_relative_to(repository) and not target.resolve().is_relative_to(
             repository / "evaluation" / "private"):
@@ -177,7 +285,10 @@ def admit_sampling_plan(input_dir: Path | str, output_dir: Path | str,
     if database is not None:
         _verify_source_database(rows, manifest, Path(database))
     components = _components(rows)
-    assignment = _split_components(components, seed)
+    assignment, holdout_plan = (
+        (_split_components(components, seed), None) if split_policy == "balanced"
+        else _blind_holdout_split(components, seed)
+    )
     cases = [
         {"case_id": row["candidate_id"], "document_ref": row["document_ref"],
          "object_ref": row["object_ref"], "content_sha256": row["content_sha256"],
@@ -200,9 +311,14 @@ def admit_sampling_plan(input_dir: Path | str, output_dir: Path | str,
         "sampling_candidates_sha256": _digest((source / "candidates.jsonl").read_bytes()),
         "source_snapshot_fingerprint": manifest.get("database_snapshot_fingerprint"),
         "source_database_verified_at_admission": database is not None,
-        "split_policy": "connected event/origin/content/document components; deterministic 70/15/15 assignment",
+        "split_policy": split_policy,
         "split_seed": seed,
     }
+    if holdout_plan is not None:
+        output_manifest["holdout_review"] = {
+            "status": "pending", "heldout_after": holdout_plan["heldout_after"],
+            "heldout_source_refs": holdout_plan["heldout_source_refs"],
+        }
     target.mkdir(parents=True, exist_ok=True)
     (target / "manifest.json").write_text(
         json.dumps(output_manifest, ensure_ascii=False, indent=2, sort_keys=True) + "\n",
@@ -214,6 +330,7 @@ def admit_sampling_plan(input_dir: Path | str, output_dir: Path | str,
     report = AdmissionReport(
         status="unlabeled", candidates=len(rows), components=len(components),
         split_counts=validated.split_counts, source_database_verified=database is not None,
+        holdout_status="planned_unreviewed" if holdout_plan else "not_planned",
         publishable_gold=validated.publishable_gold,
         warnings=("No human labels or model quality claims are available.",
                   "Syndicated/translated origin links and blind time/source holdouts still need human review.",
@@ -222,6 +339,10 @@ def admit_sampling_plan(input_dir: Path | str, output_dir: Path | str,
     (target / "admission-report.json").write_text(
         json.dumps(report.to_dict(), ensure_ascii=False, indent=2, sort_keys=True) + "\n",
         encoding="utf-8")
+    if holdout_plan is not None:
+        (target / "holdout-plan.json").write_text(
+            json.dumps(holdout_plan, ensure_ascii=False, indent=2, sort_keys=True) + "\n",
+            encoding="utf-8")
     return report
 
 
@@ -233,10 +354,13 @@ def main() -> int:
     parser.add_argument("--database", type=Path,
                         help="Read-only source database for snapshot and candidate verification")
     parser.add_argument("--seed", default="infohub-admission-v1")
+    parser.add_argument("--split-policy", choices=("balanced", "blind-holdout"),
+                        default="balanced")
     args = parser.parse_args()
     print(json.dumps(admit_sampling_plan(args.plan, args.output,
                                         dataset_version=args.dataset_version,
-                                        seed=args.seed, database=args.database).to_dict(),
+                                        seed=args.seed, database=args.database,
+                                        split_policy=args.split_policy).to_dict(),
                      ensure_ascii=False, indent=2))
     return 0
 

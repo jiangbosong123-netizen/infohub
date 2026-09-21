@@ -1,0 +1,36 @@
+{
+  "recorded_date": "2026-09-21",
+  "environment": "Mac isolated private evaluation candidates; source database read only; Windows off",
+  "admission_version": "evaluation-admission-v2",
+  "split_policy": "blind-holdout",
+  "candidate_documents": 600,
+  "connected_components": 541,
+  "source_database_verified_read_only": true,
+  "split_counts": {"train": 420, "dev": 90, "test": 90, "security": 0},
+  "holdout_plan": {
+    "status": "pending_human_review",
+    "heldout_after": "2026-09-21T00:00:00Z",
+    "recent_documents": 22,
+    "heldout_source_documents": 22,
+    "recent_documents_outside_test": 0,
+    "heldout_source_documents_outside_test": 0
+  },
+  "cross_split_leaks": {
+    "event_group": 0,
+    "origin_group": 0,
+    "content_sha256": 0,
+    "document_ref": 0
+  },
+  "all_cases_unlabeled": true,
+  "human_holdout_review_completed": false,
+  "publishable_gold": false,
+  "limitations": [
+    "The source identity is held in the private plan, not this repository evidence file.",
+    "Unknown syndication, translation and revised announcements still require human leakage review.",
+    "The selected window covers only the latest day in this historical snapshot; future snapshots may select a different window or fail if constraints cannot be met.",
+    "No human labels, security cases, model quality evaluation, or production cutover occurred.",
+    "The structural checker can verify split membership after a human review is recorded, but cannot prove reviewer identity or model blindness."
+  ],
+  "live_database_modified": false,
+  "windows_touched": false
+}

@@ -95,3 +95,26 @@ v2 的 `abstain_labels` 必须与真实标签不重合（例如 `__abstain__`）
 这些字段是可审计声明，代码不能证明标注者身份或模型从未看过盲测内容；正式发布
 还需人工检查训练数据、来源隔离和评估记录。当前 Mac 候选切分尚不满足这些盲测要求。
 隔离演练见 [`p26-evaluation-split-metrics-rehearsal.json`](../docs/evidence/p26-evaluation-split-metrics-rehearsal.json)。
+
+## 可复核的盲测切分计划
+
+`--split-policy blind-holdout` 会在候选事件、出处、内容与文档连通分量的边界上，
+选一个适合测试预算的最近时间窗口和一个完整保留来源，再补足 test、dev 和 train。
+如果候选池过小、最近窗口过大，或没有可完整保留的来源，就直接失败：
+
+```bash
+python -m app.evaluation_admission \
+  --plan /absolute/private/path/evaluation-candidates-v1 \
+  --output /absolute/private/path/evaluation-blind-v1 \
+  --dataset-version mac-isolated-blind-v1 \
+  --database /absolute/private/path/app.db \
+  --split-policy blind-holdout
+```
+
+输出的 `holdout-plan.json` 与 manifest 只记录 `status=pending`、`heldout_after`
+和完整保留的来源；当前数据集仍全部未标注且 `publishable_gold=false`。人工复核者需
+检查转载/翻译/修订关系、来源独立性、时间窗口、版权限制和训练材料；复核通过后在**新**
+私有数据集版本中记录 `holdout_review.status=verified`、复核人及带时区的时间。
+不能在已发布版本上原位修改，也不能靠把状态字段改为 `verified` 替代真实人工检查。
+Mac 副本的演练与未完成事项见
+[`p27-evaluation-blind-split-rehearsal.json`](../docs/evidence/p27-evaluation-blind-split-rehearsal.json)。

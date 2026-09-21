@@ -5,7 +5,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from app.evaluation import EvaluationDatasetError, validate_evaluation_dataset
+from app.evaluation import EvaluationDatasetError, _verified_holdout, validate_evaluation_dataset
 from app.evaluation_admission import admit_sampling_plan
 from app.evaluation_sampling import build_sampling_plan
 
@@ -40,7 +40,7 @@ class EvaluationAdmissionTests(unittest.TestCase):
     def write_plan(self):
         (self.plan / "manifest.json").write_text(json.dumps({
             "schema_version": "evaluation-sampling-plan-v1",
-            "target_documents": 6,
+            "target_documents": len(self.rows),
             "database_snapshot_fingerprint": "fixture-snapshot",
         }), encoding="utf-8")
         (self.plan / "candidates.jsonl").write_text(
@@ -113,6 +113,78 @@ class EvaluationAdmissionTests(unittest.TestCase):
             admit_sampling_plan(plan, self.root / "stale",
                                 dataset_version="stale-v1", database=database)
         self.assertFalse((self.root / "stale").exists())
+
+    def blind_rows(self):
+        rows = []
+        for number in range(1, 121):
+            source = "source-c" if number > 110 else "source-b" if number > 104 else "source-a"
+            rows.append({
+                "candidate_id": f"candidate-{number}",
+                "document_ref": f"legacy-item:{number}",
+                "object_ref": f"private-db:items/{number}",
+                "content_sha256": hashlib.sha256(f"text {number}".encode()).hexdigest(),
+                "event_group_ref": f"event-{number}",
+                "origin_group_ref": f"origin-{number}",
+                "source_ref": source,
+                "language": "en" if number % 2 else "zh",
+                "published_at": "2026-09-21T10:00:00Z" if number > 110 else "2026-08-20T10:00:00Z",
+                "annotation_state": "unlabeled",
+            })
+        return rows
+
+    def test_blind_split_reserves_recent_window_and_entire_source(self):
+        self.rows = self.blind_rows()
+        self.rows[0]["event_group_ref"] = self.rows[-1]["event_group_ref"]
+        self.write_plan()
+        output = self.root / "blind"
+        report = admit_sampling_plan(self.plan, output, dataset_version="blind-v1",
+                                     split_policy="blind-holdout")
+        self.assertEqual(report.holdout_status, "planned_unreviewed")
+        self.assertFalse(report.publishable_gold)
+        manifest = json.loads((output / "manifest.json").read_text())
+        cases = [json.loads(line) for line in (output / "cases.jsonl").read_text().splitlines()]
+        review = manifest["holdout_review"]
+        self.assertEqual(review["status"], "pending")
+        self.assertTrue(all(case["split"] == "test" for case in cases
+                            if case["source_kind"] in review["heldout_source_refs"]
+                            or case["published_at"] >= review["heldout_after"]))
+        self.assertEqual(cases[0]["split"], "test")
+        self.assertFalse(_verified_holdout(manifest, cases))
+        review.update(status="verified", reviewer_id="reviewer-a",
+                      recorded_at="2026-09-21T12:00:00Z")
+        self.assertTrue(_verified_holdout(manifest, cases))
+
+    def test_blind_split_is_deterministic(self):
+        self.rows = self.blind_rows()
+        self.write_plan()
+        first = self.root / "first-blind"
+        second = self.root / "second-blind"
+        admit_sampling_plan(self.plan, first, dataset_version="blind-v1",
+                            split_policy="blind-holdout")
+        admit_sampling_plan(self.plan, second, dataset_version="blind-v1",
+                            split_policy="blind-holdout")
+        self.assertEqual((first / "cases.jsonl").read_bytes(),
+                         (second / "cases.jsonl").read_bytes())
+        self.assertEqual((first / "holdout-plan.json").read_bytes(),
+                         (second / "holdout-plan.json").read_bytes())
+
+    def test_blind_split_fails_when_no_source_can_be_held_out(self):
+        self.rows = self.blind_rows()
+        for row in self.rows:
+            row["source_ref"] = "only-source"
+        self.write_plan()
+        with self.assertRaisesRegex(EvaluationDatasetError, "no source fits"):
+            admit_sampling_plan(self.plan, self.root / "bad-blind",
+                                dataset_version="blind-v1", split_policy="blind-holdout")
+
+    def test_blind_split_fails_when_latest_day_exceeds_budget(self):
+        self.rows = self.blind_rows()
+        for row in self.rows:
+            row["published_at"] = "2026-09-21T10:00:00Z"
+        self.write_plan()
+        with self.assertRaisesRegex(EvaluationDatasetError, "no bounded recent window"):
+            admit_sampling_plan(self.plan, self.root / "bad-recent",
+                                dataset_version="blind-v1", split_policy="blind-holdout")
 
 
 if __name__ == "__main__":
