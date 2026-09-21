@@ -109,6 +109,13 @@ class EvaluationReviewIntakeTests(unittest.TestCase):
                                 dataset_version="fixture-review-1")
         self.assertFalse((self.root / "wrong-source").exists())
 
+    def test_synthetic_embedded_case_cannot_enter_review_intake(self):
+        row = json.loads((FIXTURE / "cases.jsonl").read_text().splitlines()[0])
+        batch = self.batch(FIXTURE, "fixture-reviewer", digest=row["content_sha256"])
+        with self.assertRaisesRegex(EvaluationDatasetError, "restricted real-data reference"):
+            import_review_batch(FIXTURE, batch, self.root / "synthetic-review",
+                                dataset_version="synthetic-review-v1")
+
 
 if __name__ == "__main__":
     unittest.main()

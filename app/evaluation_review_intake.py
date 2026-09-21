@@ -88,6 +88,8 @@ def import_review_batch(source: Path | str, batch: Path | str, output: Path | st
             raise EvaluationDatasetError(f"review case {case_id} is duplicate or unknown")
         seen.add(case_id)
         case = by_id[case_id]
+        if case.get("text_storage") != "restricted_reference":
+            raise EvaluationDatasetError(f"review case {case_id} requires a restricted real-data reference")
         if row.get("content_sha256") != case["content_sha256"]:
             raise EvaluationDatasetError(f"review case {case_id} content hash differs")
         _review_time(row.get("recorded_at"), case_id)
