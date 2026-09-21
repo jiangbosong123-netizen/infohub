@@ -166,7 +166,8 @@ class EvaluationAdmissionTests(unittest.TestCase):
         self.assertFalse(_verified_holdout(manifest, cases))
         review.update(status="verified", reviewer_id="reviewer-a",
                       recorded_at="2026-09-21T12:00:00Z")
-        self.assertTrue(_verified_holdout(manifest, cases))
+        # A hand-edited status flag is no longer a valid review attestation.
+        self.assertFalse(_verified_holdout(manifest, cases))
 
     def test_blind_split_is_deterministic(self):
         self.rows = self.blind_rows()

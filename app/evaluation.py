@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import re
 from dataclasses import asdict, dataclass
 from datetime import datetime
 from pathlib import Path
@@ -14,6 +15,10 @@ ALLOWED_ANNOTATION_STATES = {"unlabeled", "single_annotator", "adjudicated", "sy
 SCHEMA_VERSION = "evaluation-dataset-v1"
 MINIMUM_GOLD_TARGETS = {"documents": 600, "event_groups": 150,
                         "impact_annotations": 300, "security_cases": 50}
+HOLDOUT_CHECKS = (
+    "origin_and_translation_groups", "announcement_revisions",
+    "source_independence", "time_window", "training_exclusion", "usage_rights",
+)
 
 
 class EvaluationDatasetError(RuntimeError):
@@ -116,12 +121,37 @@ def _validate_adjudication(case_id: str, annotation: dict, digest: str) -> None:
     _review_time(decision.get("recorded_at"), case_id)
 
 
-def _verified_holdout(manifest: dict, cases: list[dict]) -> bool:
+def _verified_holdout(manifest: dict, cases: list[dict], root: Path | None = None) -> bool:
     review = manifest.get("holdout_review")
     if not isinstance(review, dict) or review.get("status") != "verified":
         return False
     if not isinstance(review.get("reviewer_id"), str) or not review["reviewer_id"].strip():
         return False
+    if (review.get("protocol_version") != "holdout-review-v1"
+            or not isinstance(review.get("checks"), dict)
+            or any(review["checks"].get(key) is not True for key in HOLDOUT_CHECKS)
+            or any(not isinstance(review.get(key), str)
+                   or re.fullmatch(r"[0-9a-f]{64}", review[key]) is None
+                   for key in ("source_manifest_sha256", "source_cases_sha256", "review_record_sha256"))):
+        return False
+    if root is not None:
+        try:
+            record_bytes = (root / "holdout-review.json").read_bytes()
+            record = json.loads(record_bytes)
+        except (OSError, json.JSONDecodeError):
+            return False
+        if (hashlib.sha256(record_bytes).hexdigest() != review["review_record_sha256"]
+                or not isinstance(record, dict)
+                or record.get("schema_version") != "holdout-review-v1"
+                or record.get("source") != "human"
+                or record.get("model_assistance") is not False
+                or not isinstance(record.get("inspection_notes"), str)
+                or not record["inspection_notes"].strip()
+                or any(record.get(key) != review.get(key) for key in (
+                    "reviewer_id", "recorded_at", "heldout_after", "heldout_source_refs", "checks"))
+                or record.get("source_manifest_sha256") != review["source_manifest_sha256"]
+                or record.get("source_cases_sha256") != review["source_cases_sha256"]):
+            return False
     try:
         _review_time(review.get("recorded_at"), "holdout_review")
     except EvaluationDatasetError:
@@ -277,13 +307,13 @@ def validate_evaluation_dataset(path: Path | str) -> EvaluationReport:
         and language_counts.get("zh", 0) >= 200
         and all(split_counts[name] > 0 for name in ALLOWED_SPLITS)
         and manifest.get("source_database_verified_at_admission") is True
-        and _verified_holdout(manifest, cases)
+        and _verified_holdout(manifest, cases, root)
     )
     if not publishable:
         warnings.append("dataset is not publishable gold; target size and/or adjudication is incomplete")
     if states.get("synthetic_fixture"):
         warnings.append("synthetic fixtures validate tooling only and do not measure model quality")
-    if not _verified_holdout(manifest, cases):
+    if not _verified_holdout(manifest, cases, root):
         warnings.append("time/source blind holdout is not verified")
     return EvaluationReport(
         dataset_version=dataset_version, cases=len(cases), documents=len(documents),

@@ -122,6 +122,33 @@ python -m app.evaluation_admission \
 Mac 副本的演练与未完成事项见
 [`p27-evaluation-blind-split-rehearsal.json`](../docs/evidence/p27-evaluation-blind-split-rehearsal.json)。
 
+## 盲测保留集的人工复核闸门
+
+`app.evaluation_holdout_review` 只能对来源数据库已验证、`holdout_review.status=pending`
+的私有盲测数据集建立**新版本**。复核人必须先实际检查同源转载、翻译、公告修订、
+来源独立性、时间窗口、训练材料排除以及原文使用权限。输入的私有 `review.json`
+采用 `holdout-review-v1`，包含原数据集版本和 manifest/cases 两份文件的 SHA-256、
+计划中的 `heldout_after`/`heldout_source_refs`、`reviewer_id`、带时区的
+`recorded_at`、`source="human"`、`model_assistance=false`、非空
+`inspection_notes`，以及六项检查均为 `true` 的 `checks` 对象。来源和切分不能
+由复核文件自行改写；程序会与冻结计划逐项对照，并重新检查所有保留样本只在 test。
+
+```bash
+python -m app.evaluation_holdout_review \
+  --dataset /absolute/private/path/evaluation-blind-v3 \
+  --review /absolute/private/path/holdout-review.json \
+  --output /absolute/private/path/evaluation-holdout-reviewed-v1 \
+  --dataset-version evaluation-holdout-reviewed-v1
+```
+
+输出保留原 cases 原始字节，并把复核文件及其哈希一起放进新私有版本；随后改动
+复核文件会使验证失败。**只改 manifest 的 `status` 不会解除标注闸门。**
+对 `blind-holdout` 数据，下面的相关性标注入口只有在这一步通过后才接受批次。
+代码只能验证声明、哈希和已知分组；不能证明复核者身份，也不能自动发现所有
+未知转载或验证模型训练过程。真实 600 份候选目前尚无人完成此复核。
+
+合成流程测试见 [`p31-holdout-review-gate.json`](../docs/evidence/p31-holdout-review-gate.json)。
+
 ## 独立人工相关性复核入册
 
 `app.evaluation_review_intake` 只导入人工给出的 `relevance` 标签；每次只接收一个
@@ -135,7 +162,7 @@ cases 文件的 SHA-256、`reviewer_id`、`source="human"`、`independent=true`�
 
 ```bash
 python -m app.evaluation_review_intake \
-  --dataset /absolute/private/path/evaluation-blind-v3 \
+  --dataset /absolute/private/path/evaluation-holdout-reviewed-v1 \
   --batch /absolute/private/path/reviewer-a-batch \
   --output /absolute/private/path/evaluation-review-a-v1 \
   --dataset-version evaluation-review-a-v1

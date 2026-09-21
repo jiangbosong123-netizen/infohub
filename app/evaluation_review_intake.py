@@ -56,6 +56,12 @@ def import_review_batch(source: Path | str, batch: Path | str, output: Path | st
         raise EvaluationDatasetError("review output parent directory must already exist")
 
     source_report = validate_evaluation_dataset(source)
+    source_manifest = _load_json(source / "manifest.json")
+    if source_manifest.get("split_policy") == "blind-holdout":
+        from .evaluation import _verified_holdout
+        if (source_manifest.get("source_database_verified_at_admission") is not True
+                or not _verified_holdout(source_manifest, _load_cases(source / "cases.jsonl"), source)):
+            raise EvaluationDatasetError("blind holdout requires verified human leakage review before labeling")
     if (not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._-]*", dataset_version)
             or dataset_version == source_report.dataset_version):
         raise EvaluationDatasetError("review output requires a new dataset_version")
@@ -129,6 +135,8 @@ def import_review_batch(source: Path | str, batch: Path | str, output: Path | st
         (staging / "cases.jsonl").write_text(
             "".join(json.dumps(case, ensure_ascii=False, sort_keys=True) + "\n" for case in cases),
             encoding="utf-8")
+        if source_manifest.get("split_policy") == "blind-holdout":
+            shutil.copyfile(source / "holdout-review.json", staging / "holdout-review.json")
         result = validate_evaluation_dataset(staging)
         if result.publishable_gold:
             raise EvaluationDatasetError("review intake cannot publish gold before adjudication")

@@ -4,7 +4,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from app.evaluation import EvaluationDatasetError, _verified_holdout, validate_evaluation_dataset
+from app.evaluation import HOLDOUT_CHECKS, EvaluationDatasetError, _verified_holdout, validate_evaluation_dataset
 
 FIXTURE=Path(__file__).parents[1]/"evaluation/datasets/foundation-v1"
 
@@ -96,7 +96,10 @@ class EvaluationDatasetTests(unittest.TestCase):
  def test_blind_holdout_requires_latest_time_and_source_only_in_test(self):
   manifest={"holdout_review":{"status":"verified","reviewer_id":"reviewer-a",
     "recorded_at":"2026-09-21T09:00:00Z","heldout_source_refs":["source-b"],
-    "heldout_after":"2026-09-01T00:00:00Z"}}
+    "heldout_after":"2026-09-01T00:00:00Z","protocol_version":"holdout-review-v1",
+    "checks":{key:True for key in HOLDOUT_CHECKS},
+    "source_manifest_sha256":"a"*64,"source_cases_sha256":"b"*64,
+    "review_record_sha256":"c"*64}}
   cases=[{"split":"train","source_kind":"source-a","published_at":"2026-08-20T00:00:00Z"},
          {"split":"test","source_kind":"source-b","published_at":"2026-09-10T00:00:00Z"}]
   self.assertTrue(_verified_holdout(manifest,cases))
