@@ -19,6 +19,7 @@ from __future__ import annotations
   python cli.py db-legacy-compare BEFORE AFTER  # 核对迁移前后旧表的原有列和行
   python cli.py db-event-audit [PATH]   # 只读验收旧 story 的候选事件投影
   python cli.py db-curation-audit [PATH] # 只读验收旧 AI 字段的初始离线导入
+  python cli.py db-projection-audit [PATH] # 只读验收门户搜索与热点派生投影
   python cli.py db-migrate             # 仅执行安全迁移（旧库会先备份）
   python cli.py db-verify [PATH]       # 严格验证当前版本数据库
   python cli.py runtime-config         # 显示当前环境、角色与数据路径（不含密钥）
@@ -146,6 +147,14 @@ def cmd_db_event_audit(path: str | None = None) -> None:
 def cmd_db_curation_audit(path: str | None = None) -> None:
     from app.curation_import_audit import audit_curation_import
     result = audit_curation_import(path or config.DB_PATH)
+    print(json.dumps(result, ensure_ascii=False, indent=2))
+    if result["status"] != "ok":
+        raise SystemExit(1)
+
+
+def cmd_db_projection_audit(path: str | None = None) -> None:
+    from app.curation_projection_audit import audit_curation_projections
+    result = audit_curation_projections(path or config.DB_PATH)
     print(json.dumps(result, ensure_ascii=False, indent=2))
     if result["status"] != "ok":
         raise SystemExit(1)
@@ -460,6 +469,8 @@ def main() -> None:
         cmd_db_event_audit(sys.argv[2] if len(sys.argv) == 3 else None)
     elif cmd == "db-curation-audit" and len(sys.argv) <= 3:
         cmd_db_curation_audit(sys.argv[2] if len(sys.argv) == 3 else None)
+    elif cmd == "db-projection-audit" and len(sys.argv) <= 3:
+        cmd_db_projection_audit(sys.argv[2] if len(sys.argv) == 3 else None)
     elif cmd == "db-migrate":
         cmd_db_migrate()
     elif cmd == "db-verify":
