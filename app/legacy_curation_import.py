@@ -12,6 +12,7 @@ from .analysis_results import publish_analysis_result
 from .analysis_runs import AnalysisInput, AnalysisRunError, prepare_analysis_run
 from .curation_contracts import CURATION_PIPELINE_VERSION, CURATION_SCHEMAS, adapt_legacy_curation
 from .database import get_db
+from .documents import _clean_text
 from .ingest import verify_payload
 from .jobs import JobRecord, LeaseLostError, claim_job, enqueue_job, fail_job
 from .publication import publish_job_result
@@ -120,7 +121,11 @@ def _load_frozen_snapshot(job: JobRecord) -> tuple[Mapping[str, object], Mapping
     original_text = snapshot.get("raw_summary")
     if original_text is None:
         original_text = snapshot.get("summary")
-    if version["title_original"] != (snapshot.get("title") or "") or version["text"] != (original_text or ""):
+    # Document projection collapses whitespace before freezing the version.
+    # Compare the same normalization while still requiring the exact CAS-backed
+    # legacy snapshot as the input to the imported publication.
+    if (version["title_original"] != _clean_text(snapshot.get("title"))
+            or version["text"] != _clean_text(original_text)):
         raise LegacyCurationImportError("frozen legacy snapshot does not match its document version")
     return candidate, snapshot
 

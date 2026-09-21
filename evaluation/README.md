@@ -31,3 +31,8 @@ python -m app.evaluation_sampling \
 
 `report.json` 用于检查中英文、来源、SEC/美股、事件组和困难负例覆盖缺口。候选仍是
 `unlabeled`；语言、类型、公司和困难负例均为抽样启发式信息，不能作为模型质量真值。
+
+Mac 隔离副本上的 600 条真实候选抽样已验证命令与数量分层，汇总记录见
+[`p24-curation-evaluation-rehearsal.json`](../docs/evidence/p24-curation-evaluation-rehearsal.json)。
+其中英文 352、中文 248、美股关联 247、SEC 相关 67；这只满足候选抽样数量，
+没有人工标注、裁定、泄漏复核或模型指标。候选对象引用保存在私有运行目录，不进入 Git。

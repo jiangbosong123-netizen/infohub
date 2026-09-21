@@ -13,6 +13,7 @@ from app.legacy_curation_import import (
     enqueue_legacy_curation_item,
     import_claimed_legacy_curation, process_one_legacy_curation_import,
 )
+from app.curation_import_audit import audit_curation_import
 
 
 class LegacyCurationImportTests(unittest.TestCase):
@@ -36,7 +37,7 @@ class LegacyCurationImportTests(unittest.TestCase):
                           id,source_id,url,title,title_zh,summary,raw_summary,channel,
                           score,tmt,reason,ai_cat,companies,official,published_at,fetched_at)
                           VALUES(1,1,'https://example.test/a','Company launches product',
-                          '公司发布产品','公司发布一款产品。','Company launches a product.',
+                          '公司发布产品','公司发布一款产品。','Company launches  a product.\n',
                           'ai',80,1,'值得关注','product','[]',0,
                           '2026-09-10T09:00:00+00:00','2026-09-10T09:01:00+00:00')""")
         for _ in range(5):
@@ -44,10 +45,15 @@ class LegacyCurationImportTests(unittest.TestCase):
                 break
 
     def test_four_tasks_publish_once_and_preserve_legacy_fields(self):
+        self.assertEqual(audit_curation_import(config.DB_PATH)["status"], "incomplete")
         before = None
         with database.get_db() as db:
             before = tuple(db.execute("SELECT title_zh,summary,score,tmt FROM items WHERE id=1").fetchone())
+            self.assertEqual(db.execute("""SELECT text FROM document_versions WHERE id=(
+                SELECT current_version_id FROM documents WHERE legacy_item_id=1)""").fetchone()[0],
+                             "Company launches a product.")
         jobs = enqueue_legacy_curation_item(1)
+        self.assertEqual(audit_curation_import(config.DB_PATH)["job_states"], {"pending": 4})
         self.assertEqual(len(jobs), 4)
         self.assertEqual([job.id for job in jobs], [job.id for job in enqueue_legacy_curation_item(1)])
         results = []
@@ -56,6 +62,11 @@ class LegacyCurationImportTests(unittest.TestCase):
             self.assertIsNotNone(result)
             results.append(result)
         self.assertIsNone(process_one_legacy_curation_import(worker_id="fixture-importer"))
+        audit = audit_curation_import(config.DB_PATH)
+        self.assertEqual(audit["status"], "ok")
+        self.assertEqual(audit["documents"], 1)
+        self.assertEqual(audit["jobs"], 4)
+        self.assertEqual(audit["result_statuses"], {"needs_review": 4})
         self.assertEqual({result.task_type for result in results},
                          {"translation", "relevance", "summarization", "importance"})
         with database.get_db() as db:
@@ -70,6 +81,16 @@ class LegacyCurationImportTests(unittest.TestCase):
             self.assertTrue(all(json.loads(row["validated_output_json"])["status"] == "needs_review" for row in rows))
             self.assertEqual(db.execute("SELECT COUNT(*) FROM analysis_attempt_authorizations WHERE reserved_cost_microusd=0 AND decision='allowed'").fetchone()[0],4)
 
+    def test_audit_rejects_mismatched_job_subject(self):
+        enqueue_legacy_curation_item(1)
+        for _ in range(4):
+            process_one_legacy_curation_import(worker_id="fixture-importer")
+        with database.get_db() as db:
+            db.execute("UPDATE jobs SET subject_id='wrong' WHERE kind=?", (JOB_KIND,))
+        audit = audit_curation_import(config.DB_PATH)
+        self.assertEqual(audit["status"], "invalid")
+        self.assertEqual(audit["violations"]["invalid_job_subject"], 4)
+
     def test_missing_snapshot_and_stale_lease_cannot_publish(self):
         with self.assertRaisesRegex(LegacyCurationImportError, "no current frozen"):
             enqueue_legacy_curation_item(999)
@@ -80,6 +101,25 @@ class LegacyCurationImportTests(unittest.TestCase):
             db.execute("UPDATE jobs SET lease_token='different' WHERE id=?", (job.id,))
         with self.assertRaisesRegex(Exception, "lease"):
             import_claimed_legacy_curation(job)
+        with database.get_db() as db:
+            self.assertEqual(db.execute("SELECT COUNT(*) FROM analysis_results").fetchone()[0], 0)
+
+    def test_substantive_snapshot_change_is_still_rejected(self):
+        enqueue_legacy_curation_item(1)
+        job = claim_job(worker_id="fixture-importer", kinds=(JOB_KIND,), lease_seconds=300)
+        with database.get_db() as db:
+            row = db.execute("""SELECT raw.payload_ref,raw.payload_sha256 FROM documents d
+                JOIN document_version_inputs input ON input.version_id=d.current_version_id
+                JOIN raw_records raw ON raw.id=input.raw_record_id
+                WHERE d.legacy_item_id=1 AND input.role='primary'""").fetchone()
+        from app.ingest import verify_payload
+        original = json.loads(verify_payload(row[0], row[1]).read_text("utf-8"))
+        original["extra"]["legacy_snapshot"]["raw_summary"] = "A different claim."
+        changed = Path(config.BLOB_PATH).parent / "changed-snapshot.json"
+        changed.write_text(json.dumps(original), encoding="utf-8")
+        with patch("app.legacy_curation_import.verify_payload", return_value=changed):
+            with self.assertRaisesRegex(LegacyCurationImportError, "does not match"):
+                import_claimed_legacy_curation(job)
         with database.get_db() as db:
             self.assertEqual(db.execute("SELECT COUNT(*) FROM analysis_results").fetchone()[0], 0)
 

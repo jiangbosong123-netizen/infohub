@@ -40,6 +40,15 @@ python cli.py legacy-curation-process 100
 
 本阶段不批量导入生产数据。
 
+P24 在 Mac 历史库的**隔离副本**上抽取 40 份跨频道文档（其中 10 份 SEC 相关），
+完成四种任务共 160 个离线导入；验收记录见
+[`p24-curation-evaluation-rehearsal.json`](evidence/p24-curation-evaluation-rehearsal.json)。
+导入前的冻结快照与文档版本按 P07 标准化规则比较空白字符；原始 CAS 快照和哈希仍须
+逐字节校验，实质内容差异仍阻止发布。`db-curation-audit [PATH]` 是只读阶段闸门，
+检查当前副本中所有旧策展导入 job、冻结输入、离线 provider、零预算授权和初始发布状态；
+有未完成 job 或结构异常时退出非零。该闸门仅适用于**人工复核或新模型改版之前**的初始
+离线导入。检查通过不代表旧 AI 内容准确，也不代表 36,262 份历史文档已全部导入。
+
 P13c 增加门户兼容读取投影，使用 `INFOHUB_CURATION_READ_ENABLED=true` 单独开启，
 默认关闭。首页、搜索、稍后读、主题列表共用批量读取层；事件详情沿用同一投影。
 只读取 `documents.current_version_id` 对应的四种当前 publication 指针，且仅允许
