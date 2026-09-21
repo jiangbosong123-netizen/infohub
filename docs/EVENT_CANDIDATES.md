@@ -88,3 +88,14 @@ corroborated 或 confirmed。重复输入使用稳定 decision key，因此重�
 整个旧 story 投影在一个显式维护事务中执行。缺文档证据、redirect 循环、稳定映射冲突、版本链
 错误或外键错误都会整体回滚。迁移 10 本身只创建空表与约束，不自动投影历史数据，也不修改旧
 `stories`、`story_items` 或门户数据。
+
+投影完成后可在隔离副本执行 `python cli.py db-event-audit /path/to/app.db`。该只读命令核对
+每个旧 story 的映射、redirect 终点、canonical story 与事件的一对一关系，以及 legacy 决策、
+候选链接和 context 证据的数量与状态。不完整或违反初始候选语义时返回非零退出码。该检查只适用于
+**首次 shadow candidate 投影**；人工审核或后续事件版本发布后，应改用生命周期验收，不能把
+新状态误报为迁移错误。
+
+2026-09-21 在完整回填后的 Mac 隔离副本上投影 31,042 个旧 story，得到 29,698 个 candidate
+event 和 25,490 条候选报道链接；重复运行新增数全部为 0。事件审计、SQLite 完整性、CAS 验证和
+11 张旧表原有列对比均通过。详见 [P23 演练证据](evidence/p23-event-projection-rehearsal.json)。
+这只验证投影完整与保守语义，不能证明聚类准确、事实可靠或模型效果，也不是 Windows 生产迁移验收。

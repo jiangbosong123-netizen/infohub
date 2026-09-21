@@ -8,6 +8,7 @@ from app import config, database
 from app.catalog import sync_identity_catalog
 from app.crawler import runner
 from app.event_candidates import EventProjectionError, project_legacy_stories
+from app.event_projection_audit import audit_event_projection
 from app.ingest import begin_ingest_run, observe_candidate
 from app.stories import refresh_derived
 
@@ -65,6 +66,24 @@ class EventCandidateProjectionTests(unittest.TestCase):
         refresh_derived()
         with database.get_db() as db:
             sync_identity_catalog(db)
+
+    def test_read_only_event_audit_distinguishes_missing_and_invalid_projection(self):
+        self._ingest("OpenAI releases a coding platform for developers")
+        self._prepare()
+        before = audit_event_projection(self.path)
+        self.assertEqual(before["status"], "incomplete")
+        self.assertIn("story_mapping_incomplete", before["blocked_reasons"])
+        with database.get_db() as db:
+            project_legacy_stories(db)
+        after = audit_event_projection(self.path)
+        self.assertEqual(after["status"], "ok")
+        self.assertEqual(after["imported_candidate_links"], 1)
+        self.assertEqual(after["violations"]["invalid_candidate_events"], 0)
+        with database.get_db() as db:
+            db.execute("UPDATE events SET status='active'")
+        altered = audit_event_projection(self.path)
+        self.assertEqual(altered["status"], "invalid")
+        self.assertEqual(altered["violations"]["invalid_candidate_events"], 1)
 
     def test_legacy_cluster_becomes_unknown_candidate_with_version_pinned_evidence(self):
         self._ingest("OpenAI releases a coding platform for developers")

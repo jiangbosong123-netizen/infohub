@@ -1,0 +1,65 @@
+{
+  "recorded_date": "2026-09-21",
+  "environment": "Mac isolated copy after the P22 full historical backfill; not a Windows export",
+  "schema_version": 21,
+  "before_event_database_sha256": "f89f1b7238ac72cd41da98c27dd3eb7ddcd99fcb3435edb25cc3200d2aab1f06",
+  "preconditions": {
+    "backfill_status": "completed",
+    "items_mapped": 36262,
+    "raw_cas_verified": 36262,
+    "catalog_sync": {"companies": 23, "topics": 56, "publishers": 11}
+  },
+  "first_projection": {
+    "stories_seen": 31042,
+    "canonical_stories": 29698,
+    "events_created": 29698,
+    "event_versions_created": 29698,
+    "mappings_created": 31042,
+    "decisions_created": 25490,
+    "links_created": 25490,
+    "evidence_created": 25490
+  },
+  "repeat_projection": {
+    "events_created": 0,
+    "event_versions_created": 0,
+    "mappings_created": 0,
+    "decisions_created": 0,
+    "links_created": 0,
+    "evidence_created": 0
+  },
+  "stage_audit": {
+    "status": "ok",
+    "mapped_stories": 31042,
+    "mapped_canonical_stories": 29698,
+    "mapped_events": 29698,
+    "legacy_decisions": 25490,
+    "imported_candidate_links": 25490,
+    "imported_context_evidence": 25490,
+    "unresolved_redirects": 0,
+    "wrong_canonical_story": 0,
+    "redirect_event_mismatch": 0,
+    "invalid_candidate_events": 0,
+    "invalid_legacy_decisions": 0,
+    "invalid_imported_links": 0,
+    "invalid_imported_evidence": 0
+  },
+  "verification": {
+    "sqlite_integrity": "ok",
+    "foreign_key_violations": 0,
+    "legacy_original_columns_unchanged": true,
+    "legacy_tables_compared": 11,
+    "raw_cas_verified": 36262,
+    "raw_cas_missing": 0,
+    "raw_cas_corrupt": 0
+  },
+  "limitations": [
+    "All imported events remain candidates with unknown facts and pending match review; 100% mapping is not event accuracy.",
+    "Only 25,490 legacy story-item relationships had imported candidate links; items outside legacy stories are still separate documents.",
+    "No model-based analysis, curated search generation, or versioned daily report was produced in this rehearsal.",
+    "This stage audit applies only before human-reviewed event revisions; later revisions need a separate lifecycle audit.",
+    "Windows production remained off and was not changed."
+  ],
+  "provider_calls": 0,
+  "live_database_modified": false,
+  "windows_touched": false
+}
