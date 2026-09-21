@@ -15,6 +15,7 @@ from __future__ import annotations
   python cli.py db-bundle-verify PATH   # 校验完整备份包
   python cli.py db-bundle-restore BUNDLE DEST  # 恢复到全新隔离目录，不切换线上库
   python cli.py db-bundle-smoke PATH     # 用临时副本验收门户读路径
+  python cli.py db-coverage [PATH]      # 只读统计旧数据到新模型的实际覆盖
   python cli.py db-migrate             # 仅执行安全迁移（旧库会先备份）
   python cli.py db-verify [PATH]       # 严格验证当前版本数据库
   python cli.py runtime-config         # 显示当前环境、角色与数据路径（不含密钥）
@@ -116,6 +117,11 @@ def cmd_db_bundle_smoke(path: str) -> None:
     print(json.dumps(report, ensure_ascii=False, indent=2))
     if report["status"] != "ok":
         raise SystemExit(1)
+
+
+def cmd_db_coverage(path: str | None = None) -> None:
+    from app.data_coverage import audit_data_coverage
+    print(json.dumps(audit_data_coverage(path or config.DB_PATH), ensure_ascii=False, indent=2))
 
 
 def cmd_db_migrate() -> None:
@@ -419,6 +425,8 @@ def main() -> None:
         cmd_db_bundle_restore(sys.argv[2], sys.argv[3])
     elif cmd == "db-bundle-smoke" and len(sys.argv) == 3:
         cmd_db_bundle_smoke(sys.argv[2])
+    elif cmd == "db-coverage" and len(sys.argv) <= 3:
+        cmd_db_coverage(sys.argv[2] if len(sys.argv) == 3 else None)
     elif cmd == "db-migrate":
         cmd_db_migrate()
     elif cmd == "db-verify":
