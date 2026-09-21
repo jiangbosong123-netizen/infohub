@@ -1,0 +1,56 @@
+{
+  "recorded_date": "2026-09-21",
+  "environment": "macOS isolated SQLite online-backup copy of the active legacy database",
+  "source_backup_sha256": "d4fbedd69fa2e26746271c4b0c6b17e7c850325a414aa7f37ed50639ba55f0d7",
+  "schema_before": 0,
+  "schema_after": 21,
+  "legacy_rows": {
+    "items": 36262,
+    "items_by_channel": {"ai": 3557, "robot": 68, "stock": 32637},
+    "item_discoveries": 40370,
+    "canonical_stories": 29698,
+    "daily_reports": 10
+  },
+  "backfill": {
+    "status": "completed",
+    "items_mapped": 36262,
+    "discoveries_mapped": 40370,
+    "reports_mapped": 10,
+    "unexplained_items": 0,
+    "unexplained_discoveries": 0,
+    "unexplained_reports": 0,
+    "resumed_after_stop": true,
+    "repeat_after_completion_processed": 0,
+    "elapsed_seconds_including_slow_query_and_stop": 1351,
+    "elapsed_seconds_after_query_fix": 170
+  },
+  "reconciliation_query": {
+    "before_plan": "mapping index lookup followed by full locator scan per mapping",
+    "after_plan": "locator scan followed by idx_legacy_mappings_target point lookup",
+    "before_seconds_at_partial_coverage": 72.376,
+    "after_seconds_at_partial_coverage": 0.033,
+    "note": "Query timings are from one Mac read on the same partially backfilled copy; not an end-to-end Windows estimate."
+  },
+  "verification": {
+    "schema_state": "current",
+    "schema_version": 21,
+    "sqlite_integrity": "ok",
+    "foreign_key_violations": 0,
+    "legacy_tables_compared": 11,
+    "legacy_original_columns_unchanged": true,
+    "raw_cas_records": 36262,
+    "raw_cas_verified": 36262,
+    "raw_cas_missing": 0,
+    "raw_cas_corrupt": 0,
+    "repeated_backfill_batch_processed": 0
+  },
+  "remaining_gaps": [
+    "All 36,262 current inputs are legacy excerpts, not verified full publisher text.",
+    "No legacy story has yet been projected to a stable candidate event on this copy.",
+    "No document analysis publication, curated search generation, story metric generation, or versioned daily report is ready on this copy.",
+    "The Mac copy is not a Windows production export; Windows remains off and untouched."
+  ],
+  "provider_calls": 0,
+  "live_database_modified": false,
+  "windows_touched": false
+}

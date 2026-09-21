@@ -8,7 +8,7 @@ from unittest.mock import patch
 from app import config, database
 from app.crawler import runner
 from app.ingest import begin_ingest_run, finish_ingest_run, observe_candidate
-from app.legacy_backfill import backfill_legacy_batch
+from app.legacy_backfill import DISCOVERY_MAPPING_COUNT_SQL, backfill_legacy_batch
 from app.source_time import parse_source_time
 
 
@@ -74,6 +74,15 @@ class LegacyBackfillTests(unittest.TestCase):
                     json.dumps(rows, ensure_ascii=False, default=str).encode()
                 ).hexdigest()
         return result
+
+    def test_discovery_reconciliation_uses_target_lookup_index(self):
+        with database.get_db() as db:
+            plan = [row[3] for row in db.execute(
+                "EXPLAIN QUERY PLAN " + DISCOVERY_MAPPING_COUNT_SQL, ("fixture",)
+            )]
+        self.assertTrue(any("SCAN locator" in detail for detail in plan), plan)
+        self.assertTrue(any("SEARCH mapping USING INDEX idx_legacy_mappings_target" in detail
+                            for detail in plan), plan)
 
     def test_maps_items_discoveries_and_reports_without_rewriting_legacy(self):
         self._item(1, 1, title="Original", summary="Excerpt", url="https://example.com/a")

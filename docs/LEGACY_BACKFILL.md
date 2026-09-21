@@ -37,6 +37,9 @@ observation 或版本。item 映射和 cursor 分开提交时，映射先完成�
 
 完成状态还会验证 mapping 的目标 document、locator 和 report identity 确实存在，不能只用映射行数
 冒充覆盖。完整迁移后执行 `db-verify` 与 `raw-verify`。
+另用 `db-legacy-compare BEFORE.db AFTER.db` 对冻结备份与迁移副本做原有列的逐行指纹核对，
+避免只凭数量相同忽略旧字段被改写。该命令只读，详见
+[旧表对比说明](LEGACY_COMPARE.md)。
 
 ## 生产步骤与回滚
 
@@ -53,3 +56,11 @@ observation 或版本。item 映射和 cursor 分开提交时，映射先完成�
 unexplained 均为 0，20,829 个 CAS 全量校验通过，旧表逐行指纹未变，总耗时约 402 秒。详细机器可读
 结果见 [P07 演练证据](evidence/p07-production-copy-rehearsal.json)。它不是新 Windows 导出副本验收，
 也不代表 Windows 必然具有相同耗时；正式部署前仍需在新 Windows 副本复演。
+
+2026-09-21 又在新 Mac 在线备份副本上演练至当前 schema 21：36,262 items、40,370 discoveries、
+10 份旧日报全部映射，三项 unexplained 为 0；36,262 个 raw CAS 全部校验通过，11 张旧表原有列
+指纹一致。演练发现 discovery 覆盖核对查询在较大数据库上被规划为嵌套全表扫描，单次耗时约
+72 秒；固定 locator-first 顺序并按映射目标索引查找后，同副本单次约 0.03 秒。中断后从保存的
+游标恢复，完成后再跑处理 0 条。完整结果及未完成的事件、分析和索引缺口见
+[P22 演练证据](evidence/p22-isolated-backfill-rehearsal.json)。这些时间仅说明 Mac 副本情况，
+不预测 Windows 生产维护窗口。

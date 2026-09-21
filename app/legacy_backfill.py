@@ -27,6 +27,13 @@ class LegacyBackfillError(RuntimeError):
     """Historical rows cannot be mapped without an unexplained loss."""
 
 
+DISCOVERY_MAPPING_COUNT_SQL = """SELECT COUNT(*) FROM document_locators AS locator
+    CROSS JOIN legacy_object_mappings AS mapping
+      ON mapping.target_id=CAST(locator.source_id AS TEXT)||':'||locator.external_id
+    WHERE mapping.dataset_id=? AND mapping.resource_type='item_discovery'
+      AND mapping.target_type='document_locator'"""
+
+
 @dataclass(frozen=True)
 class LegacyBackfillReport:
     status: str
@@ -437,9 +444,12 @@ def _map_reports(state: sqlite3.Row, batch_size: int) -> int:
 
 
 def _report(state: sqlite3.Row, batch_processed: int) -> LegacyBackfillReport:
+    # The locator key is computed from two columns. Force locator-first order so
+    # SQLite probes idx_legacy_mappings_target by that key; mapping-first would
+    # scan every locator for every mapped discovery on a large historical DB.
     with get_db() as db:
         values = db.execute(
-            """SELECT
+            f"""SELECT
                (SELECT COUNT(*) FROM items WHERE id<=?),
                (SELECT COUNT(*) FROM legacy_object_mappings AS mapping
                  JOIN documents AS document ON document.id=mapping.target_id
@@ -447,11 +457,7 @@ def _report(state: sqlite3.Row, batch_processed: int) -> LegacyBackfillReport:
                    AND mapping.target_type='document'),
                (SELECT COUNT(*) FROM item_discoveries AS discovery
                  JOIN items AS item ON item.id=discovery.item_id WHERE item.id<=?),
-               (SELECT COUNT(*) FROM legacy_object_mappings AS mapping
-                 JOIN document_locators AS locator
-                   ON mapping.target_id=CAST(locator.source_id AS TEXT)||':'||locator.external_id
-                 WHERE mapping.dataset_id=? AND mapping.resource_type='item_discovery'
-                   AND mapping.target_type='document_locator'),
+               ({DISCOVERY_MAPPING_COUNT_SQL}),
                (SELECT COUNT(*) FROM daily_reports WHERE id<=?),
                (SELECT COUNT(*) FROM legacy_object_mappings AS mapping
                  JOIN legacy_report_identities AS report ON report.id=mapping.target_id
