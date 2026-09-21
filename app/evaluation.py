@@ -110,6 +110,52 @@ def _validate_adjudication(case_id: str, annotation: dict, digest: str) -> None:
     _review_time(decision.get("recorded_at"), case_id)
 
 
+def _verified_holdout(manifest: dict, cases: list[dict]) -> bool:
+    review = manifest.get("holdout_review")
+    if not isinstance(review, dict) or review.get("status") != "verified":
+        return False
+    if not isinstance(review.get("reviewer_id"), str) or not review["reviewer_id"].strip():
+        return False
+    try:
+        _review_time(review.get("recorded_at"), "holdout_review")
+    except EvaluationDatasetError:
+        return False
+    sources = review.get("heldout_source_refs")
+    cutoff_text = review.get("heldout_after")
+    if (not isinstance(sources, list) or not sources
+            or any(not isinstance(value, str) or not value for value in sources)
+            or not isinstance(cutoff_text, str)):
+        return False
+    try:
+        cutoff = datetime.fromisoformat(cutoff_text.replace("Z", "+00:00"))
+    except ValueError:
+        return False
+    if cutoff.tzinfo is None:
+        return False
+    natural = [case for case in cases if case["split"] != "security"]
+    source_cases = [case for case in natural if case.get("source_kind") in sources]
+    if not source_cases or any(case["split"] != "test" for case in source_cases):
+        return False
+    recent = []
+    for case in natural:
+        value = case.get("published_at")
+        if value is None:
+            continue
+        if not isinstance(value, str):
+            return False
+        try:
+            stamp = datetime.fromisoformat(value.replace("Z", "+00:00"))
+        except ValueError:
+            return False
+        if stamp.tzinfo is None:
+            return False
+        if stamp >= cutoff:
+            recent.append(case)
+    if not recent or any(case["split"] != "test" for case in recent):
+        return False
+    return True
+
+
 def validate_evaluation_dataset(path: Path | str) -> EvaluationReport:
     root = Path(path)
     manifest = _load_json(root / "manifest.json")
@@ -221,11 +267,14 @@ def validate_evaluation_dataset(path: Path | str) -> EvaluationReport:
         and language_counts.get("zh", 0) >= 200
         and all(split_counts[name] > 0 for name in ALLOWED_SPLITS)
         and manifest.get("source_database_verified_at_admission") is True
+        and _verified_holdout(manifest, cases)
     )
     if not publishable:
         warnings.append("dataset is not publishable gold; target size and/or adjudication is incomplete")
     if states.get("synthetic_fixture"):
         warnings.append("synthetic fixtures validate tooling only and do not measure model quality")
+    if not _verified_holdout(manifest, cases):
+        warnings.append("time/source blind holdout is not verified")
     return EvaluationReport(
         dataset_version=dataset_version, cases=len(cases), documents=len(documents),
         event_groups=len(event_groups), impact_annotations=impact_count,

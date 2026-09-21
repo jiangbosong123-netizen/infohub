@@ -1,0 +1,38 @@
+{
+  "recorded_date": "2026-09-21",
+  "environment": "Mac isolated candidate dataset and synthetic engineering fixture; no Windows deployment",
+  "metrics_version": "classification-metrics-v2",
+  "synthetic_fixture_check": {
+    "dataset": "foundation-v1",
+    "v2_test_cases": 3,
+    "v2_security_cases": 2,
+    "test_and_security_reported_separately": true,
+    "quality_claim_allowed": false,
+    "interpretation": "Only evaluator behavior was checked; these figures are not model quality estimates."
+  },
+  "private_real_candidate_audit": {
+    "candidates": 600,
+    "source_database_verified": true,
+    "human_labeled": 0,
+    "published_since_2026_09_01_by_split": {"train": 363, "dev": 78, "test": 75},
+    "sources_exclusive_to_test": 0,
+    "total_sources": 42,
+    "blind_holdout_verified": false,
+    "quality_claim_allowed": false
+  },
+  "guards": [
+    "v1 mixed-split engineering reports cannot support quality claims.",
+    "v2 rejects predictions for another split and modified manifest, cases, or prediction files.",
+    "The v2 abstention marker cannot also be a gold label; missing predictions count as abstentions.",
+    "Natural-distribution test and security cases produce separate reports.",
+    "Verified temporal and source blind holdout is required before a gold dataset can enable a quality claim."
+  ],
+  "limitations": [
+    "The current random component split is unsuitable as a blind holdout and must be re-split in a new dataset version.",
+    "The code cannot independently verify reviewer identity or that a model never saw blind-test content.",
+    "No paid model was run and no NLP accuracy was measured.",
+    "Windows production remained off and was not changed."
+  ],
+  "live_database_modified": false,
+  "windows_touched": false
+}

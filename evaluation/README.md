@@ -70,3 +70,28 @@ Mac 真实候选的入册演练见
 [`p25-evaluation-admission-rehearsal.json`](../docs/evidence/p25-evaluation-admission-rehearsal.json)。
 该批 600 条仍全部未标注；impact 还缺 300 项人工标签，security 还缺 50 条独立样本，
 不能用于报告 NLP 质量或解除生产发布门槛。
+
+## 分类指标运行边界
+
+现有 `prediction-run-v1` 和其 `relevance-rule-v0` 报告只用于 12 条合成样本的
+工程回归；它把所有 split 放在一起，`quality_claim_allowed=false`。真实模型评估
+须使用 `prediction-run-v2`，指定且只包含**一个** `split`：`train`、`dev`、
+`test` 或 `security`。训练/开发结果用于调试；安全样本单独成报表，不能混进自然
+分布准确率。只有 `test` 可进入质量声明判断。
+
+v2 `run.json` 必填 `schema_version`、`prediction_run_id`、`dataset_version`、
+`task`、`label_path`、`split`、`method_id`、`method_version`、
+`method_config_sha256`、带时区的 `generated_at`、`predictions_file`、
+`predictions_sha256`、`dataset_manifest_sha256`、`dataset_cases_sha256` 与
+`abstain_labels`。预测文件只能是同目录文件名，
+每行 `case_id` 与 `predicted_label`；跨 split 的 ID、重复 ID、变化的文件哈希均拒绝。
+v2 的 `abstain_labels` 必须与真实标签不重合（例如 `__abstain__`），缺失预测按
+拒判计入全体分母。报告明确给出 coverage、abstain、missing、混淆矩阵和区间。
+
+即使人工标签齐备，`quality_claim_allowed` 仍要求来源数据库验证、最低样本数、
+双人复核及第三人裁定、完整 test 预测，且数据集 manifest 中的 `holdout_review`
+通过核对：`status=verified`、复核人和带时区的时间、至少一个仅出现在 test 的
+`heldout_source_refs`，以及 `heldout_after` 之后的所有自然样本只在 test。
+这些字段是可审计声明，代码不能证明标注者身份或模型从未看过盲测内容；正式发布
+还需人工检查训练数据、来源隔离和评估记录。当前 Mac 候选切分尚不满足这些盲测要求。
+隔离演练见 [`p26-evaluation-split-metrics-rehearsal.json`](../docs/evidence/p26-evaluation-split-metrics-rehearsal.json)。
