@@ -1,0 +1,24 @@
+{
+  "recorded_date": "2026-09-21",
+  "environment": "Synthetic private test fixture only; no real human reviews were recorded",
+  "module": "app.evaluation_review_intake",
+  "scope": "Independent human relevance-review batch intake into immutable dataset successors",
+  "validated_behaviors": [
+    "First and second distinct reviewer records preserve frozen content hashes and input version hashes.",
+    "Conflicting reviewer labels remain separate provisional records; no final annotation.labels is assigned.",
+    "Repeated reviewer, stale content hash, stale dataset hash, assisted-model attestation and invalid relevance label are rejected.",
+    "Existing output versions cannot be overwritten and failed batches create no output version."
+  ],
+  "real_candidate_documents": 600,
+  "real_human_reviews_recorded": 0,
+  "real_gold_labels": 0,
+  "publishable_gold": false,
+  "limitations": [
+    "Tests use synthetic identities and content solely to verify mechanics; no one is represented as having reviewed a real document.",
+    "The tool cannot prove a person's identity, independence, content inspection or lack of model assistance.",
+    "Third-person adjudication and task-specific impact labels are separate future work.",
+    "The latest real candidate holdout is still awaiting human leakage review before labeling."
+  ],
+  "live_database_modified": false,
+  "windows_touched": false
+}

@@ -84,10 +84,11 @@ def _review_time(value: object, case_id: str) -> None:
         raise EvaluationDatasetError(f"case {case_id} review time must include timezone")
 
 
-def _validate_adjudication(case_id: str, annotation: dict, digest: str) -> None:
+def _validate_human_reviews(case_id: str, annotation: dict, digest: str,
+                            *, require_two: bool) -> set[str]:
     reviews = annotation.get("reviews")
-    if not isinstance(reviews, list) or len(reviews) != 2:
-        raise EvaluationDatasetError(f"case {case_id} requires two independent human reviews")
+    if not isinstance(reviews, list) or not 1 <= len(reviews) <= 2 or (require_two and len(reviews) != 2):
+        raise EvaluationDatasetError(f"case {case_id} requires {'two' if require_two else 'one or two'} independent human reviews")
     reviewers: set[str] = set()
     for review in reviews:
         if not isinstance(review, dict):
@@ -99,6 +100,11 @@ def _validate_adjudication(case_id: str, annotation: dict, digest: str) -> None:
             raise EvaluationDatasetError(f"case {case_id} review lacks frozen-content labels")
         _review_time(review.get("recorded_at"), case_id)
         reviewers.add(reviewer)
+    return reviewers
+
+
+def _validate_adjudication(case_id: str, annotation: dict, digest: str) -> None:
+    reviewers = _validate_human_reviews(case_id, annotation, digest, require_two=True)
     decision = annotation.get("adjudication")
     if not isinstance(decision, dict):
         raise EvaluationDatasetError(f"case {case_id} requires a human adjudication")
@@ -238,6 +244,10 @@ def validate_evaluation_dataset(path: Path | str) -> EvaluationReport:
             raise EvaluationDatasetError(f"case {case_id} has labels while marked unlabeled")
         if annotation.get("generated_by_model") and state in {"single_annotator", "adjudicated"}:
             raise EvaluationDatasetError(f"case {case_id} cannot use model output as gold")
+        if state == "single_annotator":
+            if labels:
+                raise EvaluationDatasetError(f"case {case_id} provisional reviews cannot supply gold labels")
+            _validate_human_reviews(case_id, annotation, digest, require_two=False)
         if state == "adjudicated":
             if storage != "restricted_reference":
                 raise EvaluationDatasetError(f"case {case_id} synthetic text cannot become gold")

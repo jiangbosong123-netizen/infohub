@@ -121,3 +121,32 @@ python -m app.evaluation_admission \
 不能在已发布版本上原位修改，也不能靠把状态字段改为 `verified` 替代真实人工检查。
 Mac 副本的演练与未完成事项见
 [`p27-evaluation-blind-split-rehearsal.json`](../docs/evidence/p27-evaluation-blind-split-rehearsal.json)。
+
+## 独立人工相关性复核入册
+
+`app.evaluation_review_intake` 只导入人工给出的 `relevance` 标签；每次只接收一个
+标注者的私有批次，产生**全新数据集版本**，不会覆盖原版本。批次目录包含
+`manifest.json` 和 `reviews.jsonl`。manifest 必须填写 `schema_version` 为
+`human-relevance-review-batch-v1`、原 `source_dataset_version`、原 manifest 与
+cases 文件的 SHA-256、`reviewer_id`、`source="human"`、`independent=true`、
+`model_assistance=false`。每行 review 包含 `case_id`、冻结的 `content_sha256`、
+带时区的 `recorded_at`，以及形如 `{"relevance":"unknown"}` 的 `labels`。
+可用标签为 `relevant`、`not_relevant`、`unknown`；单批次不允许重复 case。
+
+```bash
+python -m app.evaluation_review_intake \
+  --dataset /absolute/private/path/evaluation-blind-v3 \
+  --batch /absolute/private/path/reviewer-a-batch \
+  --output /absolute/private/path/evaluation-review-a-v1 \
+  --dataset-version evaluation-review-a-v1
+```
+
+第二位标注者以首轮输出为 `--dataset` 再导入，必须使用不同身份和新输出版本。
+在第三人裁定前，即使两人意见相同，`annotation.labels` 仍为空、状态仍为
+`single_annotator`（表示**尚未裁定的人工记录**），不能作为 gold 或质量指标。
+工具只验证格式、内容 hash、来源版本和身份字段是否不同；标注者本人、独立性、
+是否真的阅读冻结原文以及未使用模型，都必须由流程负责人核查。批次和输出均留在
+私有目录，不提交 Git。此工具不提供自动裁定，也不会把旧 AI 结果变成人工真值。
+
+合成数据的入册机制演练见
+[`p30-human-review-intake-rehearsal.json`](../docs/evidence/p30-human-review-intake-rehearsal.json)。
