@@ -68,7 +68,7 @@ class ReportGenerationSchemaTests(unittest.TestCase):
                        'legacy-provider','legacy-model','legacy-prompt',?,?,?)""",
                        (dataset, HASH, HASH, NOW, NOW))
         report = db_admin.migrate_database(self.path)
-        self.assertEqual(report.applied_versions, (20, 21))
+        self.assertEqual(report.applied_versions, tuple(range(20, db_admin.CURRENT_SCHEMA_VERSION + 1)))
         self.assertEqual(db_admin.verify_database(self.path, require_current=True).schema_version, db_admin.CURRENT_SCHEMA_VERSION)
         with sqlite3.connect(self.path) as db:
             self.assertEqual(db.execute("SELECT content FROM daily_reports").fetchone()[0], "old text")

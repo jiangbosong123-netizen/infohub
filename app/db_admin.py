@@ -2188,6 +2188,34 @@ def _report_review_foundation(db: sqlite3.Connection) -> None:
     _execute_script(db, REPORT_REVIEW_SCHEMA_SQL)
 
 
+API_AUTH_SCHEMA_SQL = """
+CREATE TABLE api_consumers (
+    id TEXT PRIMARY KEY,
+    name TEXT NOT NULL UNIQUE CHECK(length(trim(name))>0),
+    status TEXT NOT NULL CHECK(status IN ('active','revoked')),
+    authz_version INTEGER NOT NULL DEFAULT 1 CHECK(authz_version>=1),
+    created_at TEXT NOT NULL,
+    revoked_at TEXT,
+    CHECK((status='active' AND revoked_at IS NULL)
+       OR (status='revoked' AND revoked_at IS NOT NULL))
+);
+CREATE TABLE api_keys (
+    key_id TEXT PRIMARY KEY,
+    consumer_id TEXT NOT NULL REFERENCES api_consumers(id),
+    token_sha256 TEXT NOT NULL UNIQUE CHECK(length(token_sha256)=64),
+    scopes_json TEXT NOT NULL CHECK(json_valid(scopes_json)),
+    issued_at TEXT NOT NULL,
+    expires_at TEXT NOT NULL,
+    revoked_at TEXT
+);
+CREATE INDEX idx_api_keys_consumer ON api_keys(consumer_id,revoked_at);
+"""
+
+
+def _api_auth_foundation(db: sqlite3.Connection) -> None:
+    _execute_script(db, API_AUTH_SCHEMA_SQL)
+
+
 # Migration 1 freezes the exact legacy schema at main@88a2a1e. Future schema
 # changes must append a new Migration instead of editing this definition.
 MIGRATIONS = (
@@ -2308,6 +2336,8 @@ MIGRATIONS = (
               REPORT_GENERATION_SCHEMA_SQL, _report_generation_foundation),
     Migration(21, "manual report draft review gate",
               REPORT_REVIEW_SCHEMA_SQL, _report_review_foundation),
+    Migration(22, "API consumer and hashed key foundation",
+              API_AUTH_SCHEMA_SQL, _api_auth_foundation),
 )
 CURRENT_SCHEMA_VERSION = MIGRATIONS[-1].version
 REQUIRED_MIGRATION_COLUMNS = {
@@ -2343,7 +2373,7 @@ EXPECTED_TABLES = LEGACY_ANCHORS | {
     "curation_story_metrics", "curation_story_metrics_state", "curation_story_metrics_dirty",
     "report_input_snapshots", "report_input_members", "report_versions", "report_publications",
     "report_generation_runs", "report_generation_attempts",
-    "report_generation_reviews",
+    "report_generation_reviews", "api_consumers", "api_keys",
 }
 EXPECTED_ITEM_COLUMNS = {
     "id", "source_id", "url", "title", "title_zh", "summary", "raw_summary",
@@ -2685,6 +2715,11 @@ EXPECTED_REPORT_VERSION_COLUMNS = {
         "id", "attempt_id", "decision", "review_type", "reviewer_id",
         "reason", "draft_sha256", "reviewed_at",
     },
+}
+EXPECTED_API_AUTH_COLUMNS = {
+    "api_consumers": {"id", "name", "status", "authz_version", "created_at", "revoked_at"},
+    "api_keys": {"key_id", "consumer_id", "token_sha256", "scopes_json",
+                 "issued_at", "expires_at", "revoked_at"},
 }
 EXPECTED_INGEST_TRIGGERS = {
     "report_generation_reviews_valid_approval", "report_generation_reviews_no_update",
@@ -3048,7 +3083,7 @@ def _assert_current_schema(db: sqlite3.Connection) -> None:
         })
         for table, required in (
             EXPECTED_CURATION_SEARCH_COLUMNS | EXPECTED_CURATION_STORY_METRICS_COLUMNS
-            | EXPECTED_REPORT_VERSION_COLUMNS
+            | EXPECTED_REPORT_VERSION_COLUMNS | EXPECTED_API_AUTH_COLUMNS
         ).items()
     }
     missing_search_columns = {

@@ -46,7 +46,7 @@ class ReportVersionSchemaTests(unittest.TestCase):
             db_admin.apply_migrations(db, db_admin.MIGRATIONS[:18])
             db.execute("INSERT INTO daily_reports(date,content,created_at) VALUES('2026-09-18','old text',?)", (NOW,))
         report = db_admin.migrate_database(self.path)
-        self.assertEqual(report.applied_versions, (19, 20, 21))
+        self.assertEqual(report.applied_versions, tuple(range(19, db_admin.CURRENT_SCHEMA_VERSION + 1)))
         self.assertEqual(db_admin.verify_database(self.path, require_current=True).schema_version, db_admin.CURRENT_SCHEMA_VERSION)
         with sqlite3.connect(self.path) as db:
             self.assertEqual(db.execute("SELECT content FROM daily_reports").fetchone()[0], "old text")
