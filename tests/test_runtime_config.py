@@ -34,6 +34,7 @@ class RuntimeConfigurationTests(unittest.TestCase):
         self.assertEqual(settings.api_key_rate_per_minute, 60)
         self.assertEqual(settings.api_consumer_concurrency, 5)
         self.assertEqual(settings.api_request_lease_seconds, 300)
+        self.assertIsNone(settings.public_origin)
         self.assertEqual(settings.process_role, "web")
 
     def test_legacy_local_layout_requires_explicit_compatibility_flag(self):
@@ -128,6 +129,7 @@ class RuntimeConfigurationTests(unittest.TestCase):
                 "INFOHUB_ENABLE_SCHEDULER": "false",
                 "INFOHUB_DURABLE_JOBS_ENABLED": "true",
                 "INFOHUB_PROCESS_ROLE": "web",
+                "INFOHUB_PUBLIC_ORIGIN": "https://windows-server.example-tailnet.ts.net",
             },
             self.root,
         )
@@ -136,6 +138,23 @@ class RuntimeConfigurationTests(unittest.TestCase):
         self.assertFalse(settings.allow_network_tasks)
         self.assertFalse(settings.scheduler_enabled)
         self.assertTrue(settings.durable_jobs_enabled)
+        self.assertEqual(settings.public_origin,
+                         "https://windows-server.example-tailnet.ts.net")
+
+    def test_public_origin_is_private_https_tailnet_name(self):
+        for value in (
+            "http://windows-server.example.ts.net",
+            "https://100.69.211.16",
+            "https://windows-server.example.ts.net:8443",
+            "https://windows-server.example.ts.net/path",
+            "https://user@windows-server.example.ts.net",
+        ):
+            with self.subTest(value=value):
+                with self.assertRaises(config.RuntimeConfigurationError):
+                    config.load_runtime_settings({"INFOHUB_PUBLIC_ORIGIN": value}, self.root)
+        settings = config.load_runtime_settings(
+            {"INFOHUB_PUBLIC_ORIGIN": "https://WINDOWS-SERVER.EXAMPLE.TS.NET/"}, self.root)
+        self.assertEqual(settings.public_origin, "https://windows-server.example.ts.net")
 
     def test_compose_production_environment_passes_runtime_validation(self):
         compose = yaml.safe_load((config.BASE_DIR / "compose.yaml").read_text(encoding="utf-8"))
@@ -145,6 +164,7 @@ class RuntimeConfigurationTests(unittest.TestCase):
             service = compose["services"][name]
             values = {key: str(value) for key, value in service["environment"].items()}
             values["INFOHUB_ENVIRONMENT_ID"] = "windows-production"
+            values["INFOHUB_PUBLIC_ORIGIN"] = "https://windows-server.example-tailnet.ts.net"
             values["INFOHUB_CURATED_FEED_ENABLED"] = "true"
             values["INFOHUB_CURATION_READ_ENABLED"] = "false"
             values["INFOHUB_CURATION_SEARCH_ENABLED"] = "false"
@@ -168,6 +188,8 @@ class RuntimeConfigurationTests(unittest.TestCase):
         }
         web_values["INFOHUB_ENVIRONMENT_ID"] = "windows-production"
         worker_values["INFOHUB_ENVIRONMENT_ID"] = "windows-production"
+        web_values["INFOHUB_PUBLIC_ORIGIN"] = "https://windows-server.example-tailnet.ts.net"
+        worker_values["INFOHUB_PUBLIC_ORIGIN"] = "https://windows-server.example-tailnet.ts.net"
         web_values["INFOHUB_CURATED_FEED_ENABLED"] = "true"
         worker_values["INFOHUB_CURATED_FEED_ENABLED"] = "true"
         web_values["INFOHUB_CURATION_READ_ENABLED"] = "false"
@@ -192,6 +214,7 @@ class RuntimeConfigurationTests(unittest.TestCase):
         self.assertNotIn("env_file", compose["services"]["infohub"])
         self.assertNotIn("env_file", compose["services"]["migrate"])
         self.assertEqual(compose["services"]["worker"]["env_file"], [".env"])
+        self.assertEqual(compose["services"]["infohub"]["ports"], ["127.0.0.1:8000:8000"])
 
     def test_invalid_environment_flags_and_overlapping_paths_fail(self):
         invalid_cases = (

@@ -38,9 +38,11 @@ from ..provenance import publisher, display_title
 from ..runtime_health import read_worker_heartbeat
 from ..topics import GROUPS
 from .v1_auth import v1_auth_guard
+from .transport_security import private_https_headers
 
 app = FastAPI(title="行业情报站")
 app.middleware("http")(v1_auth_guard)
+app.middleware("http")(private_https_headers)
 app.mount("/static", StaticFiles(directory=BASE_DIR / "app" / "web" / "static"), name="static")
 templates = Jinja2Templates(directory=str(BASE_DIR / "app" / "web" / "templates"))
 

@@ -14,6 +14,16 @@ Schema 24 加入跨 web 进程共享的短时配额状态。默认每把 key 每
 
 Schema 25 为已经识别消费者的 v1 请求增加追加式审计事件。准入与拒绝事件和配额事务一起提交；处理完成或异常时记录状态码与基于 monotonic clock 的耗时。字段只允许 request ID、消费者/密钥 ID、HTTP 方法、抽象资源类别、所需 scope、结果与时间，不接受原始路径、对象 ID、query、Authorization、token、响应正文或异常详情。`python cli.py api-admin request-audit-list` 可按消费者或 key 查看这些安全字段。无效 token 和未知路径只写不含路径/token 的轮转应用日志，不逐条写数据库，避免匿名垃圾流量无限扩大持久表。审计触发器阻止普通 UPDATE/DELETE，但本机数据库管理员仍可修改文件，因此不声称防管理员篡改。
 
-后续独立 PR 才会接入私网 HTTPS、具体 v1 数据路由与权限绑定的游标。入口鉴权不意味着现有 `/api/health` 或网页已经有应用层鉴权；在这些能力和生产验收完成前，不发布 v1 数据 API。新增路由必须明确登记其方法和权限，并单独验证字段级限制；单靠入口 scope 不允许返回受限全文。`POST /sync/snapshots` 当前只预留 `read:sync` 入口，未来实现仍须检查每个请求资源对应的读权限，并单独实现快照配额。
+私网 HTTPS 配置由独立 P17f 模块接入：Docker 后端只发布到 Windows 本机，Tailscale Serve
+负责私网 TLS 终止，生产必须配置唯一的 `https://*.ts.net` origin。v1 请求若没有使用该
+hostname 会在鉴权前返回 421。这个 hostname 检查不能单独证明 TLS；安全边界依赖后端确实
+只绑定 localhost，以及 Tailscale Serve 实际处于启用状态。这两项和证书必须在 Windows
+重新开机后按 [私网 HTTPS 生产入口](PRIVATE_HTTPS_INGRESS.md)验收。在验收完成前，不发布
+v1 数据 API。
+
+入口鉴权不意味着现有 `/api/health` 或网页已经有应用层鉴权。新增路由必须明确登记其方法
+和权限，并单独验证字段级限制；单靠入口 scope 不允许返回受限全文。`POST /sync/snapshots`
+当前只预留 `read:sync` 入口，未来实现仍须检查每个请求资源对应的读权限，并单独实现快照
+配额。
 
 迁移按既有 `migrate_database` 流程先备份、在事务中扩展、再执行完整性校验。旧镜像可以忽略新增表，回滚代码时保留已创建的消费者与密钥记录；绝不通过恢复旧数据库来清除它们。密钥内容与私有消费者记录不得提交仓库。

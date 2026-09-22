@@ -48,9 +48,11 @@ INFOHUB_LEGACY_DATA_LAYOUT=true .venv/bin/python cli.py runtime-config
 `restart: unless-stopped`。SQLite、blob、备份和进程心跳持久化在宿主机 `data/` 目录。
 三个角色的权限和数据路径均由 Compose 显式注入，缺少生产标识、路径或角色时应用拒绝启动。
 
-同一 Tailscale 网络内的设备可通过 `http://<Windows 的 Tailscale IP>:8000` 访问。
-只需允许 Windows 防火墙的专用网络或 Tailscale 网络访问 8000 端口，不要在路由器上
-做公网端口映射。
+生产入口使用 Tailscale Serve 提供的私网 HTTPS 地址。Docker 的 8000 端口只绑定 Windows
+本机 `127.0.0.1`，不再通过 Windows 的 Tailscale IP 直接开放。不要启用 Tailscale Funnel，
+也不要添加 8000 端口的入站防火墙规则或路由器端口映射。首次切换和回滚步骤见
+[私网 HTTPS 生产入口](docs/PRIVATE_HTTPS_INGRESS.md)。Windows 当前关机期间可以合并代码，
+但不能把这一入口标记为生产验收完成。
 
 `/api/live` 只证明 web 进程能响应；`/api/ready` 同时要求数据库身份正确且同版本 worker
 心跳新鲜；`/api/pipeline` 报告来源、任务、索引和日报新鲜度。兼容入口 `/api/health` 返回

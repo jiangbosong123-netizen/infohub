@@ -7,6 +7,7 @@ import re
 from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Mapping
+from urllib.parse import urlsplit
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from dotenv import load_dotenv
@@ -84,6 +85,7 @@ class RuntimeSettings:
     api_key_rate_per_minute: int
     api_consumer_concurrency: int
     api_request_lease_seconds: int
+    public_origin: str | None
     process_role: str
     legacy_data_layout: bool
 
@@ -227,6 +229,31 @@ def load_runtime_settings(
     api_request_lease_seconds = _integer(
         values, "INFOHUB_API_REQUEST_LEASE_SECONDS", 300, 30, 3_600
     )
+    raw_public_origin = values.get("INFOHUB_PUBLIC_ORIGIN", "").strip()
+    if environment == "production" and not raw_public_origin:
+        raise RuntimeConfigurationError(
+            "INFOHUB_PUBLIC_ORIGIN is required in production and must be the private HTTPS URL"
+        )
+    public_origin = None
+    if raw_public_origin:
+        parsed_origin = urlsplit(raw_public_origin)
+        try:
+            has_port = parsed_origin.port is not None
+        except ValueError as exc:
+            raise RuntimeConfigurationError(
+                "INFOHUB_PUBLIC_ORIGIN contains an invalid port"
+            ) from exc
+        if (
+            parsed_origin.scheme != "https" or parsed_origin.username is not None
+            or parsed_origin.password is not None or has_port
+            or parsed_origin.path not in ("", "/") or parsed_origin.query
+            or parsed_origin.fragment or not parsed_origin.hostname
+            or not parsed_origin.hostname.lower().endswith(".ts.net")
+        ):
+            raise RuntimeConfigurationError(
+                "INFOHUB_PUBLIC_ORIGIN must be an HTTPS *.ts.net origin without port, path, query, or fragment"
+            )
+        public_origin = f"https://{parsed_origin.hostname.lower()}"
     process_role = values.get("INFOHUB_PROCESS_ROLE", "web").strip().lower() or "web"
     if process_role not in _PROCESS_ROLES:
         raise RuntimeConfigurationError(
@@ -268,6 +295,7 @@ def load_runtime_settings(
         api_key_rate_per_minute=api_key_rate_per_minute,
         api_consumer_concurrency=api_consumer_concurrency,
         api_request_lease_seconds=api_request_lease_seconds,
+        public_origin=public_origin,
         process_role=process_role,
         legacy_data_layout=legacy_data_layout,
     )
@@ -292,6 +320,7 @@ REPORT_WRITE_ENABLED = RUNTIME.report_write_enabled
 API_KEY_RATE_PER_MINUTE = RUNTIME.api_key_rate_per_minute
 API_CONSUMER_CONCURRENCY = RUNTIME.api_consumer_concurrency
 API_REQUEST_LEASE_SECONDS = RUNTIME.api_request_lease_seconds
+PUBLIC_ORIGIN = RUNTIME.public_origin
 PROCESS_ROLE = RUNTIME.process_role
 
 WATCHLIST_PATH = BASE_DIR / "config" / "watchlist.yaml"

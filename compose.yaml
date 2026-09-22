@@ -20,6 +20,7 @@ x-infohub-environment: &infohub-environment
   INFOHUB_CURATION_HOT_ENABLED: ${INFOHUB_CURATION_HOT_ENABLED:-false}
   INFOHUB_REPORT_READ_ENABLED: ${INFOHUB_REPORT_READ_ENABLED:-false}
   INFOHUB_REPORT_WRITE_ENABLED: ${INFOHUB_REPORT_WRITE_ENABLED:-false}
+  INFOHUB_PUBLIC_ORIGIN: ${INFOHUB_PUBLIC_ORIGIN:-}
   APP_TZ: ${APP_TZ:-Asia/Shanghai}
 
 services:
@@ -49,7 +50,7 @@ services:
       WEB_HOST: 0.0.0.0
       PORT: 8000
     ports:
-      - "8000:8000"
+      - "127.0.0.1:8000:8000"
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/api/live', timeout=4)"]
       interval: 30s

@@ -181,6 +181,16 @@ class V1AuthGatewayTests(unittest.TestCase):
         self.assertEqual(response.status_code, 401)
         self.assertEqual(response.json()["error"]["code"], "invalid_token")
 
+    def test_configured_public_origin_rejects_backend_host_and_adds_https_headers(self):
+        headers = {"Authorization": f"Bearer {self.items_key.token}"}
+        with patch("app.config.PUBLIC_ORIGIN", "https://windows-server.example.ts.net"):
+            backend = self.client.get("/api/v1/items", headers=headers)
+            public = self.client.get(
+                "/api/v1/items", headers={**headers, "Host": "windows-server.example.ts.net"})
+        self.assertEqual(backend.status_code, 421)
+        self.assertEqual(backend.json()["error"]["code"], "secure_transport_required")
+        self.assertEqual(public.status_code, 200)
+
 
 if __name__ == "__main__":
     unittest.main()

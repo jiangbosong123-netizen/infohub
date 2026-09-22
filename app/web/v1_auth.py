@@ -16,6 +16,7 @@ from ..api_auth import authenticate_api_key
 from ..api_rate_limit import release_api_request, reserve_api_request
 from ..api_request_audit import record_request_event
 from ..database import get_db
+from .transport_security import uses_public_origin
 
 
 # This is the target contract's read-only surface, not a list of enabled routes.
@@ -59,6 +60,7 @@ def _failure(status: int, code: str, request_id: str,
         "resource_not_found": "Resource not found.",
         "temporarily_unavailable": "Authentication is temporarily unavailable.",
         "rate_limited": "Request limit reached; retry later.",
+        "secure_transport_required": "Use the configured private HTTPS origin.",
     }
     headers = {"X-Request-ID": request_id}
     if status == 401:
@@ -81,6 +83,9 @@ async def v1_auth_guard(request: Request, call_next):
         return await call_next(request)
     request_id = str(uuid4())
     request.state.request_id = request_id
+    if config.PUBLIC_ORIGIN and not uses_public_origin(request):
+        _LOG.warning("API v1 transport rejected request_id=%s reason=public_host_mismatch", request_id)
+        return _failure(421, "secure_transport_required", request_id)
     policy = _request_policy(request.method, path)
     if policy is None:
         _LOG.warning("API v1 route rejected request_id=%s reason=unknown_route", request_id)

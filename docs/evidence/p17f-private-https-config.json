@@ -1,0 +1,12 @@
+{
+  "module": "P17f private HTTPS ingress",
+  "environment": "repository/offline configuration; Windows production powered off",
+  "backend_host_binding": "127.0.0.1:8000",
+  "public_origin_required_in_production": true,
+  "public_origin_contract": "https://*.ts.net without port or path",
+  "tailscale_serve_runtime_verified": false,
+  "certificate_verified": false,
+  "direct_tailnet_ip_port_closed_verified": false,
+  "windows_release_verified": false,
+  "production_status": "pending Windows runtime acceptance"
+}
