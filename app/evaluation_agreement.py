@@ -8,10 +8,13 @@ from collections import Counter
 from dataclasses import asdict, dataclass
 from pathlib import Path
 
-from .evaluation import EvaluationDatasetError, _load_cases, _require_text, validate_evaluation_dataset
+from .evaluation import (
+    ALLOWED_SPLITS, EvaluationDatasetError, _load_cases, _require_text,
+    validate_evaluation_dataset,
+)
 from .evaluation_review_intake import RELEVANCE_LABELS
 
-REPORT_VERSION = "relevance-agreement-v1"
+REPORT_VERSION = "relevance-agreement-v2"
 LABELS = tuple(sorted(RELEVANCE_LABELS))
 
 
@@ -19,6 +22,7 @@ LABELS = tuple(sorted(RELEVANCE_LABELS))
 class AgreementReport:
     report_version: str
     dataset_version: str
+    scope_split: str
     reviewer_a: str
     reviewer_b: str
     dataset_cases: int
@@ -36,15 +40,19 @@ class AgreementReport:
 
 
 def measure_relevance_agreement(dataset_path: Path | str, *, reviewer_a: str,
-                                reviewer_b: str) -> AgreementReport:
+                                reviewer_b: str, split: str | None = None) -> AgreementReport:
     """Measure a fixed pair; never compare adjudicated gold with a provisional review."""
     reviewer_a = _require_text(reviewer_a, "reviewer_a", "agreement").strip()
     reviewer_b = _require_text(reviewer_b, "reviewer_b", "agreement").strip()
     if reviewer_a == reviewer_b:
         raise EvaluationDatasetError("agreement requires two distinct reviewers")
+    if split is not None and split not in ALLOWED_SPLITS:
+        raise EvaluationDatasetError("agreement requires a valid split")
 
     dataset = validate_evaluation_dataset(dataset_path)
     rows = _load_cases(Path(dataset_path) / "cases.jsonl")
+    if split is not None:
+        rows = [case for case in rows if case["split"] == split]
     confusion = {first: {second: 0 for second in LABELS} for first in LABELS}
     split_counts: Counter[str] = Counter()
     language_counts: Counter[str] = Counter()
@@ -85,16 +93,16 @@ def measure_relevance_agreement(dataset_path: Path | str, *, reviewer_a: str,
             warnings.append("kappa is undefined when both reviewers use only one identical label")
     else:
         warnings.append("no cases have two reviews by this exact reviewer pair")
-    if total < dataset.cases:
-        warnings.append("reviewer pair does not cover the complete dataset")
+    if total < len(rows):
+        warnings.append("reviewer pair does not cover the selected dataset scope")
     if not dataset.publishable_gold:
         warnings.append("dataset is not publishable gold; this is an annotation-process metric only")
     if total < 30:
         warnings.append("fewer than 30 paired cases; do not use this estimate as a quality gate")
 
     return AgreementReport(
-        REPORT_VERSION, dataset.dataset_version, reviewer_a, reviewer_b,
-        dataset.cases, total, dict(sorted(split_counts.items())),
+        REPORT_VERSION, dataset.dataset_version, split or "all", reviewer_a, reviewer_b,
+        len(rows), total, dict(sorted(split_counts.items())),
         dict(sorted(language_counts.items())), confusion, observed, expected,
         kappa, tuple(warnings),
     )
@@ -105,9 +113,11 @@ def main() -> int:
     parser.add_argument("--dataset", required=True, type=Path)
     parser.add_argument("--reviewer-a", required=True)
     parser.add_argument("--reviewer-b", required=True)
+    parser.add_argument("--split", choices=sorted(ALLOWED_SPLITS))
     args = parser.parse_args()
     report = measure_relevance_agreement(
-        args.dataset, reviewer_a=args.reviewer_a, reviewer_b=args.reviewer_b)
+        args.dataset, reviewer_a=args.reviewer_a, reviewer_b=args.reviewer_b,
+        split=args.split)
     print(json.dumps(report.to_dict(), ensure_ascii=False, indent=2))
     return 0
 

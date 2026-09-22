@@ -76,6 +76,18 @@ class RelevanceAgreementTests(unittest.TestCase):
         self.assertEqual(report.confusion["relevant"]["not_relevant"], 1)
         self.assertEqual(report.cohen_kappa, 0)
 
+    def test_split_scope_keeps_test_agreement_separate(self):
+        self.set_reviews(["relevant"] * 9, ["relevant"] * 8 + ["not_relevant"])
+        report = measure_relevance_agreement(
+            self.dataset, reviewer_a="fixture-a", reviewer_b="fixture-b", split="test")
+        self.assertEqual(report.scope_split, "test")
+        self.assertEqual(report.dataset_cases, 3)
+        self.assertEqual(report.paired_cases, 2)
+        self.assertEqual(report.paired_by_split, {"test": 2})
+        with self.assertRaisesRegex(EvaluationDatasetError, "valid split"):
+            measure_relevance_agreement(
+                self.dataset, reviewer_a="fixture-a", reviewer_b="fixture-b", split="all")
+
     def test_one_class_and_no_pairs_do_not_claim_perfect_kappa(self):
         self.set_reviews(["relevant", "relevant"], ["relevant", "relevant"])
         report = self.measure()

@@ -95,6 +95,9 @@ v2 的 `abstain_labels` 必须与真实标签不重合（例如 `__abstain__`）
 但不额外充当一个真值类别。旧 v1 基线的工程分数口径保持原样，不能与 v2
 的 macro F1 直接比较。
 
+相关性指标的最终发布判断使用[盲测发布门槛](../docs/EVALUATION_RELEASE_GATE.md)；
+分类报告中的 `quality_claim_allowed` 仅表示结构条件，不能单独作为放行结论。
+
 即使人工标签齐备，`quality_claim_allowed` 仍要求来源数据库验证、最低样本数、
 双人复核及第三人裁定、完整 test 预测，且数据集 manifest 中的 `holdout_review`
 通过核对：`status=verified`、复核人和带时区的时间、至少一个仅出现在 test 的
