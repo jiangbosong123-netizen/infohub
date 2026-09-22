@@ -37,8 +37,10 @@ from ..report_query import published_calendar_dates, published_calendar_report
 from ..provenance import publisher, display_title
 from ..runtime_health import read_worker_heartbeat
 from ..topics import GROUPS
+from .v1_auth import v1_auth_guard
 
 app = FastAPI(title="行业情报站")
+app.middleware("http")(v1_auth_guard)
 app.mount("/static", StaticFiles(directory=BASE_DIR / "app" / "web" / "static"), name="static")
 templates = Jinja2Templates(directory=str(BASE_DIR / "app" / "web" / "templates"))
 
