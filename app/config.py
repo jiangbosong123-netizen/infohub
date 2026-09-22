@@ -81,6 +81,9 @@ class RuntimeSettings:
     curation_hot_enabled: bool
     report_read_enabled: bool
     report_write_enabled: bool
+    api_key_rate_per_minute: int
+    api_consumer_concurrency: int
+    api_request_lease_seconds: int
     process_role: str
     legacy_data_layout: bool
 
@@ -215,6 +218,15 @@ def load_runtime_settings(
         raise RuntimeConfigurationError(
             "INFOHUB_REPORT_WRITE_ENABLED=true requires INFOHUB_REPORT_READ_ENABLED=true"
         )
+    api_key_rate_per_minute = _integer(
+        values, "INFOHUB_API_KEY_RATE_PER_MINUTE", 60, 1, 10_000
+    )
+    api_consumer_concurrency = _integer(
+        values, "INFOHUB_API_CONSUMER_CONCURRENCY", 5, 1, 100
+    )
+    api_request_lease_seconds = _integer(
+        values, "INFOHUB_API_REQUEST_LEASE_SECONDS", 300, 30, 3_600
+    )
     process_role = values.get("INFOHUB_PROCESS_ROLE", "web").strip().lower() or "web"
     if process_role not in _PROCESS_ROLES:
         raise RuntimeConfigurationError(
@@ -253,6 +265,9 @@ def load_runtime_settings(
         curation_hot_enabled=curation_hot_enabled,
         report_read_enabled=report_read_enabled,
         report_write_enabled=report_write_enabled,
+        api_key_rate_per_minute=api_key_rate_per_minute,
+        api_consumer_concurrency=api_consumer_concurrency,
+        api_request_lease_seconds=api_request_lease_seconds,
         process_role=process_role,
         legacy_data_layout=legacy_data_layout,
     )
@@ -274,6 +289,9 @@ CURATION_SEARCH_ENABLED = RUNTIME.curation_search_enabled
 CURATION_HOT_ENABLED = RUNTIME.curation_hot_enabled
 REPORT_READ_ENABLED = RUNTIME.report_read_enabled
 REPORT_WRITE_ENABLED = RUNTIME.report_write_enabled
+API_KEY_RATE_PER_MINUTE = RUNTIME.api_key_rate_per_minute
+API_CONSUMER_CONCURRENCY = RUNTIME.api_consumer_concurrency
+API_REQUEST_LEASE_SECONDS = RUNTIME.api_request_lease_seconds
 PROCESS_ROLE = RUNTIME.process_role
 
 WATCHLIST_PATH = BASE_DIR / "config" / "watchlist.yaml"

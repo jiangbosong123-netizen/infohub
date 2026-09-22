@@ -2238,6 +2238,31 @@ def _api_key_audit_foundation(db: sqlite3.Connection) -> None:
     _execute_script(db, API_KEY_AUDIT_SCHEMA_SQL)
 
 
+API_REQUEST_LIMIT_SCHEMA_SQL = """
+CREATE TABLE api_rate_buckets (
+    key_id TEXT NOT NULL REFERENCES api_keys(key_id),
+    window_start INTEGER NOT NULL,
+    used_count INTEGER NOT NULL CHECK(used_count>=1),
+    PRIMARY KEY(key_id,window_start)
+);
+CREATE INDEX idx_api_rate_buckets_window ON api_rate_buckets(window_start);
+CREATE TABLE api_request_leases (
+    lease_id TEXT PRIMARY KEY,
+    consumer_id TEXT NOT NULL REFERENCES api_consumers(id),
+    key_id TEXT NOT NULL REFERENCES api_keys(key_id),
+    acquired_at INTEGER NOT NULL,
+    expires_at INTEGER NOT NULL CHECK(expires_at>acquired_at)
+);
+CREATE INDEX idx_api_request_leases_consumer
+    ON api_request_leases(consumer_id,expires_at);
+CREATE INDEX idx_api_request_leases_expiry ON api_request_leases(expires_at);
+"""
+
+
+def _api_request_limit_foundation(db: sqlite3.Connection) -> None:
+    _execute_script(db, API_REQUEST_LIMIT_SCHEMA_SQL)
+
+
 # Migration 1 freezes the exact legacy schema at main@88a2a1e. Future schema
 # changes must append a new Migration instead of editing this definition.
 MIGRATIONS = (
@@ -2362,6 +2387,8 @@ MIGRATIONS = (
               API_AUTH_SCHEMA_SQL, _api_auth_foundation),
     Migration(23, "append-only API key lifecycle audit",
               API_KEY_AUDIT_SCHEMA_SQL, _api_key_audit_foundation),
+    Migration(24, "shared API request rate and concurrency limits",
+              API_REQUEST_LIMIT_SCHEMA_SQL, _api_request_limit_foundation),
 )
 CURRENT_SCHEMA_VERSION = MIGRATIONS[-1].version
 REQUIRED_MIGRATION_COLUMNS = {
@@ -2398,6 +2425,7 @@ EXPECTED_TABLES = LEGACY_ANCHORS | {
     "report_input_snapshots", "report_input_members", "report_versions", "report_publications",
     "report_generation_runs", "report_generation_attempts",
     "report_generation_reviews", "api_consumers", "api_keys", "api_key_audit",
+    "api_rate_buckets", "api_request_leases",
 }
 EXPECTED_ITEM_COLUMNS = {
     "id", "source_id", "url", "title", "title_zh", "summary", "raw_summary",
@@ -2746,6 +2774,8 @@ EXPECTED_API_AUTH_COLUMNS = {
                  "issued_at", "expires_at", "revoked_at"},
     "api_key_audit": {"id", "action", "actor", "consumer_id", "key_id",
                       "details_json", "occurred_at"},
+    "api_rate_buckets": {"key_id", "window_start", "used_count"},
+    "api_request_leases": {"lease_id", "consumer_id", "key_id", "acquired_at", "expires_at"},
 }
 EXPECTED_INGEST_TRIGGERS = {
     "api_key_audit_no_update", "api_key_audit_no_delete",

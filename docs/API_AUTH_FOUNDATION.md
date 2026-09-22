@@ -10,6 +10,8 @@ Schema 23 为消费者创建、密钥签发/撤销、消费者撤销增加追加
 
 在数据库主机上使用 `python cli.py api-admin --help` 查看命令。先运行 `consumer-create NAME`，再运行 `key-issue CONSUMER_ID --scope read:items --expires-at 2026-12-31T00:00:00Z`。明文 token **仅在该命令成功提交后打印一次**，请立即放入安全凭据库；终端回滚记录也按密钥对待，不要复制到聊天、截图、Git、日志或普通备份。`consumer-list`、`key-list CONSUMER_ID`、`audit-list` 只显示不含 token/摘要的元数据；`key-revoke KEY_ID` 与 `consumer-revoke CONSUMER_ID` 可即时撤销。命令读取当前环境配置的数据库，先验证其 schema，不自动迁移；操作者标签取本机操作系统用户名，主要用于追踪，不能代替操作系统账户权限。
 
-后续独立 PR 才会接入每 key 限流/并发、请求审计、私网 HTTPS、具体 v1 数据路由与权限绑定的游标。入口鉴权不意味着现有 `/api/health` 或网页已经有应用层鉴权；在这些能力和生产验收完成前，不发布 v1 数据 API。新增路由必须明确登记其方法和权限，并单独验证字段级限制；单靠入口 scope 不允许返回受限全文。`POST /sync/snapshots` 当前只预留 `read:sync` 入口，未来实现仍须检查每个请求资源对应的读权限。
+Schema 24 加入跨 web 进程共享的短时配额状态。默认每把 key 每个固定 UTC 分钟窗口最多 60 次、每个消费者同时最多 5 个正在处理的 v1 请求；可通过 `INFOHUB_API_KEY_RATE_PER_MINUTE`、`INFOHUB_API_CONSUMER_CONCURRENCY` 调整。超限返回 `429 rate_limited` 和 `Retry-After`，未获准请求不消耗额度。准入和并发占用在 SQLite `BEGIN IMMEDIATE` 事务中原子完成；请求结束释放占用，进程崩溃后的占用按 `INFOHUB_API_REQUEST_LEASE_SECONDS`（默认 300 秒）过期。v1 同步等长任务必须异步排队并快速返回，不能在一个 HTTP 请求内运行超过占用期限。配额表是临时运行状态，不是长期审计或计费记录；旧窗口和过期占用在后续请求时清理。固定分钟窗口允许边界附近突发，负载验证后可考虑更平滑的算法。各 web 进程必须使用同一数据库和同一配额配置。
+
+后续独立 PR 才会接入请求审计、私网 HTTPS、具体 v1 数据路由与权限绑定的游标。入口鉴权不意味着现有 `/api/health` 或网页已经有应用层鉴权；在这些能力和生产验收完成前，不发布 v1 数据 API。新增路由必须明确登记其方法和权限，并单独验证字段级限制；单靠入口 scope 不允许返回受限全文。`POST /sync/snapshots` 当前只预留 `read:sync` 入口，未来实现仍须检查每个请求资源对应的读权限，并单独实现快照配额。
 
 迁移按既有 `migrate_database` 流程先备份、在事务中扩展、再执行完整性校验。旧镜像可以忽略新增表，回滚代码时保留已创建的消费者与密钥记录；绝不通过恢复旧数据库来清除它们。密钥内容与私有消费者记录不得提交仓库。

@@ -31,6 +31,9 @@ class RuntimeConfigurationTests(unittest.TestCase):
         self.assertFalse(settings.durable_jobs_enabled)
         self.assertFalse(settings.report_read_enabled)
         self.assertFalse(settings.report_write_enabled)
+        self.assertEqual(settings.api_key_rate_per_minute, 60)
+        self.assertEqual(settings.api_consumer_concurrency, 5)
+        self.assertEqual(settings.api_request_lease_seconds, 300)
         self.assertEqual(settings.process_role, "web")
 
     def test_legacy_local_layout_requires_explicit_compatibility_flag(self):
@@ -73,6 +76,24 @@ class RuntimeConfigurationTests(unittest.TestCase):
             "INFOHUB_REPORT_WRITE_ENABLED": "true",
         }, self.root)
         self.assertTrue(settings.report_write_enabled)
+
+    def test_api_request_limits_are_bounded_and_configurable(self):
+        settings = config.load_runtime_settings({
+            "INFOHUB_API_KEY_RATE_PER_MINUTE": "90",
+            "INFOHUB_API_CONSUMER_CONCURRENCY": "7",
+            "INFOHUB_API_REQUEST_LEASE_SECONDS": "120",
+        }, self.root)
+        self.assertEqual((settings.api_key_rate_per_minute,
+                          settings.api_consumer_concurrency,
+                          settings.api_request_lease_seconds), (90, 7, 120))
+        for name, value in (
+            ("INFOHUB_API_KEY_RATE_PER_MINUTE", "0"),
+            ("INFOHUB_API_CONSUMER_CONCURRENCY", "101"),
+            ("INFOHUB_API_REQUEST_LEASE_SECONDS", "10"),
+        ):
+            with self.subTest(name=name):
+                with self.assertRaises(config.RuntimeConfigurationError):
+                    config.load_runtime_settings({name: value}, self.root)
 
     def test_production_requires_identity_paths_and_task_flags(self):
         cases = (

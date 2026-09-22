@@ -93,7 +93,8 @@ class ApiKeyAdminTests(unittest.TestCase):
                                  '2026-09-20T00:00:00Z','2027-09-20T00:00:00Z')""",
                        ("a" * 64,))
         report = db_admin.migrate_database(predecessor)
-        self.assertEqual(report.applied_versions, (23,))
+        self.assertEqual(report.applied_versions,
+                         tuple(range(23, db_admin.CURRENT_SCHEMA_VERSION + 1)))
         self.assertTrue(report.backup_path)
         self.assertEqual(db_admin.verify_database(report.backup_path).schema_version, 22)
         with database.get_db(predecessor) as db:

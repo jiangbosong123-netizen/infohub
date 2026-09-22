@@ -38,6 +38,10 @@ class V1AuthGatewayTests(unittest.TestCase):
             return {"consumer_id": request.state.api_principal.consumer_id,
                     "key_id": request.state.api_principal.key_id}
 
+        @app.get("/api/v1/items/fail")
+        def failed_item():
+            raise RuntimeError("synthetic route failure")
+
         @app.get("/api/health")
         def health():
             return {"status": "ok"}
@@ -93,6 +97,26 @@ class V1AuthGatewayTests(unittest.TestCase):
         self.assertTrue(response.json()["error"]["retryable"])
         self.assertNotIn("secret db path", response.text)
         self.assertNotIn(self.items_key.token, response.text)
+
+    def test_gateway_returns_rate_limit_with_retry_after(self):
+        fixed = datetime(2026, 9, 22, 12, 0, 10, tzinfo=timezone.utc)
+        headers = {"Authorization": f"Bearer {self.items_key.token}"}
+        with patch("app.web.v1_auth.config.API_KEY_RATE_PER_MINUTE", 2), \
+                patch("app.api_rate_limit._utc", return_value=fixed):
+            self.assertEqual(self.client.get("/api/v1/items", headers=headers).status_code, 200)
+            self.assertEqual(self.client.get("/api/v1/items", headers=headers).status_code, 200)
+            denied = self.client.get("/api/v1/items", headers=headers)
+        self.assertEqual(denied.status_code, 429)
+        self.assertEqual(denied.json()["error"]["code"], "rate_limited")
+        self.assertEqual(denied.headers["Retry-After"], "50")
+        self.assertNotIn(self.items_key.token, denied.text)
+
+    def test_request_lease_is_released_if_route_raises(self):
+        with self.assertRaises(RuntimeError):
+            self.client.get("/api/v1/items/fail", headers={
+                "Authorization": f"Bearer {self.items_key.token}"})
+        with database.get_db(self.path) as db:
+            self.assertEqual(db.execute("SELECT COUNT(*) FROM api_request_leases").fetchone()[0], 0)
 
     def test_unknown_v1_paths_and_methods_are_denied_and_legacy_health_is_unchanged(self):
         self.assertEqual(self.client.get("/api/health").json(), {"status": "ok"})
