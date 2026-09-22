@@ -12,6 +12,9 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
 from ..ai.daily import EVENT_NAMES, render_markdown
+from .. import config
+from ..api_catalog import CatalogUnavailable, ENTITY_TYPES, EntityListResponse, list_entities
+from ..api_cursor import CursorEpochChanged, CursorError, CursorExpired, CursorFilterMismatch
 from ..config import (
     APP_TZ,
     APP_VERSION,
@@ -39,6 +42,7 @@ from ..runtime_health import read_worker_heartbeat
 from ..topics import GROUPS
 from .v1_auth import v1_auth_guard
 from .transport_security import private_https_headers
+from .v1_errors import v1_error
 
 app = FastAPI(title="行业情报站")
 app.middleware("http")(v1_auth_guard)
@@ -193,6 +197,7 @@ def _system_snapshot() -> dict:
             "scheduler_enabled": SCHEDULER_ENABLED,
             "durable_jobs_enabled": DURABLE_JOBS_ENABLED,
             "curated_feed_enabled": CURATED_FEED_ENABLED,
+            "api_catalog_enabled": config.API_CATALOG_ENABLED,
         },
         "readiness": {
             "status": "not_ready" if readiness_issues else "ready",
@@ -586,6 +591,53 @@ def api_health():
     return JSONResponse(snapshot, status_code=status_code)
 
 
+@app.get("/api/v1/entities", response_model=EntityListResponse)
+def api_v1_entities(request: Request):
+    """Return the reviewed current entity catalog with a key-bound live cursor."""
+    request_id = request.state.request_id
+    if not config.API_CATALOG_ENABLED:
+        return v1_error(503, "not_ready", request_id)
+    allowed = {"limit", "cursor", "q", "type"}
+    if set(request.query_params) - allowed or any(
+        len(request.query_params.getlist(name)) != 1 for name in request.query_params
+    ):
+        return v1_error(422, "invalid_parameter", request_id)
+    raw_limit = request.query_params.get("limit", "50")
+    try:
+        limit = int(raw_limit)
+    except ValueError:
+        return v1_error(422, "invalid_parameter", request_id)
+    if str(limit) != raw_limit or not 1 <= limit <= 100:
+        return v1_error(422, "invalid_parameter", request_id)
+    query = request.query_params.get("q")
+    query = query.strip() if query is not None else None
+    if query == "":
+        query = None
+    if query is not None and len(query) > 120:
+        return v1_error(422, "invalid_parameter", request_id)
+    entity_type = request.query_params.get("type")
+    if entity_type is not None and entity_type not in ENTITY_TYPES:
+        return v1_error(422, "invalid_parameter", request_id)
+    try:
+        with get_db() as db:
+            db.execute("BEGIN")
+            return list_entities(
+                db, request.state.api_principal, request_id=request_id, limit=limit,
+                cursor=request.query_params.get("cursor"), query=query,
+                entity_type=entity_type,
+            )
+    except CursorExpired:
+        return v1_error(410, "cursor_expired", request_id)
+    except CursorFilterMismatch:
+        return v1_error(400, "filter_mismatch", request_id)
+    except CursorEpochChanged:
+        return v1_error(409, "epoch_changed", request_id)
+    except CursorError:
+        return v1_error(400, "invalid_cursor", request_id)
+    except (CatalogUnavailable, sqlite3.Error, OSError, KeyError, TypeError, ValueError):
+        return v1_error(503, "not_ready", request_id)
+
+
 def _unready_snapshot(exc: Exception) -> dict:
     return {
         "status": "unavailable",
@@ -597,6 +649,7 @@ def _unready_snapshot(exc: Exception) -> dict:
             "scheduler_enabled": SCHEDULER_ENABLED,
             "durable_jobs_enabled": DURABLE_JOBS_ENABLED,
             "curated_feed_enabled": CURATED_FEED_ENABLED,
+            "api_catalog_enabled": config.API_CATALOG_ENABLED,
         },
         "readiness": {
             "status": "not_ready",

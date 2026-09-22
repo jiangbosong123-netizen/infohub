@@ -1,0 +1,36 @@
+{
+  "module": "P18a typed entity list contract",
+  "environment": "repository tests; production Windows powered off",
+  "endpoint": "GET /api/v1/entities",
+  "required_scope": "read:catalog",
+  "feature_flag": "INFOHUB_API_CATALOG_ENABLED",
+  "feature_flag_default": false,
+  "automated_tests_passed": 375,
+  "ordering": "entity id ascending",
+  "cursor_ttl_seconds": 900,
+  "cursor_bound_to": [
+    "resource",
+    "filters",
+    "consumer_id",
+    "key_id",
+    "authz_version",
+    "dataset_epoch"
+  ],
+  "unverified_assertions_published": false,
+  "mac_copy_rehearsal": {
+    "source_schema_version": 0,
+    "migrated_schema_version": 25,
+    "legacy_items": 44497,
+    "entities": 23,
+    "entity_versions": 23,
+    "topics_synchronized": 56,
+    "publishers_synchronized": 11,
+    "entity_response_rows": 23,
+    "verified_identifiers_published": 0,
+    "verified_relations_published": 0,
+    "source_database_modified": false,
+    "temporary_copy_retained": false
+  },
+  "windows_release_verified": false,
+  "production_status": "disabled pending data-contract and runtime acceptance"
+}

@@ -31,6 +31,7 @@ class RuntimeConfigurationTests(unittest.TestCase):
         self.assertFalse(settings.durable_jobs_enabled)
         self.assertFalse(settings.report_read_enabled)
         self.assertFalse(settings.report_write_enabled)
+        self.assertFalse(settings.api_catalog_enabled)
         self.assertEqual(settings.api_key_rate_per_minute, 60)
         self.assertEqual(settings.api_consumer_concurrency, 5)
         self.assertEqual(settings.api_request_lease_seconds, 300)
@@ -171,6 +172,7 @@ class RuntimeConfigurationTests(unittest.TestCase):
             values["INFOHUB_CURATION_HOT_ENABLED"] = "false"
             values["INFOHUB_REPORT_READ_ENABLED"] = "false"
             values["INFOHUB_REPORT_WRITE_ENABLED"] = "false"
+            values["INFOHUB_API_CATALOG_ENABLED"] = "false"
             settings = config.load_runtime_settings(values, self.root)
             self.assertEqual(settings.database_path, Path("/app/data/app.db"))
             self.assertEqual(settings.backup_path, Path("/app/data/backups"))
@@ -202,6 +204,8 @@ class RuntimeConfigurationTests(unittest.TestCase):
         worker_values["INFOHUB_REPORT_READ_ENABLED"] = "false"
         web_values["INFOHUB_REPORT_WRITE_ENABLED"] = "false"
         worker_values["INFOHUB_REPORT_WRITE_ENABLED"] = "false"
+        web_values["INFOHUB_API_CATALOG_ENABLED"] = "false"
+        worker_values["INFOHUB_API_CATALOG_ENABLED"] = "false"
         self.assertFalse(config.load_runtime_settings(web_values, self.root).allow_network_tasks)
         self.assertTrue(config.load_runtime_settings(worker_values, self.root).allow_network_tasks)
         self.assertIn("/api/live", " ".join(compose["services"]["infohub"]["healthcheck"]["test"]))
