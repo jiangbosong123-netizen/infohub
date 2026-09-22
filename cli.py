@@ -43,6 +43,7 @@ from __future__ import annotations
   python cli.py report-review-preview ATTEMPT_ID  # 查看模型草稿、冻结证据与复核摘要（maintenance only）
   python cli.py report-review ATTEMPT_ID approved|rejected DIGEST REASON  # 记录人工决定（maintenance only）
   python cli.py report-publish-reviewed REVIEW_ID  # 发布已人工批准的模型日报（maintenance only）
+  python cli.py api-admin ACTION [ARGS]  # 本机管理 API 消费者和密钥（只在签发时输出明文）
 """
 import json
 import logging
@@ -519,6 +520,9 @@ def main() -> None:
         cmd_report_review(sys.argv[2], sys.argv[3], sys.argv[4], " ".join(sys.argv[5:]))
     elif cmd == "report-publish-reviewed" and len(sys.argv) == 3:
         cmd_report_publish_reviewed(sys.argv[2])
+    elif cmd == "api-admin":
+        from app.api_key_admin import main as api_admin_main
+        raise SystemExit(api_admin_main(sys.argv[2:]))
     else:
         print(__doc__)
         sys.exit(1)

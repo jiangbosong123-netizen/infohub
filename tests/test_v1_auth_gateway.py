@@ -21,14 +21,14 @@ class V1AuthGatewayTests(unittest.TestCase):
         db_admin.migrate_database(self.path)
         self.now = datetime.now(timezone.utc)
         with database.get_db(self.path) as db:
-            self.consumer = create_consumer(db, "gateway-test")
+            self.consumer = create_consumer(db, "gateway-test", actor="test")
             self.items_key = issue_api_key(
                 db, self.consumer, {"read:items"},
-                expires_at=self.now + timedelta(days=1),
+                expires_at=self.now + timedelta(days=1), actor="test",
             )
             self.reports_key = issue_api_key(
                 db, self.consumer, {"read:reports"},
-                expires_at=self.now + timedelta(days=1),
+                expires_at=self.now + timedelta(days=1), actor="test",
             )
         app = FastAPI()
         app.middleware("http")(v1_auth_guard)
@@ -69,7 +69,7 @@ class V1AuthGatewayTests(unittest.TestCase):
         ])
         self.assertEqual(duplicate.status_code, 401)
         with database.get_db(self.path) as db:
-            revoke_api_key(db, self.items_key.key_id)
+            revoke_api_key(db, self.items_key.key_id, actor="test")
         self.assertEqual(self.client.get(
             "/api/v1/items", headers={"Authorization": f"Bearer {self.items_key.token}"}
         ).status_code, 401)

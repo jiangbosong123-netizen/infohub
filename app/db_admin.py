@@ -2216,6 +2216,28 @@ def _api_auth_foundation(db: sqlite3.Connection) -> None:
     _execute_script(db, API_AUTH_SCHEMA_SQL)
 
 
+API_KEY_AUDIT_SCHEMA_SQL = """
+CREATE TABLE api_key_audit (
+    id INTEGER PRIMARY KEY,
+    action TEXT NOT NULL CHECK(action IN ('consumer_created','key_issued','key_revoked','consumer_revoked')),
+    actor TEXT NOT NULL CHECK(length(trim(actor)) BETWEEN 1 AND 120),
+    consumer_id TEXT NOT NULL REFERENCES api_consumers(id),
+    key_id TEXT REFERENCES api_keys(key_id),
+    details_json TEXT NOT NULL CHECK(json_valid(details_json)),
+    occurred_at TEXT NOT NULL
+);
+CREATE INDEX idx_api_key_audit_consumer ON api_key_audit(consumer_id,id);
+CREATE TRIGGER api_key_audit_no_update BEFORE UPDATE ON api_key_audit
+BEGIN SELECT RAISE(ABORT,'API key audit is append-only'); END;
+CREATE TRIGGER api_key_audit_no_delete BEFORE DELETE ON api_key_audit
+BEGIN SELECT RAISE(ABORT,'API key audit is append-only'); END;
+"""
+
+
+def _api_key_audit_foundation(db: sqlite3.Connection) -> None:
+    _execute_script(db, API_KEY_AUDIT_SCHEMA_SQL)
+
+
 # Migration 1 freezes the exact legacy schema at main@88a2a1e. Future schema
 # changes must append a new Migration instead of editing this definition.
 MIGRATIONS = (
@@ -2338,6 +2360,8 @@ MIGRATIONS = (
               REPORT_REVIEW_SCHEMA_SQL, _report_review_foundation),
     Migration(22, "API consumer and hashed key foundation",
               API_AUTH_SCHEMA_SQL, _api_auth_foundation),
+    Migration(23, "append-only API key lifecycle audit",
+              API_KEY_AUDIT_SCHEMA_SQL, _api_key_audit_foundation),
 )
 CURRENT_SCHEMA_VERSION = MIGRATIONS[-1].version
 REQUIRED_MIGRATION_COLUMNS = {
@@ -2373,7 +2397,7 @@ EXPECTED_TABLES = LEGACY_ANCHORS | {
     "curation_story_metrics", "curation_story_metrics_state", "curation_story_metrics_dirty",
     "report_input_snapshots", "report_input_members", "report_versions", "report_publications",
     "report_generation_runs", "report_generation_attempts",
-    "report_generation_reviews", "api_consumers", "api_keys",
+    "report_generation_reviews", "api_consumers", "api_keys", "api_key_audit",
 }
 EXPECTED_ITEM_COLUMNS = {
     "id", "source_id", "url", "title", "title_zh", "summary", "raw_summary",
@@ -2720,8 +2744,11 @@ EXPECTED_API_AUTH_COLUMNS = {
     "api_consumers": {"id", "name", "status", "authz_version", "created_at", "revoked_at"},
     "api_keys": {"key_id", "consumer_id", "token_sha256", "scopes_json",
                  "issued_at", "expires_at", "revoked_at"},
+    "api_key_audit": {"id", "action", "actor", "consumer_id", "key_id",
+                      "details_json", "occurred_at"},
 }
 EXPECTED_INGEST_TRIGGERS = {
+    "api_key_audit_no_update", "api_key_audit_no_delete",
     "report_generation_reviews_valid_approval", "report_generation_reviews_no_update",
     "report_generation_reviews_no_delete",
     "report_generation_runs_match", "report_generation_runs_no_update",
