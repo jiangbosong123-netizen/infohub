@@ -85,7 +85,8 @@ class ApiRateLimitTests(unittest.TestCase):
             key = issue_api_key(db, consumer, {"read:items"}, actor="test",
                                 expires_at=NOW + timedelta(days=1), now=NOW)
         report = db_admin.migrate_database(predecessor)
-        self.assertEqual(report.applied_versions, (24,))
+        self.assertEqual(report.applied_versions,
+                         tuple(range(24, db_admin.CURRENT_SCHEMA_VERSION + 1)))
         self.assertEqual(db_admin.verify_database(report.backup_path).schema_version, 23)
         with database.get_db(predecessor) as db:
             self.assertEqual(db.execute("SELECT COUNT(*) FROM api_key_audit").fetchone()[0], 2)

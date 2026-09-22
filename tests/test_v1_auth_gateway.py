@@ -53,12 +53,23 @@ class V1AuthGatewayTests(unittest.TestCase):
 
     def test_valid_key_reaches_route_without_exposing_secret(self):
         response = self.client.get(
-            "/api/v1/items", headers={"Authorization": f"Bearer {self.items_key.token}"})
+            "/api/v1/items?private_query=must-not-persist",
+            headers={"Authorization": f"Bearer {self.items_key.token}"})
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.json(), {"consumer_id": self.consumer,
                                            "key_id": self.items_key.key_id})
         self.assertIn("X-Request-ID", response.headers)
         self.assertNotIn(self.items_key.token, response.text)
+        with database.get_db(self.path) as db:
+            rows = [dict(row) for row in db.execute(
+                "SELECT * FROM api_request_audit ORDER BY id")]
+        self.assertEqual([row["event"] for row in rows], ["admitted", "completed"])
+        self.assertEqual(rows[-1]["status_code"], 200)
+        self.assertGreaterEqual(rows[-1]["duration_ms"], 0)
+        serialized = str(rows)
+        self.assertNotIn(self.items_key.token, serialized)
+        self.assertNotIn("private_query", serialized)
+        self.assertNotIn("/api/v1", serialized)
 
     def test_missing_malformed_duplicate_and_revoked_keys_fail_closed(self):
         for headers in ({}, {"Authorization": self.items_key.token},
@@ -72,6 +83,8 @@ class V1AuthGatewayTests(unittest.TestCase):
             ("authorization", f"Bearer {self.items_key.token}"),
         ])
         self.assertEqual(duplicate.status_code, 401)
+        with database.get_db(self.path) as db:
+            self.assertEqual(db.execute("SELECT COUNT(*) FROM api_request_audit").fetchone()[0], 0)
         with database.get_db(self.path) as db:
             revoke_api_key(db, self.items_key.key_id, actor="test")
         self.assertEqual(self.client.get(
@@ -87,6 +100,10 @@ class V1AuthGatewayTests(unittest.TestCase):
         self.assertEqual(error["request_id"], response.headers["X-Request-ID"])
         self.assertEqual(error["details"], {})
         self.assertNotIn(self.reports_key.token, response.text)
+        with database.get_db(self.path) as db:
+            row = dict(db.execute("SELECT * FROM api_request_audit").fetchone())
+        self.assertEqual((row["event"], row["status_code"], row["error_code"]),
+                         ("denied", 403, "insufficient_scope"))
 
     def test_authentication_store_failure_is_retryable_without_leaking_details(self):
         with patch("app.web.v1_auth.get_db", side_effect=sqlite3.OperationalError("secret db path")):
@@ -110,6 +127,10 @@ class V1AuthGatewayTests(unittest.TestCase):
         self.assertEqual(denied.json()["error"]["code"], "rate_limited")
         self.assertEqual(denied.headers["Retry-After"], "50")
         self.assertNotIn(self.items_key.token, denied.text)
+        with database.get_db(self.path) as db:
+            events = [tuple(row) for row in db.execute(
+                "SELECT event,status_code,error_code FROM api_request_audit ORDER BY id")]
+        self.assertEqual(events[-1], ("denied", 429, "rate_limited"))
 
     def test_request_lease_is_released_if_route_raises(self):
         with self.assertRaises(RuntimeError):
@@ -117,6 +138,10 @@ class V1AuthGatewayTests(unittest.TestCase):
                 "Authorization": f"Bearer {self.items_key.token}"})
         with database.get_db(self.path) as db:
             self.assertEqual(db.execute("SELECT COUNT(*) FROM api_request_leases").fetchone()[0], 0)
+            events = [tuple(row) for row in db.execute(
+                "SELECT event,status_code,error_code FROM api_request_audit ORDER BY id")]
+        self.assertEqual(events, [("admitted", None, None),
+                                  ("handler_error", 500, "handler_error")])
 
     def test_unknown_v1_paths_and_methods_are_denied_and_legacy_health_is_unchanged(self):
         self.assertEqual(self.client.get("/api/health").json(), {"status": "ok"})

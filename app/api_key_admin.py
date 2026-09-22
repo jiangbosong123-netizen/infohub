@@ -47,6 +47,10 @@ def _parser() -> argparse.ArgumentParser:
     audit = actions.add_parser("audit-list")
     audit.add_argument("--consumer-id")
     audit.add_argument("--limit", type=int, default=50)
+    request_audit = actions.add_parser("request-audit-list")
+    request_audit.add_argument("--consumer-id")
+    request_audit.add_argument("--key-id")
+    request_audit.add_argument("--limit", type=int, default=50)
     return parser
 
 
@@ -84,7 +88,7 @@ def main(argv: list[str] | None = None, *, db_path: Path | None = None,
                 )]
             elif args.action == "key-revoke":
                 result = {"revoked": revoke_api_key(db, args.key_id, actor=operator)}
-            else:
+            elif args.action == "audit-list":
                 if not 1 <= args.limit <= 1000:
                     raise ApiAuthError("audit limit must be between 1 and 1000")
                 sql = """SELECT id,action,actor,consumer_id,key_id,details_json,occurred_at
@@ -95,6 +99,24 @@ def main(argv: list[str] | None = None, *, db_path: Path | None = None,
                     parameters = (args.consumer_id,)
                 sql += " ORDER BY id DESC LIMIT ?"
                 result = [dict(row) for row in db.execute(sql, (*parameters, args.limit))]
+            else:
+                if not 1 <= args.limit <= 1000:
+                    raise ApiAuthError("audit limit must be between 1 and 1000")
+                filters, parameters = [], []
+                if args.consumer_id:
+                    filters.append("consumer_id=?")
+                    parameters.append(args.consumer_id)
+                if args.key_id:
+                    filters.append("key_id=?")
+                    parameters.append(args.key_id)
+                sql = """SELECT id,request_id,event,consumer_id,key_id,method,resource,
+                                required_scope,status_code,error_code,duration_ms,occurred_at
+                         FROM api_request_audit"""
+                if filters:
+                    sql += " WHERE " + " AND ".join(filters)
+                sql += " ORDER BY id DESC LIMIT ?"
+                parameters.append(args.limit)
+                result = [dict(row) for row in db.execute(sql, tuple(parameters))]
     except ApiAuthError as exc:
         print(f"API key operation rejected: {exc}", file=sys.stderr)
         return 2

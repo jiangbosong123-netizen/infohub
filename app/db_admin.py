@@ -2263,6 +2263,37 @@ def _api_request_limit_foundation(db: sqlite3.Connection) -> None:
     _execute_script(db, API_REQUEST_LIMIT_SCHEMA_SQL)
 
 
+API_REQUEST_AUDIT_SCHEMA_SQL = """
+CREATE TABLE api_request_audit (
+    id INTEGER PRIMARY KEY,
+    request_id TEXT NOT NULL,
+    event TEXT NOT NULL CHECK(event IN ('admitted','completed','denied','handler_error')),
+    consumer_id TEXT NOT NULL REFERENCES api_consumers(id),
+    key_id TEXT NOT NULL REFERENCES api_keys(key_id),
+    method TEXT NOT NULL CHECK(method IN ('GET','POST')),
+    resource TEXT NOT NULL CHECK(length(resource) BETWEEN 1 AND 40),
+    required_scope TEXT NOT NULL CHECK(length(required_scope) BETWEEN 1 AND 40),
+    status_code INTEGER CHECK(status_code BETWEEN 100 AND 599),
+    error_code TEXT CHECK(error_code IS NULL OR length(error_code) BETWEEN 1 AND 80),
+    duration_ms INTEGER CHECK(duration_ms IS NULL OR duration_ms>=0),
+    occurred_at TEXT NOT NULL,
+    UNIQUE(request_id,event)
+);
+CREATE INDEX idx_api_request_audit_consumer
+    ON api_request_audit(consumer_id,id);
+CREATE INDEX idx_api_request_audit_occurred
+    ON api_request_audit(occurred_at,id);
+CREATE TRIGGER api_request_audit_no_update BEFORE UPDATE ON api_request_audit
+BEGIN SELECT RAISE(ABORT,'API request audit is append-only'); END;
+CREATE TRIGGER api_request_audit_no_delete BEFORE DELETE ON api_request_audit
+BEGIN SELECT RAISE(ABORT,'API request audit is append-only'); END;
+"""
+
+
+def _api_request_audit_foundation(db: sqlite3.Connection) -> None:
+    _execute_script(db, API_REQUEST_AUDIT_SCHEMA_SQL)
+
+
 # Migration 1 freezes the exact legacy schema at main@88a2a1e. Future schema
 # changes must append a new Migration instead of editing this definition.
 MIGRATIONS = (
@@ -2389,6 +2420,8 @@ MIGRATIONS = (
               API_KEY_AUDIT_SCHEMA_SQL, _api_key_audit_foundation),
     Migration(24, "shared API request rate and concurrency limits",
               API_REQUEST_LIMIT_SCHEMA_SQL, _api_request_limit_foundation),
+    Migration(25, "allowlisted append-only API request audit",
+              API_REQUEST_AUDIT_SCHEMA_SQL, _api_request_audit_foundation),
 )
 CURRENT_SCHEMA_VERSION = MIGRATIONS[-1].version
 REQUIRED_MIGRATION_COLUMNS = {
@@ -2426,6 +2459,7 @@ EXPECTED_TABLES = LEGACY_ANCHORS | {
     "report_generation_runs", "report_generation_attempts",
     "report_generation_reviews", "api_consumers", "api_keys", "api_key_audit",
     "api_rate_buckets", "api_request_leases",
+    "api_request_audit",
 }
 EXPECTED_ITEM_COLUMNS = {
     "id", "source_id", "url", "title", "title_zh", "summary", "raw_summary",
@@ -2776,8 +2810,12 @@ EXPECTED_API_AUTH_COLUMNS = {
                       "details_json", "occurred_at"},
     "api_rate_buckets": {"key_id", "window_start", "used_count"},
     "api_request_leases": {"lease_id", "consumer_id", "key_id", "acquired_at", "expires_at"},
+    "api_request_audit": {"id", "request_id", "event", "consumer_id", "key_id",
+                          "method", "resource", "required_scope", "status_code",
+                          "error_code", "duration_ms", "occurred_at"},
 }
 EXPECTED_INGEST_TRIGGERS = {
+    "api_request_audit_no_update", "api_request_audit_no_delete",
     "api_key_audit_no_update", "api_key_audit_no_delete",
     "report_generation_reviews_valid_approval", "report_generation_reviews_no_update",
     "report_generation_reviews_no_delete",
