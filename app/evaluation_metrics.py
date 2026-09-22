@@ -12,7 +12,7 @@ from typing import Iterable
 
 from .evaluation import EvaluationDatasetError, _load_cases, _load_json, validate_evaluation_dataset
 
-METRICS_VERSION="classification-metrics-v2"
+METRICS_VERSION="classification-metrics-v3"
 EVALUATION_SPLITS={"train","dev","test","security"}
 
 @dataclass(frozen=True)
@@ -26,7 +26,7 @@ class ClassificationReport:
  split:str
  total:int; correct:int; accuracy:float; accuracy_wilson_95:tuple[float,float]
  covered:int; coverage:float; abstained:int; missing_predictions:int
- macro_f1:float; labels:tuple[str,...]; per_class:tuple[ClassMetrics,...]
+ macro_f1:float; labels:tuple[str,...]; scored_labels:tuple[str,...]; per_class:tuple[ClassMetrics,...]
  confusion:dict[str,dict[str,int]]; quality_claim_allowed:bool; warnings:tuple[str,...]
  def to_dict(self): return asdict(self)
 
@@ -114,10 +114,13 @@ def evaluate_classification(dataset_path:Path|str,prediction_run_path:Path|str)-
   if case["case_id"] in by_id: predicted.append(by_id[case["case_id"]])
   else: predicted.append(abstain_labels[0]); missing+=1
  labels=tuple(sorted(set(actual)|set(predicted)))
+ # A v2 abstention is an outcome in the confusion matrix, not a gold class.
+ # Keep v1's historical engineering-only score unchanged for reproducibility.
+ scored_labels=tuple(sorted(set(actual))) if schema=="prediction-run-v2" else labels
  confusion={a:{p:0 for p in labels} for a in labels}
  for a,p in zip(actual,predicted): confusion[a][p]+=1
  per=[]
- for label in labels:
+ for label in scored_labels:
   tp=confusion[label][label]; support=sum(confusion[label].values()); pred=sum(confusion[a][label] for a in labels)
   precision=tp/pred if pred else None; recall=tp/support if support else None
   f1=(2*precision*recall/(precision+recall)) if precision is not None and recall is not None and precision+recall else 0.0
@@ -132,7 +135,7 @@ def evaluate_classification(dataset_path:Path|str,prediction_run_path:Path|str)-
  if split=="security":warnings.append("security cases are reported separately from natural-distribution accuracy")
  if not quality_allowed:warnings.append("quality claim blocked: requires verified gold and complete v2 blind-test predictions")
  if total<30:warnings.append("sample support is below 30; do not generalize point estimates")
- return ClassificationReport(METRICS_VERSION,dataset.dataset_version,str(run.get("prediction_run_id")),task,split,total,correct,correct/total if total else 0.0,_wilson(correct,total),covered,covered/total if total else 0.0,abstained,missing,macro,labels,tuple(per),confusion,quality_allowed,tuple(warnings))
+ return ClassificationReport(METRICS_VERSION,dataset.dataset_version,str(run.get("prediction_run_id")),task,split,total,correct,correct/total if total else 0.0,_wilson(correct,total),covered,covered/total if total else 0.0,abstained,missing,macro,labels,scored_labels,tuple(per),confusion,quality_allowed,tuple(warnings))
 
 def write_classification_report(dataset_path,run_path,output_path):
  report=evaluate_classification(dataset_path,run_path)

@@ -93,6 +93,17 @@ class EvaluationMetricTests(unittest.TestCase):
    self.assertEqual(report.missing_predictions,1)
    self.assertEqual(report.abstained,1)
    self.assertFalse(report.quality_claim_allowed)
+   self.assertEqual(report.metrics_version,"classification-metrics-v3")
+   self.assertIn("__abstain__",report.labels)
+   self.assertNotIn("__abstain__",report.scored_labels)
+   self.assertEqual({entry.label for entry in report.per_class},set(report.scored_labels))
+   self.assertEqual(report.confusion["relevant"]["__abstain__"],1)
+   self.assertAlmostEqual(report.macro_f1,0.8)
+
+ def test_v1_engineering_score_remains_reproducible(self):
+  report=evaluate_classification(DATA,RUN)
+  self.assertEqual(report.scored_labels,report.labels)
+  self.assertAlmostEqual(report.macro_f1,0.8095238095238095)
 
  def test_v2_rejects_abstain_marker_that_is_also_a_gold_label(self):
   with tempfile.TemporaryDirectory() as td:

@@ -89,6 +89,11 @@ v2 `run.json` 必填 `schema_version`、`prediction_run_id`、`dataset_version`�
 每行 `case_id` 与 `predicted_label`；跨 split 的 ID、重复 ID、变化的文件哈希均拒绝。
 v2 的 `abstain_labels` 必须与真实标签不重合（例如 `__abstain__`），缺失预测按
 拒判计入全体分母。报告明确给出 coverage、abstain、missing、混淆矩阵和区间。
+`classification-metrics-v3` 报告的 `labels` 是混淆矩阵中出现的真值或预测值，
+`scored_labels` 仅为本次 split 中有真值支持的类别。v2 的 macro F1 只平均
+`scored_labels`；拒答及其他仅预测到的标签仍记为错误并留在混淆矩阵中，
+但不额外充当一个真值类别。旧 v1 基线的工程分数口径保持原样，不能与 v2
+的 macro F1 直接比较。
 
 即使人工标签齐备，`quality_claim_allowed` 仍要求来源数据库验证、最低样本数、
 双人复核及第三人裁定、完整 test 预测，且数据集 manifest 中的 `holdout_review`
