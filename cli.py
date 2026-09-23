@@ -34,6 +34,8 @@ from __future__ import annotations
   python cli.py evidence-verify        # 校验原文、NLP 和日报的全部 CAS 引用
   python cli.py legacy-backfill [N]    # 可续跑迁移旧记录，每事务批 N 条（maintenance only）
   python cli.py legacy-topic-backfill [N]  # 冻结并可续跑迁移旧主题归类（maintenance only）
+  python cli.py topic-review-preview ASSIGNMENT_ID  # 查看主题断言当前人工决定
+  python cli.py topic-review ASSIGNMENT_ID accepted|rejected EXPECTED_PREVIOUS|none REASON
   python cli.py legacy-event-project   # 将旧 story 映射为 shadow candidate event（maintenance only）
   python cli.py legacy-curation-enqueue [AFTER_ID] [LIMIT]  # 分页排入旧策展转换任务（maintenance only）
   python cli.py legacy-curation-process [N]  # 处理最多 N 个离线转换任务（maintenance only）
@@ -337,6 +339,35 @@ def cmd_legacy_topic_backfill(batch_size: int) -> None:
     print(json.dumps(report.to_dict(), ensure_ascii=False, indent=2))
 
 
+def cmd_topic_review_preview(assignment_id: str) -> None:
+    if config.PROCESS_ROLE != "maintenance":
+        raise config.RuntimeConfigurationError("topic-review-preview requires maintenance role")
+    from app.db_admin import verify_database
+    from app.topic_assignment_reviews import review_preview
+    verify_database(config.DB_PATH, require_current=True)
+    with get_db() as db:
+        print(json.dumps(review_preview(db, assignment_id).to_dict(), ensure_ascii=False, indent=2))
+
+
+def cmd_topic_review(
+    assignment_id: str, decision: str, expected_previous: str, reason: str
+) -> None:
+    if config.PROCESS_ROLE != "maintenance":
+        raise config.RuntimeConfigurationError("topic-review requires maintenance role")
+    import getpass
+    from app.db_admin import verify_database
+    from app.topic_assignment_reviews import record_topic_assignment_review
+    verify_database(config.DB_PATH, require_current=True)
+    expected = None if expected_previous == "none" else expected_previous
+    with get_db() as db:
+        db.execute("BEGIN IMMEDIATE")
+        result = record_topic_assignment_review(
+            db, assignment_id=assignment_id, decision=decision,
+            expected_previous_review_id=expected, reviewer_id=getpass.getuser(), reason=reason,
+        )
+    print(json.dumps(result.to_dict(), ensure_ascii=False, indent=2))
+
+
 def cmd_legacy_event_project() -> None:
     if config.PROCESS_ROLE != "maintenance":
         raise config.RuntimeConfigurationError(
@@ -516,6 +547,10 @@ def main() -> None:
         cmd_legacy_backfill(int(sys.argv[2]) if len(sys.argv) > 2 else 250)
     elif cmd == "legacy-topic-backfill":
         cmd_legacy_topic_backfill(int(sys.argv[2]) if len(sys.argv) > 2 else 250)
+    elif cmd == "topic-review-preview" and len(sys.argv) == 3:
+        cmd_topic_review_preview(sys.argv[2])
+    elif cmd == "topic-review" and len(sys.argv) >= 6:
+        cmd_topic_review(sys.argv[2], sys.argv[3], sys.argv[4], " ".join(sys.argv[5:]))
     elif cmd == "legacy-event-project":
         cmd_legacy_event_project()
     elif cmd == "legacy-curation-enqueue":

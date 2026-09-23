@@ -51,7 +51,9 @@ rewritten or removed.
 ## Publication boundary
 
 These candidate rows are sufficient for audited migration coverage, but not
-for public topic counts. A later projection must define which candidate,
-accepted, rejected, and superseded assertions contribute to a count and must
-publish an explicit `counted_at`. Until that projection is reviewed, the topic
-API must remain unavailable rather than report misleading zeroes.
+for public topic counts. Human decisions are appended through the
+[topic assignment review ledger](TOPIC_ASSIGNMENT_REVIEWS.md). A later
+projection must resolve each assertion's latest review, define which results
+contribute to a count, and publish an explicit `counted_at`. Until that
+projection is reviewed, the topic API must remain unavailable rather than
+report misleading zeroes.

@@ -2368,6 +2368,48 @@ def _legacy_topic_backfill_foundation(db: sqlite3.Connection) -> None:
     _execute_script(db, LEGACY_TOPIC_BACKFILL_SCHEMA_SQL)
 
 
+TOPIC_ASSIGNMENT_REVIEW_SCHEMA_SQL = """
+CREATE TABLE topic_assignment_reviews (
+    id TEXT PRIMARY KEY,
+    assignment_id TEXT NOT NULL REFERENCES document_topic_assignments(id),
+    version INTEGER NOT NULL CHECK(version>0),
+    previous_review_id TEXT REFERENCES topic_assignment_reviews(id),
+    decision TEXT NOT NULL CHECK(decision IN ('accepted','rejected')),
+    reviewer_id TEXT NOT NULL CHECK(length(trim(reviewer_id)) BETWEEN 1 AND 120),
+    reason TEXT NOT NULL CHECK(length(trim(reason)) BETWEEN 1 AND 1000),
+    evidence_ids_json TEXT NOT NULL DEFAULT '[]' CHECK(json_valid(evidence_ids_json)),
+    reviewed_at TEXT NOT NULL,
+    UNIQUE(assignment_id,version),
+    CHECK((version=1 AND previous_review_id IS NULL)
+       OR (version>1 AND previous_review_id IS NOT NULL))
+);
+CREATE INDEX idx_topic_assignment_reviews_current
+    ON topic_assignment_reviews(assignment_id,version DESC);
+CREATE TRIGGER topic_assignment_reviews_valid_append
+BEFORE INSERT ON topic_assignment_reviews
+WHEN NEW.version != COALESCE(
+         (SELECT MAX(version)+1 FROM topic_assignment_reviews
+          WHERE assignment_id=NEW.assignment_id),1
+     )
+  OR (NEW.version=1 AND NEW.previous_review_id IS NOT NULL)
+  OR (NEW.version>1 AND NEW.previous_review_id IS NOT (
+         SELECT id FROM topic_assignment_reviews
+         WHERE assignment_id=NEW.assignment_id AND version=NEW.version-1
+     ))
+BEGIN SELECT RAISE(ABORT,'topic assignment reviews must form a contiguous append-only chain'); END;
+CREATE TRIGGER topic_assignment_reviews_no_update
+BEFORE UPDATE ON topic_assignment_reviews
+BEGIN SELECT RAISE(ABORT,'topic assignment reviews are immutable'); END;
+CREATE TRIGGER topic_assignment_reviews_no_delete
+BEFORE DELETE ON topic_assignment_reviews
+BEGIN SELECT RAISE(ABORT,'topic assignment reviews are immutable'); END;
+"""
+
+
+def _topic_assignment_review_foundation(db: sqlite3.Connection) -> None:
+    _execute_script(db, TOPIC_ASSIGNMENT_REVIEW_SCHEMA_SQL)
+
+
 # Migration 1 freezes the exact legacy schema at main@88a2a1e. Future schema
 # changes must append a new Migration instead of editing this definition.
 MIGRATIONS = (
@@ -2498,6 +2540,8 @@ MIGRATIONS = (
               API_REQUEST_AUDIT_SCHEMA_SQL, _api_request_audit_foundation),
     Migration(26, "frozen resumable legacy topic assignment import",
               LEGACY_TOPIC_BACKFILL_SCHEMA_SQL, _legacy_topic_backfill_foundation),
+    Migration(27, "append-only topic assignment review decisions",
+              TOPIC_ASSIGNMENT_REVIEW_SCHEMA_SQL, _topic_assignment_review_foundation),
 )
 CURRENT_SCHEMA_VERSION = MIGRATIONS[-1].version
 REQUIRED_MIGRATION_COLUMNS = {
@@ -2538,6 +2582,7 @@ EXPECTED_TABLES = LEGACY_ANCHORS | {
     "api_request_audit",
     "legacy_topic_backfill_state", "legacy_topic_assignment_snapshot",
     "legacy_topic_assignment_mappings",
+    "topic_assignment_reviews",
 }
 EXPECTED_ITEM_COLUMNS = {
     "id", "source_id", "url", "title", "title_zh", "summary", "raw_summary",
@@ -2717,6 +2762,10 @@ EXPECTED_IDENTITY_AUXILIARY_COLUMNS = {
     },
     "legacy_topic_assignment_mappings": {
         "item_id", "topic_slug", "assignment_id", "evidence_sha256", "available_at",
+    },
+    "topic_assignment_reviews": {
+        "id", "assignment_id", "version", "previous_review_id", "decision",
+        "reviewer_id", "reason", "evidence_ids_json", "reviewed_at",
     },
     "sec_security_keys": {
         "cik", "exchange", "ticker", "security_entity_id", "first_evidence_id",
@@ -2966,6 +3015,8 @@ EXPECTED_INGEST_TRIGGERS = {
     "legacy_topic_assignment_snapshot_no_late_insert",
     "legacy_topic_assignment_mappings_no_update",
     "legacy_topic_assignment_mappings_no_delete",
+    "topic_assignment_reviews_valid_append", "topic_assignment_reviews_no_update",
+    "topic_assignment_reviews_no_delete",
     "sec_security_keys_no_update", "sec_security_keys_no_delete",
     "sec_filing_versions_valid_append", "sec_filing_versions_no_update",
     "sec_filing_versions_no_delete", "sec_filings_identity_immutable",

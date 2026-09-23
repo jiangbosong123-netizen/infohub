@@ -1,0 +1,50 @@
+{
+  "source": "isolated real-data schema-26 Mac rehearsal copy",
+  "production_changed": false,
+  "schema": {
+    "before": 26,
+    "after": 27,
+    "applied": [
+      27
+    ],
+    "migration_27_checksum": "4b33938c0277454fef1914c17918b240e7c5e61dc58132de12f2543e6d94876c",
+    "expected_migration_27_checksum": "4b33938c0277454fef1914c17918b240e7c5e61dc58132de12f2543e6d94876c"
+  },
+  "fixture_review": {
+    "assignment_id": "topic_assignment_legacy_0004511811330605e0392a18cccf4f711102e77bf9b6c644c5bd252676dce117",
+    "first_effective_status": "accepted",
+    "second_effective_status": "rejected",
+    "versions": 2
+  },
+  "legacy_topic_assignments": {
+    "count": 46089,
+    "original_candidate_count": 46089
+  },
+  "legacy_preservation": {
+    "item_topics_before": [
+      46089,
+      "299c9fb362371569117aa39793c53fa03e410b6c883ff2d62aa6dc458d0c3cbb"
+    ],
+    "item_topics_after": [
+      46089,
+      "299c9fb362371569117aa39793c53fa03e410b6c883ff2d62aa6dc458d0c3cbb"
+    ],
+    "unchanged": true
+  },
+  "verification": {
+    "state": "current",
+    "integrity": "ok",
+    "foreign_key_violations": 0
+  },
+  "rehearsed_at": "2026-09-23",
+  "runtime": "Python 3.12 isolated virtual environment on macOS",
+  "limitations": [
+    "Mac copy only; Windows production remained off.",
+    "Fixture decisions validate the ledger and are not production reviews."
+  ],
+  "validation": {
+    "unit_tests": "388 passed",
+    "focused_tests": "30 passed",
+    "git_diff_check": "passed"
+  }
+}
