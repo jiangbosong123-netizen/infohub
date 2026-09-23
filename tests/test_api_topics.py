@@ -9,6 +9,7 @@ from fastapi.testclient import TestClient
 from app import config, database, db_admin
 from app.api_auth import create_consumer, issue_api_key
 from app.topic_statistics import advance_topic_statistics
+from app.topic_statistics_admission import admission_preview, record_admission_review
 from app.web.routes import app
 
 
@@ -45,6 +46,16 @@ class ApiTopicTests(unittest.TestCase):
             self._topic(db, dataset, "topic-c", "tv-c", "gamma", "technology")
         advance_topic_statistics(25)
         advance_topic_statistics(25)
+        with database.get_db(self.path) as db:
+            publication_id = db.execute(
+                "SELECT current_publication_id FROM topic_statistics_state WHERE singleton=1"
+            ).fetchone()[0]
+            record_admission_review(
+                db, publication_id=publication_id, decision="approved",
+                expected_previous_review_id=None, minimum_decided_assignment_bps=0,
+                allow_zero_members=True, reviewer_id="api-fixture",
+                reason="Synthetic zero-member API fixture.", now=NOW,
+            )
         self.db_patch = patch("app.web.routes.get_db", lambda: database.get_db(self.path))
         self.auth_patch = patch("app.web.v1_auth.get_db", lambda: database.get_db(self.path))
         self.flag_patch = patch("app.config.API_CATALOG_ENABLED", True)
@@ -79,8 +90,11 @@ class ApiTopicTests(unittest.TestCase):
         self.assertEqual(first.status_code, 200)
         body = first.json()
         self.assertEqual(body["api_version"], "v1")
+        self.assertEqual(body["schema_version"], "1.1.0")
         self.assertEqual(body["pagination"]["consistency"], "publication")
         self.assertEqual(body["publication"]["version"], 1)
+        self.assertEqual(body["admission"]["review_version"], 1)
+        self.assertTrue(body["admission"]["allow_zero_members"])
         self.assertTrue(body["publication"]["count_policy"]["unreviewed_assignments_excluded"])
         self.assertEqual(body["data"][0]["id"], "topic-a")
         self.assertEqual((body["data"][0]["document_count"], body["data"][0]["event_count"]), (0, 0))
@@ -124,12 +138,55 @@ class ApiTopicTests(unittest.TestCase):
             self._topic(db, dataset, "topic-d", "tv-d", "delta", "research")
         advance_topic_statistics(25)
         advance_topic_statistics(25)
+        with database.get_db(self.path) as db:
+            publication_id = db.execute(
+                "SELECT current_publication_id FROM topic_statistics_state WHERE singleton=1"
+            ).fetchone()[0]
+            record_admission_review(
+                db, publication_id=publication_id, decision="approved",
+                expected_previous_review_id=None, minimum_decided_assignment_bps=0,
+                allow_zero_members=True, reviewer_id="api-fixture",
+                reason="Approve replacement fixture publication.", now=NOW,
+            )
         stale = self.client.get(
             "/api/v1/topics", params={"limit": 1, "cursor": cursor},
             headers=self.headers(),
         )
         self.assertEqual((stale.status_code, stale.json()["error"]["code"]),
                          (400, "filter_mismatch"))
+
+    def test_missing_or_rejected_admission_fails_closed(self):
+        with database.get_db(self.path) as db:
+            current = admission_preview(
+                db, db.execute(
+                    "SELECT current_publication_id FROM topic_statistics_state WHERE singleton=1"
+                ).fetchone()[0],
+            )
+            record_admission_review(
+                db, publication_id=current.publication_id, decision="rejected",
+                expected_previous_review_id=current.current_review_id,
+                minimum_decided_assignment_bps=0, allow_zero_members=True,
+                reviewer_id="api-fixture", reason="Withdraw synthetic approval.", now=NOW,
+            )
+        rejected = self.client.get("/api/v1/topics", headers=self.headers())
+        self.assertEqual((rejected.status_code, rejected.json()["error"]["code"]),
+                         (503, "not_ready"))
+        hidden_missing = self.client.get(
+            "/api/v1/topics/not-present", headers=self.headers()
+        )
+        self.assertEqual(
+            (hidden_missing.status_code, hidden_missing.json()["error"]["code"]),
+            (503, "not_ready"),
+        )
+
+        with database.get_db(self.path) as db:
+            dataset = db.execute("SELECT dataset_id FROM dataset_state").fetchone()[0]
+            self._topic(db, dataset, "topic-new", "tv-new", "new", "research")
+        advance_topic_statistics(25)
+        advance_topic_statistics(25)
+        missing = self.client.get("/api/v1/topics", headers=self.headers())
+        self.assertEqual((missing.status_code, missing.json()["error"]["code"]),
+                         (503, "not_ready"))
 
     def test_auth_flag_and_parameters_are_enforced(self):
         self.assertEqual(self.client.get("/api/v1/topics").status_code, 401)

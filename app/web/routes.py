@@ -30,6 +30,7 @@ from ..api_topics import (
     TOPIC_GROUPS,
     TopicListResponse,
     TopicResponse,
+    TopicStatisticsAdmissionError,
     TopicStatisticsNotFound,
     TopicStatisticsUnavailable,
     get_topic,
@@ -849,7 +850,10 @@ def api_v1_topics(request: Request):
         return v1_error(409, "epoch_changed", request_id)
     except CursorError:
         return v1_error(400, "invalid_cursor", request_id)
-    except (TopicStatisticsUnavailable, sqlite3.Error, OSError, KeyError, TypeError, ValueError):
+    except (
+        TopicStatisticsAdmissionError, TopicStatisticsUnavailable,
+        sqlite3.Error, OSError, KeyError, TypeError, ValueError,
+    ):
         return v1_error(503, "not_ready", request_id)
 
 
@@ -878,7 +882,10 @@ def api_v1_topic(id: str, request: Request, response: Response):
         return v1_error(404, "resource_not_found", request_id)
     except RestrictedTopic:
         return v1_error(403, "restricted_content", request_id)
-    except (TopicStatisticsUnavailable, sqlite3.Error, OSError, KeyError, TypeError, ValueError):
+    except (
+        TopicStatisticsAdmissionError, TopicStatisticsUnavailable,
+        sqlite3.Error, OSError, KeyError, TypeError, ValueError,
+    ):
         return v1_error(503, "not_ready", request_id)
     if conditional:
         try:

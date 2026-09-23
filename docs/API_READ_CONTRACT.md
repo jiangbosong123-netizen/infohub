@@ -50,8 +50,14 @@ count/member 不一致则整个接口返回 `503 not_ready`。
 publication 和完整 DTO 的 ETag，支持 `If-None-Match`。merged/restricted topic 不会从列表中静默
 漏掉：列表 fail closed；restricted 详情返回 403，merged 详情在 canonical 投影完成前返回 503。
 
-这两个路由不会切换现有 `/topics` 门户页面，也不会自动开启后台统计构建。生产开放仍需要审核
-覆盖、真实非零/零语义验收和消费者契约验收。
+主题响应 schema `1.1.0` 还包含 admission review ID/version、审核时间、审核时冻结的 metrics
+hash、最低 decided-assignment 覆盖率和显式零成员许可。API 在同一个 SQLite 读事务内重新计算
+准入指标；没有最新批准、最新决定为拒绝、指标 hash 已变化或批准阈值不再满足时统一返回
+`503 not_ready`。响应和 ETag 都绑定 admission，撤回批准后旧缓存不能继续代表有效发布。
+reviewer 身份和内部理由不会暴露给外部消费者。
+
+这两个路由不会切换现有 `/topics` 门户页面，也不会自动开启后台统计构建。生产开放仍需要真实
+覆盖、非零/零语义验收和消费者契约验收；当前 legacy-derived 零成员发布已经被明确拒绝。
 
 2026-09-22 的隔离 Mac 副本演练把 schema 0、44,497 条 legacy item 的当前库副本迁移到
 schema 25，再同步出 23 个实体、56 个主题和 11 个 publisher。实体列表返回 23 行；现有

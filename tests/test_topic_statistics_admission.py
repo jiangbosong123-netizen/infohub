@@ -8,6 +8,7 @@ from app.topic_statistics import advance_topic_statistics
 from app.topic_statistics_admission import (
     TopicStatisticsAdmissionError,
     admission_preview,
+    approved_admission,
     record_admission_review,
 )
 
@@ -128,6 +129,25 @@ class TopicStatisticsAdmissionTests(unittest.TestCase):
                 db.execute("UPDATE topic_statistics_admission_reviews SET reason='rewrite'")
             with self.assertRaisesRegex(Exception, "immutable"):
                 db.execute("DELETE FROM topic_statistics_admission_reviews")
+
+    def test_serving_requires_latest_approval_and_unchanged_metrics(self):
+        with database.get_db() as db:
+            with self.assertRaisesRegex(TopicStatisticsAdmissionError, "no current approval"):
+                approved_admission(db, self.publication)
+            approved = record_admission_review(
+                db, publication_id=self.publication, decision="approved",
+                expected_previous_review_id=None, minimum_decided_assignment_bps=0,
+                allow_zero_members=True, reviewer_id="reviewer",
+                reason="Synthetic exception.", now=NOW,
+            )
+            served = approved_admission(db, self.publication)
+            self.assertEqual(served.review_id, approved.current_review_id)
+            db.execute(
+                "INSERT INTO topic_statistics_dirty(topic_id,reason,queued_at) VALUES('t','fixture',?)",
+                (NOW,),
+            )
+            with self.assertRaisesRegex(TopicStatisticsAdmissionError, "metrics are stale"):
+                approved_admission(db, self.publication)
 
     def test_migration_29_preserves_schema_28_database(self):
         predecessor = self.path.parent / "predecessor.db"

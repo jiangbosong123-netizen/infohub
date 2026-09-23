@@ -1,0 +1,37 @@
+{
+  "source": "isolated real-data schema-29 database from p18k rehearsal",
+  "production_changed": false,
+  "database": {
+    "schema_version": 29,
+    "integrity": "ok",
+    "foreign_key_violations": 0
+  },
+  "publication": {
+    "id": "topic_statistics_publication_b44f96176a0e43da9b953efe8b3d704c",
+    "version": 1,
+    "topic_count": 56
+  },
+  "latest_admission": {
+    "review_id": "topic_statistics_admission_529a0d0dccda44beac3f2b5f75b79f1c",
+    "review_version": 1,
+    "decision": "rejected",
+    "metrics_sha256": "f788091249fde1e108e8f32b1a635e4580e5cf5d40b1994f8a5f5f63e25b6bd0"
+  },
+  "api_boundary": {
+    "type": "TopicStatisticsAdmissionError",
+    "reason": "topic statistics publication has no current approval",
+    "mapped_http_status": 503,
+    "mapped_error_code": "not_ready"
+  },
+  "expected": "Rejected real-data publication fails closed before any topic page is returned.",
+  "limitations": [
+    "Direct typed API boundary rehearsal; HTTP mapping is separately covered by route tests.",
+    "Mac isolated copy only; no portal switch, merge, or Windows deployment."
+  ],
+  "validation": {
+    "focused_tests": "38 passed",
+    "unit_tests": "412 passed",
+    "python_compile": "passed",
+    "git_diff_check": "passed"
+  }
+}

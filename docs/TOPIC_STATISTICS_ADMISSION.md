@@ -36,7 +36,8 @@ reported separately, because an assignment originally emitted as accepted or
 rejected can be decided without a human review.
 
 Creating the table, previewing a publication, or recording a rejection does
-not enable the API or portal. The next change makes the API require the latest
-admission decision to be approved. Production must not approve the current
-legacy-derived zero publication: its candidate backlog remains effectively
-undecided.
+not enable the portal. The typed topic API requires the latest decision to be
+approved and its current metrics hash to equal the frozen review hash. It
+returns `503 not_ready` after a rejection, publication replacement, or input
+change. Production must not approve the current legacy-derived zero
+publication: its candidate backlog remains effectively undecided.

@@ -12,12 +12,16 @@ from pydantic import BaseModel, ConfigDict, Field
 from .api_auth import ApiPrincipal
 from .api_cursor import decode_cursor, encode_cursor
 from .timeutil import utc_now
+from .topic_statistics_admission import (
+    ApprovedTopicStatisticsAdmission,
+    TopicStatisticsAdmissionError,
+    approved_admission,
+)
 from .topic_statistics_query import (
     PublishedTopicStatistics,
     TopicStatistic,
     TopicStatisticsNotFound,
     TopicStatisticsUnavailable,
-    published_topic_statistic,
     published_topic_statistics,
 )
 
@@ -45,6 +49,15 @@ class TopicPublication(_StrictModel):
     count_policy: TopicCountPolicy
 
 
+class TopicAdmission(_StrictModel):
+    review_id: str
+    review_version: int = Field(ge=1)
+    reviewed_at: str
+    metrics_sha256: str = Field(min_length=64, max_length=64)
+    minimum_decided_assignment_bps: int = Field(ge=0, le=10_000)
+    allow_zero_members: bool
+
+
 class TopicView(_StrictModel):
     id: str
     version_id: str
@@ -66,24 +79,26 @@ class TopicPagination(_StrictModel):
 
 class TopicListResponse(_StrictModel):
     api_version: Literal["v1"] = "v1"
-    schema_version: Literal["1.0.0"] = "1.0.0"
+    schema_version: Literal["1.1.0"] = "1.1.0"
     dataset_id: str
     dataset_epoch: str
     request_id: str
     generated_at: str
     publication: TopicPublication
+    admission: TopicAdmission
     data: list[TopicView]
     pagination: TopicPagination
 
 
 class TopicResponse(_StrictModel):
     api_version: Literal["v1"] = "v1"
-    schema_version: Literal["1.0.0"] = "1.0.0"
+    schema_version: Literal["1.1.0"] = "1.1.0"
     dataset_id: str
     dataset_epoch: str
     request_id: str
     generated_at: str
     publication: TopicPublication
+    admission: TopicAdmission
     data: TopicView
 
 
@@ -110,6 +125,10 @@ def _publication_view(publication: PublishedTopicStatistics) -> TopicPublication
             event_policy_version=publication.event_policy_version,
         ),
     )
+
+
+def _admission_view(admission: ApprovedTopicStatisticsAdmission) -> TopicAdmission:
+    return TopicAdmission(**admission.to_dict())
 
 
 def _topic_view(topic: TopicStatistic) -> TopicView:
@@ -139,6 +158,7 @@ def list_topics(
     group: str | None,
 ) -> TopicListResponse:
     publication = published_topic_statistics(db)
+    admission = approved_admission(db, publication.publication_id)
     identity = _identity(db, publication)
     if any(topic.status in {"restricted", "merged"} for topic in publication.topics):
         raise TopicStatisticsUnavailable(
@@ -169,6 +189,7 @@ def list_topics(
         dataset_id=identity["dataset_id"], dataset_epoch=identity["current_epoch"],
         request_id=request_id, generated_at=utc_now(),
         publication=_publication_view(publication),
+        admission=_admission_view(admission),
         data=[_topic_view(topic) for topic in page],
         pagination=TopicPagination(limit=limit, next_cursor=next_cursor),
     )
@@ -177,12 +198,20 @@ def list_topics(
 def get_topic(
     db: sqlite3.Connection, *, request_id: str, topic_id: str
 ) -> TopicResponse:
-    publication, topic = published_topic_statistic(db, topic_id=topic_id)
+    publication = published_topic_statistics(db)
+    admission = approved_admission(db, publication.publication_id)
+    matches = [topic for topic in publication.topics if topic.topic_id == topic_id]
+    if not matches:
+        raise TopicStatisticsNotFound("topic statistic does not exist")
+    if len(matches) != 1:
+        raise TopicStatisticsUnavailable("topic identity is ambiguous")
+    topic = matches[0]
     identity = _identity(db, publication)
     return TopicResponse(
         dataset_id=identity["dataset_id"], dataset_epoch=identity["current_epoch"],
         request_id=request_id, generated_at=utc_now(),
-        publication=_publication_view(publication), data=_topic_view(topic),
+        publication=_publication_view(publication),
+        admission=_admission_view(admission), data=_topic_view(topic),
     )
 
 
@@ -194,6 +223,7 @@ def topic_etag(response: TopicResponse, principal: ApiPrincipal) -> str:
         "dataset_id": response.dataset_id,
         "dataset_epoch": response.dataset_epoch,
         "publication": response.publication.model_dump(mode="json"),
+        "admission": response.admission.model_dump(mode="json"),
         "data": response.data.model_dump(mode="json"),
     }
     return '"' + hashlib.sha256(rfc8785.dumps(payload)).hexdigest() + '"'
@@ -201,6 +231,7 @@ def topic_etag(response: TopicResponse, principal: ApiPrincipal) -> str:
 
 __all__ = [
     "RestrictedTopic", "TOPIC_GROUPS", "TopicListResponse", "TopicResponse",
+    "TopicStatisticsAdmissionError",
     "TopicStatisticsNotFound", "TopicStatisticsUnavailable", "get_topic",
     "list_topics", "topic_etag",
 ]

@@ -16,6 +16,19 @@ class TopicStatisticsAdmissionError(RuntimeError):
 
 
 @dataclass(frozen=True)
+class ApprovedTopicStatisticsAdmission:
+    review_id: str
+    review_version: int
+    reviewed_at: str
+    metrics_sha256: str
+    minimum_decided_assignment_bps: int
+    allow_zero_members: bool
+
+    def to_dict(self) -> dict:
+        return asdict(self)
+
+
+@dataclass(frozen=True)
 class TopicStatisticsAdmissionPreview:
     publication_id: str
     publication_version: int
@@ -228,3 +241,51 @@ def record_admission_review(
         ),
     )
     return admission_preview(db, publication_id)
+
+
+def approved_admission(
+    db: sqlite3.Connection, publication_id: str
+) -> ApprovedTopicStatisticsAdmission:
+    """Return the current valid approval or fail closed.
+
+    Callers should hold a read transaction so the publication, metrics, and
+    admission row belong to one SQLite snapshot.
+    """
+    preview = admission_preview(db, publication_id)
+    review = db.execute(
+        """SELECT id,version,decision,minimum_decided_assignment_bps,
+                  allow_zero_members,metrics_sha256,reviewed_at
+           FROM topic_statistics_admission_reviews
+           WHERE publication_id=? ORDER BY version DESC LIMIT 1""",
+        (publication_id,),
+    ).fetchone()
+    if review is None or review["decision"] != "approved":
+        raise TopicStatisticsAdmissionError(
+            "topic statistics publication has no current approval"
+        )
+    if review["metrics_sha256"] != preview.metrics_sha256:
+        raise TopicStatisticsAdmissionError(
+            "topic statistics approval metrics are stale"
+        )
+    if (
+        preview.metrics["dirty_topics"] != 0
+        or preview.metrics["decided_assignment_bps"]
+           < review["minimum_decided_assignment_bps"]
+    ):
+        raise TopicStatisticsAdmissionError(
+            "topic statistics no longer meet the approved release policy"
+        )
+    members = (
+        preview.metrics["published_document_members"]
+        + preview.metrics["published_event_members"]
+    )
+    if members == 0 and not review["allow_zero_members"]:
+        raise TopicStatisticsAdmissionError(
+            "zero-member topic statistics publication is not approved"
+        )
+    return ApprovedTopicStatisticsAdmission(
+        review_id=review["id"], review_version=review["version"],
+        reviewed_at=review["reviewed_at"], metrics_sha256=review["metrics_sha256"],
+        minimum_decided_assignment_bps=review["minimum_decided_assignment_bps"],
+        allow_zero_members=bool(review["allow_zero_members"]),
+    )
