@@ -10,7 +10,7 @@
 
 - `limit`：1–100，默认 50；
 - `cursor`：服务端签名的不透明游标；
-- `q`：最长 120 字符，匹配当前 canonical name 或 active alias；
+- `q`：最长 200 字符，匹配当前 canonical name 或 active alias；
 - `type`：正式实体类型枚举之一。
 
 未知参数、重复参数、非规范整数或未知类型返回 `422 invalid_parameter`。列表固定按稳定实体
@@ -38,3 +38,33 @@ identifier/relation 都没有 verified 证据，所以公共 DTO 对这两类字
 legacy_unverified assertion 升级为事实。演练事务最后回滚且临时副本删除；它不修改 Mac
 原库，也不是 Windows 生产验收。结果见
 [`p18a-api-entity-contract.json`](evidence/p18a-api-entity-contract.json)。
+
+## P18b：实体详情与逻辑历史
+
+`GET /api/v1/entities/{id}` 使用同一个 `read:catalog` scope 和功能开关，提供三种互斥读取：
+
+- 不带历史参数：读取 current version；
+- `version_id`：读取属于该实体的精确不可变版本；
+- `as_of`：选择 `available_at<=as_of` 的最后一个实体版本，并把 alias、identifier、relation
+  以及 relation target version 一起限制到该时间。
+
+`as_of` 必须带时区并规范化为 UTC。它只是逻辑应用历史，响应中的 knowledge cutoff 明确写成
+`basis=logical_as_of`、`clock_status=unknown`，不声称证明当时的严格可见范围。当前
+`knowledge_checkpoint_id` 返回 `422 unsupported_history`；P19 完成数据库高水位、时钟证据与
+快照语义后才能启用。`version_id` 与 `as_of` 不能同时提供，未知、重复、空值和超长参数都
+拒绝。
+
+精确旧版本只包含在该版本 `available_at` 时已经存在的 verified assertion，后来的 alias、
+identifier 或 relation 不会倒灌进旧响应。历史 relation target 也解析为当时最后一个可用
+target version。restricted identity 返回 403；merged identity 在 canonical projection 未完成
+前返回 503。identity/current version 缺失或 type/status 不一致同样 fail closed。
+
+详情响应生成 permission-aware ETag，摘要覆盖 consumer、authz version、scope、dataset/epoch、
+knowledge cutoff 和完整类型化 DTO。`If-None-Match` 命中返回无正文 304；响应不把 token 或
+token hash 放进 ETag。
+
+2026-09-23 的隔离 Mac 副本演练覆盖 schema 0、47,101 条 legacy item 和 23 个同步实体。
+current、精确 version 和相同时间的 logical as-of 都解析到同一预期版本，logical as-of 保持
+`clock_status=unknown`，ETag 格式通过。演练使用临时副本和回滚事务，不修改源数据库，也不
+代表 Windows 生产已经开启。结果见
+[`p18b-api-entity-history.json`](evidence/p18b-api-entity-history.json)。

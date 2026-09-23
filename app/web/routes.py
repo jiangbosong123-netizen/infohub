@@ -6,14 +6,24 @@ import sqlite3
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
-from fastapi import FastAPI, Request, HTTPException, Query
+from fastapi import FastAPI, Request, Response, HTTPException, Query
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
 from ..ai.daily import EVENT_NAMES, render_markdown
 from .. import config
-from ..api_catalog import CatalogUnavailable, ENTITY_TYPES, EntityListResponse, list_entities
+from ..api_catalog import (
+    CatalogNotFound,
+    CatalogUnavailable,
+    ENTITY_TYPES,
+    EntityListResponse,
+    EntityResponse,
+    RestrictedCatalog,
+    entity_etag,
+    get_entity,
+    list_entities,
+)
 from ..api_cursor import CursorEpochChanged, CursorError, CursorExpired, CursorFilterMismatch
 from ..config import (
     APP_TZ,
@@ -39,6 +49,7 @@ from ..curation_hot_query import curated_top_clusters, hot_metrics_usable
 from ..report_query import published_calendar_dates, published_calendar_report
 from ..provenance import publisher, display_title
 from ..runtime_health import read_worker_heartbeat
+from ..timeutil import format_utc, parse_utc
 from ..topics import GROUPS
 from .v1_auth import v1_auth_guard
 from .transport_security import private_https_headers
@@ -52,6 +63,35 @@ templates = Jinja2Templates(directory=str(BASE_DIR / "app" / "web" / "templates"
 
 CHANNEL_TABS = [("all", "全部"), ("ai", "AI"), ("robot", "机器人"), ("stock", "股市")]
 STARTED_AT = datetime.now(timezone.utc)
+
+_ENTITY_LIST_OPENAPI = {
+    "x-required-scopes": ["read:catalog"],
+    "parameters": [
+        {"name": "limit", "in": "query", "required": False,
+         "schema": {"type": "integer", "minimum": 1, "maximum": 100, "default": 50}},
+        {"name": "cursor", "in": "query", "required": False,
+         "schema": {"type": "string", "minLength": 1}},
+        {"name": "q", "in": "query", "required": False,
+         "schema": {"type": "string", "maxLength": 200}},
+        {"name": "type", "in": "query", "required": False,
+         "schema": {"type": "string", "enum": sorted(ENTITY_TYPES)}},
+    ],
+}
+_ENTITY_DETAIL_OPENAPI = {
+    "x-required-scopes": ["read:catalog"],
+    "parameters": [
+        {"name": "version_id", "in": "query", "required": False,
+         "schema": {"type": "string", "minLength": 1, "maxLength": 128}},
+        {"name": "as_of", "in": "query", "required": False,
+         "schema": {"type": "string", "format": "date-time"},
+         "description": "Logical history cutoff; mutually exclusive with version_id."},
+        {"name": "knowledge_checkpoint_id", "in": "query", "required": False,
+         "schema": {"type": "string", "minLength": 1, "maxLength": 128},
+         "description": "Reserved for P19; currently returns 422 unsupported_history."},
+        {"name": "If-None-Match", "in": "header", "required": False,
+         "schema": {"type": "string", "maxLength": 512}},
+    ],
+}
 
 
 def _selected_clause(alias: str = "i", score_expr: str | None = None) -> str:
@@ -591,7 +631,10 @@ def api_health():
     return JSONResponse(snapshot, status_code=status_code)
 
 
-@app.get("/api/v1/entities", response_model=EntityListResponse)
+@app.get(
+    "/api/v1/entities", response_model=EntityListResponse,
+    openapi_extra=_ENTITY_LIST_OPENAPI,
+)
 def api_v1_entities(request: Request):
     """Return the reviewed current entity catalog with a key-bound live cursor."""
     request_id = request.state.request_id
@@ -613,7 +656,7 @@ def api_v1_entities(request: Request):
     query = query.strip() if query is not None else None
     if query == "":
         query = None
-    if query is not None and len(query) > 120:
+    if query is not None and len(query) > 200:
         return v1_error(422, "invalid_parameter", request_id)
     entity_type = request.query_params.get("type")
     if entity_type is not None and entity_type not in ENTITY_TYPES:
@@ -636,6 +679,73 @@ def api_v1_entities(request: Request):
         return v1_error(400, "invalid_cursor", request_id)
     except (CatalogUnavailable, sqlite3.Error, OSError, KeyError, TypeError, ValueError):
         return v1_error(503, "not_ready", request_id)
+
+
+@app.get(
+    "/api/v1/entities/{id}", response_model=EntityResponse,
+    openapi_extra=_ENTITY_DETAIL_OPENAPI,
+)
+def api_v1_entity(id: str, request: Request, response: Response):
+    """Resolve one current or logical-history entity view."""
+    request_id = request.state.request_id
+    if not config.API_CATALOG_ENABLED:
+        return v1_error(503, "not_ready", request_id)
+    allowed = {"version_id", "as_of", "knowledge_checkpoint_id"}
+    if set(request.query_params) - allowed or any(
+        len(request.query_params.getlist(name)) != 1 for name in request.query_params
+    ):
+        return v1_error(422, "invalid_parameter", request_id)
+    if not id or len(id) > 128:
+        return v1_error(422, "invalid_parameter", request_id)
+    version_id = request.query_params.get("version_id")
+    as_of = request.query_params.get("as_of")
+    checkpoint_id = request.query_params.get("knowledge_checkpoint_id")
+    if version_id is not None and (not version_id or len(version_id) > 128):
+        return v1_error(422, "invalid_parameter", request_id)
+    if version_id and as_of:
+        return v1_error(422, "invalid_parameter", request_id)
+    if checkpoint_id is not None:
+        if not checkpoint_id or len(checkpoint_id) > 128 or version_id:
+            return v1_error(422, "invalid_parameter", request_id)
+        return v1_error(422, "unsupported_history", request_id)
+    if as_of is not None:
+        try:
+            as_of = format_utc(parse_utc(as_of))
+        except (ValueError, TypeError, OverflowError):
+            return v1_error(422, "invalid_parameter", request_id)
+    conditional = [
+        value for key, value in request.scope["headers"]
+        if key.lower() == b"if-none-match"
+    ]
+    if len(conditional) > 1 or (conditional and len(conditional[0]) > 512):
+        return v1_error(422, "invalid_parameter", request_id)
+    try:
+        with get_db() as db:
+            db.execute("BEGIN")
+            result = get_entity(
+                db, request_id=request_id, entity_id=id,
+                version_id=version_id, as_of=as_of,
+            )
+            etag = entity_etag(result, request.state.api_principal)
+    except CatalogNotFound:
+        return v1_error(404, "resource_not_found", request_id)
+    except RestrictedCatalog:
+        return v1_error(403, "restricted_content", request_id)
+    except (CatalogUnavailable, sqlite3.Error, OSError, KeyError, TypeError, ValueError):
+        return v1_error(503, "not_ready", request_id)
+    if conditional:
+        try:
+            validators = [value.strip() for value in conditional[0].decode("ascii").split(",")]
+        except UnicodeDecodeError:
+            return v1_error(422, "invalid_parameter", request_id)
+        if "*" in validators or any(
+            validator == etag
+            or (validator.startswith("W/") and validator[2:] == etag)
+            for validator in validators
+        ):
+            return Response(status_code=304, headers={"ETag": etag})
+    response.headers["ETag"] = etag
+    return result
 
 
 def _unready_snapshot(exc: Exception) -> dict:

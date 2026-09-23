@@ -18,6 +18,8 @@ _MESSAGES = {
     "epoch_changed": "The dataset epoch changed; restart this listing.",
     "invalid_parameter": "One or more query parameters are invalid.",
     "not_ready": "This API resource is not ready.",
+    "restricted_content": "The requested content is restricted.",
+    "unsupported_history": "This historical read mode is not supported yet.",
 }
 
 

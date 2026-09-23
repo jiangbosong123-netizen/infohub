@@ -174,6 +174,14 @@ class ApiCatalogTests(unittest.TestCase):
         )
         self.assertEqual(filtered.status_code, 200)
         self.assertEqual([row["id"] for row in filtered.json()["data"]], ["entity_a"])
+        self.assertEqual(self.client.get(
+            "/api/v1/entities", params={"q": "x" * 200}, headers=self.headers()
+        ).status_code, 200)
+        too_long = self.client.get(
+            "/api/v1/entities", params={"q": "x" * 201}, headers=self.headers()
+        )
+        self.assertEqual(too_long.status_code, 422)
+        self.assertEqual(too_long.json()["error"]["code"], "invalid_parameter")
         for path in (
             "/api/v1/entities?unknown=1",
             "/api/v1/entities?limit=01",
@@ -196,6 +204,169 @@ class ApiCatalogTests(unittest.TestCase):
         unavailable = self.client.get("/api/v1/entities", headers=self.headers())
         self.assertEqual(unavailable.status_code, 503)
         self.assertEqual(unavailable.json()["error"]["code"], "not_ready")
+
+    def test_entity_detail_current_exact_version_and_logical_as_of(self):
+        with database.get_db(self.path) as db:
+            db.execute(
+                """INSERT INTO entity_versions(
+                       id,entity_id,version,previous_version_id,type,canonical_name,status,
+                       attributes_json,version_sha256,available_at,created_by)
+                   VALUES('entity_a_v2','entity_a',2,'entity_a_v1','organization',
+                          'Alpha Group','active','{}',?,'2026-09-23T10:00:00.000000Z','test')""",
+                ("d" * 64,),
+            )
+            db.execute(
+                "UPDATE entities SET current_version_id='entity_a_v2' WHERE id='entity_a'"
+            )
+            db.execute(
+                """INSERT INTO entity_aliases(
+                       id,entity_id,alias,alias_key,match_mode,ambiguity,status,
+                       assertion_sha256,available_at)
+                   VALUES('alias_a_late','entity_a','Alpha Group','alpha group','exact',
+                          'unique','active',?,'2026-09-23T10:00:00.000000Z')""",
+                ("e" * 64,),
+            )
+
+        current = self.client.get("/api/v1/entities/entity_a", headers=self.headers())
+        self.assertEqual(current.status_code, 200)
+        self.assertEqual(current.json()["data"]["version_id"], "entity_a_v2")
+        self.assertEqual(current.json()["data"]["canonical_name"], "Alpha Group")
+        self.assertEqual(current.json()["data"]["aliases"], ["Alpha", "Alpha Group"])
+        self.assertIsNone(current.json()["knowledge_cutoff"])
+        self.assertTrue(current.headers["ETag"].startswith('"'))
+
+        exact = self.client.get(
+            "/api/v1/entities/entity_a?version_id=entity_a_v1", headers=self.headers()
+        )
+        self.assertEqual(exact.status_code, 200)
+        self.assertEqual(exact.json()["data"]["canonical_name"], "Alpha Holdings")
+        self.assertEqual(exact.json()["data"]["aliases"], ["Alpha"])
+        self.assertIsNone(exact.json()["knowledge_cutoff"])
+
+        historical = self.client.get(
+            "/api/v1/entities/entity_a?as_of=2026-09-22T12:00:00%2B00:00",
+            headers=self.headers(),
+        )
+        self.assertEqual(historical.status_code, 200)
+        self.assertEqual(historical.json()["data"]["version_id"], "entity_a_v1")
+        self.assertEqual(historical.json()["data"]["aliases"], ["Alpha"])
+        self.assertEqual(historical.json()["knowledge_cutoff"], {
+            "basis": "logical_as_of",
+            "as_of": "2026-09-22T12:00:00.000000Z",
+            "checkpoint_id": None,
+            "dataset_epoch": historical.json()["dataset_epoch"],
+            "high_water": None,
+            "observed_at": None,
+            "clock_status": "unknown",
+        })
+        current_relation = self.client.get(
+            "/api/v1/entities/entity_b", headers=self.headers()
+        )
+        historical_relation = self.client.get(
+            "/api/v1/entities/entity_b?as_of=2026-09-22T12:00:00Z",
+            headers=self.headers(),
+        )
+        self.assertEqual(
+            current_relation.json()["data"]["relations"][0]["target"]["version_id"],
+            "entity_a_v2",
+        )
+        self.assertEqual(
+            historical_relation.json()["data"]["relations"][0]["target"]["version_id"],
+            "entity_a_v1",
+        )
+
+    def test_entity_detail_etag_is_permission_aware(self):
+        first = self.client.get("/api/v1/entities/entity_b", headers=self.headers())
+        self.assertEqual(first.status_code, 200)
+        not_modified = self.client.get(
+            "/api/v1/entities/entity_b",
+            headers={**self.headers(), "If-None-Match": first.headers["ETag"]},
+        )
+        self.assertEqual(not_modified.status_code, 304)
+        self.assertEqual(not_modified.content, b"")
+        self.assertEqual(not_modified.headers["ETag"], first.headers["ETag"])
+        weak_not_modified = self.client.get(
+            "/api/v1/entities/entity_b",
+            headers={**self.headers(), "If-None-Match": f'W/{first.headers["ETag"]}'},
+        )
+        self.assertEqual(weak_not_modified.status_code, 304)
+        self.assertEqual(weak_not_modified.headers["ETag"], first.headers["ETag"])
+        other = self.client.get(
+            "/api/v1/entities/entity_b", headers=self.headers(self.other_key)
+        )
+        self.assertEqual(other.status_code, 200)
+        self.assertNotEqual(other.headers["ETag"], first.headers["ETag"])
+
+    def test_entity_detail_rejects_unsupported_history_and_bad_parameters(self):
+        cases = (
+            ("/api/v1/entities/entity_a?version_id=entity_a_v1&as_of=2026-09-22T12:00:00Z",
+             422, "invalid_parameter"),
+            ("/api/v1/entities/entity_a?as_of=2026-09-22T12:00:00",
+             422, "invalid_parameter"),
+            ("/api/v1/entities/entity_a?knowledge_checkpoint_id=checkpoint_1",
+             422, "unsupported_history"),
+            ("/api/v1/entities/entity_a?unknown=1", 422, "invalid_parameter"),
+            ("/api/v1/entities/entity_a?version_id=entity_a_v1&version_id=entity_a_v1",
+             422, "invalid_parameter"),
+            ("/api/v1/entities/entity_a?version_id=entity_b_v1", 404, "resource_not_found"),
+            ("/api/v1/entities/entity_a?as_of=2026-09-21T00:00:00Z",
+             404, "resource_not_found"),
+            ("/api/v1/entities/missing", 404, "resource_not_found"),
+        )
+        for path, status, code in cases:
+            with self.subTest(path=path):
+                result = self.client.get(path, headers=self.headers())
+                self.assertEqual(result.status_code, status)
+                self.assertEqual(result.json()["error"]["code"], code)
+
+    def test_entity_detail_restricted_and_merged_fail_closed(self):
+        with database.get_db(self.path) as db:
+            dataset_id = db.execute(
+                "SELECT dataset_id FROM dataset_state WHERE singleton=1"
+            ).fetchone()[0]
+            for entity_id, status in (("entity_r", "restricted"), ("entity_m", "merged")):
+                db.execute(
+                    """INSERT INTO entities(id,dataset_id,type,status,created_at)
+                       VALUES(?,?,'organization',?,'2026-09-23T10:00:00.000000Z')""",
+                    (entity_id, dataset_id, status),
+                )
+                db.execute(
+                    """INSERT INTO entity_versions(
+                           id,entity_id,version,type,canonical_name,status,attributes_json,
+                           version_sha256,available_at,created_by)
+                       VALUES(?,?,1,'organization',?,?, '{}',?,
+                              '2026-09-23T10:00:00.000000Z','test')""",
+                    (entity_id + "_v1", entity_id, entity_id, status, "f" * 64),
+                )
+                db.execute(
+                    "UPDATE entities SET current_version_id=? WHERE id=?",
+                    (entity_id + "_v1", entity_id),
+                )
+        restricted = self.client.get("/api/v1/entities/entity_r", headers=self.headers())
+        self.assertEqual(restricted.status_code, 403)
+        self.assertEqual(restricted.json()["error"]["code"], "restricted_content")
+        merged = self.client.get("/api/v1/entities/entity_m", headers=self.headers())
+        self.assertEqual(merged.status_code, 503)
+        self.assertEqual(merged.json()["error"]["code"], "not_ready")
+
+    def test_runtime_openapi_declares_entity_contract(self):
+        schema = app.openapi()
+        listing = schema["paths"]["/api/v1/entities"]["get"]
+        detail = schema["paths"]["/api/v1/entities/{id}"]["get"]
+        self.assertEqual(listing["x-required-scopes"], ["read:catalog"])
+        self.assertEqual(detail["x-required-scopes"], ["read:catalog"])
+        self.assertEqual(
+            {parameter["name"] for parameter in listing["parameters"]},
+            {"limit", "cursor", "q", "type"},
+        )
+        self.assertEqual(
+            {parameter["name"] for parameter in detail["parameters"]},
+            {"id", "version_id", "as_of", "knowledge_checkpoint_id", "If-None-Match"},
+        )
+        self.assertEqual(
+            detail["responses"]["200"]["content"]["application/json"]["schema"],
+            {"$ref": "#/components/schemas/EntityResponse"},
+        )
 
 
 if __name__ == "__main__":

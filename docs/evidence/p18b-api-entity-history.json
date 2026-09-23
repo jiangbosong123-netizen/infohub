@@ -1,0 +1,33 @@
+{
+  "module": "P18b typed entity detail and logical history",
+  "environment": "isolated Mac database copy; production Windows powered off",
+  "endpoint": "GET /api/v1/entities/{id}",
+  "required_scope": "read:catalog",
+  "feature_flag": "INFOHUB_API_CATALOG_ENABLED",
+  "feature_flag_default": false,
+  "automated_tests_passed": 380,
+  "supported_views": [
+    "current",
+    "exact version_id",
+    "logical as_of"
+  ],
+  "strict_checkpoint_history_supported": false,
+  "strict_checkpoint_response": "422 unsupported_history",
+  "logical_as_of_clock_status": "unknown",
+  "permission_aware_etag": true,
+  "mac_copy_rehearsal": {
+    "source_schema_version": 0,
+    "migrated_schema_version": 25,
+    "legacy_items": 47101,
+    "entities": 23,
+    "current_version_matches_exact": true,
+    "as_of_version_matches_exact": true,
+    "etag_is_quoted_sha256": true,
+    "verified_identifiers_returned_for_sample": 0,
+    "verified_relations_returned_for_sample": 0,
+    "source_database_modified": false,
+    "temporary_copy_retained": false
+  },
+  "windows_release_verified": false,
+  "production_status": "disabled pending data-contract and runtime acceptance"
+}
