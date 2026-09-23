@@ -1,0 +1,158 @@
+{
+  "source": "isolated real-data schema-29 database from p18k rehearsal",
+  "production_changed": false,
+  "migration": {
+    "before": 29,
+    "after": 30,
+    "applied": [
+      30
+    ],
+    "integrity": "ok",
+    "foreign_key_violations": 0,
+    "legacy_counts_before": {
+      "assignments": 46089,
+      "reviews": 2
+    },
+    "counts_after": {
+      "assignments": 46089,
+      "reviews": 2,
+      "queue_entries": 46089
+    },
+    "legacy_counts_unchanged": true
+  },
+  "coverage": {
+    "topic_count": 56,
+    "assignment_total": 46089,
+    "accepted": 0,
+    "rejected": 1,
+    "candidate": 46088,
+    "superseded": 0,
+    "human_reviewed": 1
+  },
+  "topics_with_largest_candidate_backlog": [
+    {
+      "topic_slug": "product-updates",
+      "assignment_total": 7118,
+      "candidate": 7118,
+      "decided_assignment_bps": 0,
+      "human_review_bps": 0
+    },
+    {
+      "topic_slug": "policy",
+      "assignment_total": 2626,
+      "candidate": 2626,
+      "decided_assignment_bps": 0,
+      "human_review_bps": 0
+    },
+    {
+      "topic_slug": "industry",
+      "assignment_total": 2538,
+      "candidate": 2538,
+      "decided_assignment_bps": 0,
+      "human_review_bps": 0
+    },
+    {
+      "topic_slug": "openai",
+      "assignment_total": 2483,
+      "candidate": 2483,
+      "decided_assignment_bps": 0,
+      "human_review_bps": 0
+    },
+    {
+      "topic_slug": "apple",
+      "assignment_total": 2306,
+      "candidate": 2306,
+      "decided_assignment_bps": 0,
+      "human_review_bps": 0
+    },
+    {
+      "topic_slug": "amazon",
+      "assignment_total": 2264,
+      "candidate": 2264,
+      "decided_assignment_bps": 0,
+      "human_review_bps": 0
+    },
+    {
+      "topic_slug": "nvidia",
+      "assignment_total": 2247,
+      "candidate": 2247,
+      "decided_assignment_bps": 0,
+      "human_review_bps": 0
+    },
+    {
+      "topic_slug": "anthropic",
+      "assignment_total": 2152,
+      "candidate": 2152,
+      "decided_assignment_bps": 0,
+      "human_review_bps": 0
+    },
+    {
+      "topic_slug": "meta",
+      "assignment_total": 2103,
+      "candidate": 2103,
+      "decided_assignment_bps": 0,
+      "human_review_bps": 0
+    },
+    {
+      "topic_slug": "chips",
+      "assignment_total": 2068,
+      "candidate": 2068,
+      "decided_assignment_bps": 0,
+      "human_review_bps": 0
+    }
+  ],
+  "queue_sample": [
+    {
+      "queue_sequence": 1,
+      "assignment_id_sha256": "2dba93a0da22d260b98e0f6f2d65cc1afb49c89b7c61ba036962928341940575",
+      "topic_slug": "opinions",
+      "method": "legacy_projection",
+      "method_version": "legacy-item-topics-v1",
+      "has_legacy_evidence": true
+    },
+    {
+      "queue_sequence": 2,
+      "assignment_id_sha256": "cb0e5f06438e1de2a1960acf3b9d0f3f8335723adfc8283e564ce0c0024bee7e",
+      "topic_slug": "openai",
+      "method": "legacy_projection",
+      "method_version": "legacy-item-topics-v1",
+      "has_legacy_evidence": true
+    },
+    {
+      "queue_sequence": 3,
+      "assignment_id_sha256": "d026de844cec720f656b3ff91c98c0aa78dd98e12aee14858551670b9658ce49",
+      "topic_slug": "opinions",
+      "method": "legacy_projection",
+      "method_version": "legacy-item-topics-v1",
+      "has_legacy_evidence": true
+    },
+    {
+      "queue_sequence": 4,
+      "assignment_id_sha256": "dd444799839f8909bbfe1501bf879999a4a269b4a14068e7ec9a65cc01840bc3",
+      "topic_slug": "industry",
+      "method": "legacy_projection",
+      "method_version": "legacy-item-topics-v1",
+      "has_legacy_evidence": true
+    },
+    {
+      "queue_sequence": 5,
+      "assignment_id_sha256": "6141ae4972f8f2ff9ea02ebeab30614c743dc93b06a4e1c196cca13bc7ad028d",
+      "topic_slug": "kimi",
+      "method": "legacy_projection",
+      "method_version": "legacy-item-topics-v1",
+      "has_legacy_evidence": true
+    }
+  ],
+  "read_only_after_migration": true,
+  "limitations": [
+    "The queue organizes review work; it does not claim accuracy or approve candidates.",
+    "No bulk-accept operation exists.",
+    "Mac isolated copy only; Windows and production data were not changed."
+  ],
+  "validation": {
+    "focused_tests": "35 passed",
+    "unit_tests": "415 passed",
+    "python_compile": "passed",
+    "git_diff_check": "passed"
+  }
+}

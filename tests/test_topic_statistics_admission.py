@@ -155,7 +155,7 @@ class TopicStatisticsAdmissionTests(unittest.TestCase):
             db_admin.apply_migrations(db, db_admin.MIGRATIONS[:28])
             db.execute("INSERT INTO sources(key,name,channel,type) VALUES('x','X','ai','rss')")
         report = db_admin.migrate_database(predecessor)
-        self.assertEqual(report.applied_versions, (29,))
+        self.assertEqual(report.applied_versions, (29, 30))
         self.assertEqual(db_admin.verify_database(report.backup_path).schema_version, 28)
         with database.get_db(predecessor) as db:
             self.assertEqual(db.execute("SELECT key FROM sources").fetchone()[0], "x")

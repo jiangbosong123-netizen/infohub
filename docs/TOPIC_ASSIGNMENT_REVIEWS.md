@@ -14,6 +14,9 @@ The maintenance workflow is deliberately optimistic-concurrency safe:
 
 ```text
 python cli.py topic-review-preview ASSIGNMENT_ID
+python cli.py topic-review-coverage
+python cli.py topic-review-queue none 50 all
+python cli.py topic-review-queue LAST_SEQUENCE 50 TOPIC_ID
 python cli.py topic-review ASSIGNMENT_ID accepted none "source checked"
 python cli.py topic-review ASSIGNMENT_ID rejected topic_review_PREVIOUS "correction received"
 ```
@@ -23,6 +26,19 @@ Use the exact `current_review_id` returned by the preview as
 reviewer records a decision first, the stale command fails and requires a new
 preview. The command runs only in the maintenance role and derives the reviewer
 identity from the local OS account.
+
+The coverage command reports accepted, rejected, candidate, superseded and
+human-reviewed counts per current topic, with separate decided and human-review
+basis points. The queue returns only assignments whose latest effective state
+is still `candidate`, in a database-assigned monotonic queue sequence. `AFTER`
+makes the read
+resumable and `TOPIC_ID` narrows a review session without changing data. Queue
+rows include the frozen document/topic versions, canonical URL, method,
+evidence IDs and legacy evidence text. Reading the queue never creates a review
+and there is intentionally no bulk-accept command.
+Migration 30 backfills one immutable queue sequence per existing assignment and
+assigns a higher sequence to each future assignment, so late inserts cannot
+appear behind a saved cursor.
 
 This ledger is the prerequisite for topic statistics. Public counts must use
 the effective decision and must not count an unreviewed `candidate`. The

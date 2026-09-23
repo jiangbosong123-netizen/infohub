@@ -8,7 +8,9 @@ from app.db_admin import verify_database
 from app.topic_assignment_reviews import (
     TopicAssignmentReviewError,
     record_topic_assignment_review,
+    review_queue,
     review_preview,
+    topic_review_coverage,
 )
 
 
@@ -73,6 +75,43 @@ class TopicAssignmentReviewTests(unittest.TestCase):
             self.assertEqual(review_preview(db, 'a').original_status, 'candidate')
             self.assertEqual(db.execute("SELECT COUNT(*) FROM topic_assignment_reviews").fetchone()[0], 2)
         verify_database(self.path, require_current=True)
+
+    def test_queue_and_coverage_are_resumable_read_only_views(self):
+        with database.get_db() as db:
+            queued = review_queue(db, limit=10)
+            self.assertEqual(len(queued), 1)
+            self.assertEqual(
+                (queued[0].queue_sequence, queued[0].assignment_id,
+                 queued[0].topic_slug, queued[0].title),
+                (1, 'a', 'topic', 'T'),
+            )
+            self.assertEqual(review_queue(db, after_sequence=1, limit=10), ())
+            self.assertEqual(review_queue(db, topic_id='missing', limit=10), ())
+            coverage = topic_review_coverage(db)[0]
+            self.assertEqual(
+                (coverage.assignment_total, coverage.candidate,
+                 coverage.decided_assignment_bps, coverage.human_review_bps),
+                (1, 1, 0, 0),
+            )
+            record_topic_assignment_review(
+                db, assignment_id='a', decision='accepted',
+                expected_previous_review_id=None, reviewer_id='reviewer',
+                reason='Checked.', now=NOW,
+            )
+            self.assertEqual(review_queue(db, limit=10), ())
+            coverage = topic_review_coverage(db)[0]
+            self.assertEqual(
+                (coverage.accepted, coverage.candidate,
+                 coverage.decided_assignment_bps, coverage.human_review_bps),
+                (1, 0, 10_000, 10_000),
+            )
+            with self.assertRaisesRegex(Exception, 'immutable'):
+                db.execute("UPDATE topic_assignment_review_queue SET sequence=2")
+            with self.assertRaisesRegex(Exception, 'immutable'):
+                db.execute("DELETE FROM topic_assignment_review_queue")
+        with self.assertRaises(ValueError):
+            with database.get_db() as db:
+                review_queue(db, limit=0)
 
     def test_stale_reviewer_cannot_overwrite_current_decision(self):
         with database.get_db() as db:

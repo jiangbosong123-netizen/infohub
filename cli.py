@@ -35,6 +35,8 @@ from __future__ import annotations
   python cli.py legacy-backfill [N]    # 可续跑迁移旧记录，每事务批 N 条（maintenance only）
   python cli.py legacy-topic-backfill [N]  # 冻结并可续跑迁移旧主题归类（maintenance only）
   python cli.py topic-review-preview ASSIGNMENT_ID  # 查看主题断言当前人工决定
+  python cli.py topic-review-queue [AFTER|none] [LIMIT] [TOPIC_ID|all]
+  python cli.py topic-review-coverage
   python cli.py topic-review ASSIGNMENT_ID accepted|rejected EXPECTED_PREVIOUS|none REASON
   python cli.py topic-statistics-advance [N]  # 推进至多 N 个主题统计（maintenance only，可续跑）
   python cli.py topic-admission-preview PUBLICATION_ID
@@ -352,6 +354,31 @@ def cmd_topic_review_preview(assignment_id: str) -> None:
         print(json.dumps(review_preview(db, assignment_id).to_dict(), ensure_ascii=False, indent=2))
 
 
+def cmd_topic_review_queue(after: str, limit: int, topic_id: str) -> None:
+    if config.PROCESS_ROLE != "maintenance":
+        raise config.RuntimeConfigurationError("topic-review-queue requires maintenance role")
+    from app.db_admin import verify_database
+    from app.topic_assignment_reviews import review_queue
+    verify_database(config.DB_PATH, require_current=True)
+    with get_db() as db:
+        rows = review_queue(
+            db, after_sequence=0 if after == "none" else int(after),
+            limit=limit, topic_id=None if topic_id == "all" else topic_id,
+        )
+    print(json.dumps([row.to_dict() for row in rows], ensure_ascii=False, indent=2))
+
+
+def cmd_topic_review_coverage() -> None:
+    if config.PROCESS_ROLE != "maintenance":
+        raise config.RuntimeConfigurationError("topic-review-coverage requires maintenance role")
+    from app.db_admin import verify_database
+    from app.topic_assignment_reviews import topic_review_coverage
+    verify_database(config.DB_PATH, require_current=True)
+    with get_db() as db:
+        rows = topic_review_coverage(db)
+    print(json.dumps([row.to_dict() for row in rows], ensure_ascii=False, indent=2))
+
+
 def cmd_topic_review(
     assignment_id: str, decision: str, expected_previous: str, reason: str
 ) -> None:
@@ -604,6 +631,14 @@ def main() -> None:
         cmd_legacy_topic_backfill(int(sys.argv[2]) if len(sys.argv) > 2 else 250)
     elif cmd == "topic-review-preview" and len(sys.argv) == 3:
         cmd_topic_review_preview(sys.argv[2])
+    elif cmd == "topic-review-queue":
+        cmd_topic_review_queue(
+            sys.argv[2] if len(sys.argv) > 2 else "none",
+            int(sys.argv[3]) if len(sys.argv) > 3 else 50,
+            sys.argv[4] if len(sys.argv) > 4 else "all",
+        )
+    elif cmd == "topic-review-coverage":
+        cmd_topic_review_coverage()
     elif cmd == "topic-review" and len(sys.argv) >= 6:
         cmd_topic_review(sys.argv[2], sys.argv[3], sys.argv[4], " ".join(sys.argv[5:]))
     elif cmd == "topic-statistics-advance":

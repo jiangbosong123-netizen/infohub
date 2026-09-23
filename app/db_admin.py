@@ -2605,6 +2605,31 @@ def _topic_statistics_admission_foundation(db: sqlite3.Connection) -> None:
     _execute_script(db, TOPIC_STATISTICS_ADMISSION_SCHEMA_SQL)
 
 
+TOPIC_REVIEW_QUEUE_SCHEMA_SQL = """
+CREATE TABLE topic_assignment_review_queue (
+    sequence INTEGER PRIMARY KEY AUTOINCREMENT,
+    assignment_id TEXT NOT NULL UNIQUE REFERENCES document_topic_assignments(id)
+);
+INSERT INTO topic_assignment_review_queue(assignment_id)
+SELECT id FROM document_topic_assignments ORDER BY rowid;
+CREATE TRIGGER topic_assignment_review_queue_assignment_insert
+AFTER INSERT ON document_topic_assignments
+BEGIN
+  INSERT INTO topic_assignment_review_queue(assignment_id) VALUES(NEW.id);
+END;
+CREATE TRIGGER topic_assignment_review_queue_no_update
+BEFORE UPDATE ON topic_assignment_review_queue
+BEGIN SELECT RAISE(ABORT,'topic assignment review queue is immutable'); END;
+CREATE TRIGGER topic_assignment_review_queue_no_delete
+BEFORE DELETE ON topic_assignment_review_queue
+BEGIN SELECT RAISE(ABORT,'topic assignment review queue is immutable'); END;
+"""
+
+
+def _topic_review_queue_foundation(db: sqlite3.Connection) -> None:
+    _execute_script(db, TOPIC_REVIEW_QUEUE_SCHEMA_SQL)
+
+
 # Migration 1 freezes the exact legacy schema at main@88a2a1e. Future schema
 # changes must append a new Migration instead of editing this definition.
 MIGRATIONS = (
@@ -2742,6 +2767,8 @@ MIGRATIONS = (
     Migration(29, "append-only topic statistics publication admission",
               TOPIC_STATISTICS_ADMISSION_SCHEMA_SQL,
               _topic_statistics_admission_foundation),
+    Migration(30, "stable topic assignment review queue",
+              TOPIC_REVIEW_QUEUE_SCHEMA_SQL, _topic_review_queue_foundation),
 )
 CURRENT_SCHEMA_VERSION = MIGRATIONS[-1].version
 REQUIRED_MIGRATION_COLUMNS = {
@@ -2787,6 +2814,7 @@ EXPECTED_TABLES = LEGACY_ANCHORS | {
     "topic_statistics_members", "topic_statistics_publications",
     "topic_statistics_state", "topic_statistics_dirty",
     "topic_statistics_admission_reviews",
+    "topic_assignment_review_queue",
 }
 EXPECTED_ITEM_COLUMNS = {
     "id", "source_id", "url", "title", "title_zh", "summary", "raw_summary",
@@ -2996,6 +3024,7 @@ EXPECTED_IDENTITY_AUXILIARY_COLUMNS = {
         "minimum_decided_assignment_bps", "allow_zero_members", "metrics_json",
         "metrics_sha256", "reviewer_id", "reason", "reviewed_at",
     },
+    "topic_assignment_review_queue": {"sequence", "assignment_id"},
     "sec_security_keys": {
         "cik", "exchange", "ticker", "security_entity_id", "first_evidence_id",
         "available_at",
@@ -3258,6 +3287,8 @@ EXPECTED_INGEST_TRIGGERS = {
     "topic_statistics_review_insert", "topic_statistics_event_update",
     "topic_statistics_admission_valid_append",
     "topic_statistics_admission_no_update", "topic_statistics_admission_no_delete",
+    "topic_assignment_review_queue_assignment_insert",
+    "topic_assignment_review_queue_no_update", "topic_assignment_review_queue_no_delete",
     "sec_security_keys_no_update", "sec_security_keys_no_delete",
     "sec_filing_versions_valid_append", "sec_filing_versions_no_update",
     "sec_filing_versions_no_delete", "sec_filings_identity_immutable",
@@ -3752,6 +3783,22 @@ def _assert_current_schema(db: sqlite3.Connection) -> None:
     if invalid_topic_admissions:
         raise DatabaseVerificationError(
             f"{invalid_topic_admissions} topic statistics admission review(s) are invalid"
+        )
+    missing_topic_queue_entries = db.execute(
+        """SELECT COUNT(*) FROM document_topic_assignments AS assignment
+           LEFT JOIN topic_assignment_review_queue AS queue
+             ON queue.assignment_id=assignment.id
+           WHERE queue.assignment_id IS NULL"""
+    ).fetchone()[0]
+    extra_topic_queue_entries = db.execute(
+        """SELECT COUNT(*) FROM topic_assignment_review_queue AS queue
+           LEFT JOIN document_topic_assignments AS assignment
+             ON assignment.id=queue.assignment_id
+           WHERE assignment.id IS NULL"""
+    ).fetchone()[0]
+    if missing_topic_queue_entries or extra_topic_queue_entries:
+        raise DatabaseVerificationError(
+            "topic assignment review queue does not cover every assignment"
         )
     invalid_documents = db.execute(
         """SELECT COUNT(*) FROM documents AS document
