@@ -25,9 +25,26 @@ Migration queues every existing topic for the first build. Dirty rows are
 disposable scheduling state; builds, statistics versions, and members are
 append-only history.
 
-The next implementation step is the resumable builder. Its document policy
-will count a document once only when at least one assignment's effective status
-is `accepted`; unreviewed legacy candidates remain excluded. Its event policy
-will count only current stable public events and will retain the exact event
-version as a member. Until the first complete build is published, the topic API
-must stay unavailable.
+`advance_topic_statistics()` implements the bounded, resumable builder. Its
+document policy counts a stable document identity once when at least one
+assignment's effective status is `accepted`; the latest human review overrides
+the immutable original decision, and unreviewed legacy candidates remain
+excluded. If several accepted assertions refer to the same document and topic,
+the member manifest keeps all of them while the count remains one.
+
+The event policy counts only the current version of `active` and `resolved`
+events. A reference to any immutable version of the topic maps to the same
+stable topic identity. Candidate, retracted, merged, and split events are not
+public members.
+
+Each call commits at most 250 topics and advances a stable-ID cursor in the same
+transaction as its result rows. If an already-scanned topic becomes dirty, or
+the topic catalog/version pointers change before completion, that build is
+marked `failed` and the next call starts a fresh build. The old public pointer
+does not move. A complete unchanged build appends one publication and moves the
+pointer atomically; repeated calls with no dirty inputs return that publication
+without creating another one.
+
+The topic API must stay unavailable until the first complete build is
+published. Scheduler integration and the API read projection remain separate
+reviewable changes.

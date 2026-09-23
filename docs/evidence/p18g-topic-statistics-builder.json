@@ -1,0 +1,103 @@
+{
+  "source": "isolated real-data schema-28 Mac rehearsal copy",
+  "production_changed": false,
+  "batches": [
+    {
+      "status": "building",
+      "build_id": "topic_statistics_build_15b10d1150fa4734b8fed65f15914176",
+      "last_topic_id": "topic_7414bb9032984f6e8bce50552f13f286",
+      "topic_count": 20,
+      "processed": 20,
+      "dirty_remaining": 36,
+      "publication_id": null,
+      "publication_version": null,
+      "error_detail": null
+    },
+    {
+      "status": "building",
+      "build_id": "topic_statistics_build_15b10d1150fa4734b8fed65f15914176",
+      "last_topic_id": "topic_b7882ee685f94845bb327fd9175e2c32",
+      "topic_count": 40,
+      "processed": 20,
+      "dirty_remaining": 16,
+      "publication_id": null,
+      "publication_version": null,
+      "error_detail": null
+    },
+    {
+      "status": "building",
+      "build_id": "topic_statistics_build_15b10d1150fa4734b8fed65f15914176",
+      "last_topic_id": "topic_fde271114c1643a1a1c869d3fc45f389",
+      "topic_count": 56,
+      "processed": 16,
+      "dirty_remaining": 0,
+      "publication_id": null,
+      "publication_version": null,
+      "error_detail": null
+    },
+    {
+      "status": "ready",
+      "build_id": "topic_statistics_build_15b10d1150fa4734b8fed65f15914176",
+      "last_topic_id": "topic_fde271114c1643a1a1c869d3fc45f389",
+      "topic_count": 56,
+      "processed": 0,
+      "dirty_remaining": 0,
+      "publication_id": "topic_statistics_publication_b44f96176a0e43da9b953efe8b3d704c",
+      "publication_version": 1,
+      "error_detail": null
+    }
+  ],
+  "projection": {
+    "builds": 1,
+    "statistics": 56,
+    "members": 0,
+    "publications": 1,
+    "dirty_remaining": 0,
+    "document_count": 0,
+    "event_count": 0
+  },
+  "state": {
+    "status": "ready",
+    "current_build_id": "topic_statistics_build_15b10d1150fa4734b8fed65f15914176",
+    "current_publication_id": "topic_statistics_publication_b44f96176a0e43da9b953efe8b3d704c"
+  },
+  "effective_review_heads": [
+    {
+      "assignment_id": "topic_assignment_legacy_0004511811330605e0392a18cccf4f711102e77bf9b6c644c5bd252676dce117",
+      "version": 2,
+      "decision": "rejected"
+    }
+  ],
+  "legacy_counts": {
+    "before": {
+      "items": 47266,
+      "item_topics": 46089,
+      "document_topic_assignments": 46089,
+      "topic_assignment_reviews": 2
+    },
+    "after": {
+      "items": 47266,
+      "item_topics": 46089,
+      "document_topic_assignments": 46089,
+      "topic_assignment_reviews": 2
+    },
+    "unchanged": true
+  },
+  "verification": {
+    "state": "current",
+    "integrity": "ok",
+    "foreign_key_violations": 0
+  },
+  "rehearsed_at": "2026-09-23",
+  "runtime": "Python 3.12 isolated virtual environment on macOS",
+  "validation": {
+    "unit_tests": "394 passed",
+    "focused_tests": "9 passed",
+    "git_diff_check": "passed"
+  },
+  "limitations": [
+    "The real-data copy contains no effectively accepted topic assignment after the latest review, so the cautious first publication contains zero members.",
+    "Schema and builder rehearsal only; API and scheduler are not wired in this change.",
+    "Mac copy only; Windows production remained off."
+  ]
+}
