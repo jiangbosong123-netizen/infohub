@@ -1,0 +1,32 @@
+{
+  "scope": "topic statistics operational controls",
+  "production_changed": false,
+  "defaults": {
+    "INFOHUB_TOPIC_STATISTICS_ENABLED": false,
+    "schedule_registered_when_disabled": false,
+    "queued_job_result_when_disabled": "disabled"
+  },
+  "enabled_schedule": {
+    "id": "topic-statistics:refresh",
+    "kind": "topic-statistics",
+    "interval_seconds": 60,
+    "topics_per_batch": 25,
+    "maximum_batches_per_job": 10
+  },
+  "manual_command": "python cli.py topic-statistics-advance 25",
+  "validation": {
+    "focused_tests": "33 passed",
+    "unit_tests": "397 passed",
+    "compose_roles_validated": [
+      "maintenance",
+      "web",
+      "worker"
+    ],
+    "git_diff_check": "passed"
+  },
+  "limitations": [
+    "The background task is disabled by default and was not enabled in any production environment.",
+    "This change does not expose topic statistics through the portal or API.",
+    "Windows production remained off and was not changed."
+  ]
+}

@@ -96,6 +96,47 @@ class WorkerRuntimeTests(unittest.TestCase):
         with database.get_db() as db:
             self.assertEqual(db.execute("SELECT enabled FROM schedules WHERE id='curation-hot:refresh'").fetchone()[0], 0)
 
+    def test_topic_statistics_schedule_can_be_enabled_and_disabled(self):
+        with patch.object(config, "TOPIC_STATISTICS_ENABLED", True):
+            register_default_schedules(T0)
+        with database.get_db() as db:
+            row = db.execute(
+                "SELECT enabled,interval_seconds FROM schedules WHERE id='topic-statistics:refresh'"
+            ).fetchone()
+            self.assertEqual(tuple(row), (1, 60))
+        with patch.object(config, "TOPIC_STATISTICS_ENABLED", False):
+            register_default_schedules(T0 + timedelta(minutes=1))
+        with database.get_db() as db:
+            self.assertEqual(
+                db.execute(
+                    "SELECT enabled FROM schedules WHERE id='topic-statistics:refresh'"
+                ).fetchone()[0],
+                0,
+            )
+
+    def test_topic_statistics_job_publishes_empty_catalog_and_disabled_job_is_safe(self):
+        enqueue_job(
+            kind="topic-statistics", idempotency_key="topic-statistics-fixture",
+            scheduled_for=T0,
+        )
+        with patch.object(config, "TOPIC_STATISTICS_ENABLED", True):
+            result = process_one_job(worker_id="topic-statistics-worker", now=T0)
+        self.assertEqual(result.state, "succeeded")
+        self.assertIn('"status": "ready"', result.result_ref)
+        with database.get_db() as db:
+            self.assertEqual(
+                db.execute("SELECT status FROM topic_statistics_state").fetchone()[0],
+                "ready",
+            )
+        enqueue_job(
+            kind="topic-statistics", idempotency_key="topic-statistics-disabled",
+            scheduled_for=T0,
+        )
+        with patch.object(config, "TOPIC_STATISTICS_ENABLED", False):
+            skipped = process_one_job(worker_id="topic-statistics-worker", now=T0)
+        self.assertEqual(skipped.state, "succeeded")
+        self.assertIn('"status": "disabled"', skipped.result_ref)
+
     def test_durable_hot_refresh_job_builds_and_skips_when_disabled(self):
         with database.get_db() as db:
             db.execute("INSERT INTO sources(id,key,name,channel,tier,type) VALUES(1,'test','Test','ai','media','rss')")

@@ -30,7 +30,10 @@ from .timeutil import format_utc, utc_now
 
 
 log = logging.getLogger(__name__)
-JOB_KINDS = ("crawl", "ai", "reconcile", "report", "prune", "curation-search", "curation-hot")
+JOB_KINDS = (
+    "crawl", "ai", "reconcile", "report", "prune", "curation-search",
+    "curation-hot", "topic-statistics",
+)
 
 
 def _next_daily(hour: int, minute: int, now: datetime) -> datetime:
@@ -98,6 +101,17 @@ def register_default_schedules(now: datetime | None = None) -> None:
         with get_db() as db:
             db.execute("""UPDATE schedules SET enabled=0,updated_at=?
                           WHERE id='curation-hot:refresh' AND enabled=1""", (utc_now(),))
+    if config.TOPIC_STATISTICS_ENABLED:
+        upsert_interval_schedule(
+            schedule_id="topic-statistics:refresh", kind="topic-statistics",
+            next_due_at=current, interval_seconds=60, priority=13,
+            max_attempts=3,
+        )
+    else:
+        from .database import get_db
+        with get_db() as db:
+            db.execute("""UPDATE schedules SET enabled=0,updated_at=?
+                          WHERE id='topic-statistics:refresh' AND enabled=1""", (utc_now(),))
 
 
 def _crawl() -> dict:
@@ -175,6 +189,20 @@ def _curation_hot_refresh() -> dict:
     return {"batches": batches, **report.to_dict()}
 
 
+def _topic_statistics_refresh() -> dict:
+    if not config.TOPIC_STATISTICS_ENABLED:
+        return {"status": "disabled", "batches": 0}
+    from .topic_statistics import advance_topic_statistics
+    report = None
+    batches = 0
+    for _ in range(10):
+        report = advance_topic_statistics(25)
+        batches += 1
+        if report.status != "building":
+            break
+    return {"batches": batches, **report.to_dict()}
+
+
 def default_handlers() -> dict[str, Callable[[], object]]:
     return {
         "crawl": _crawl,
@@ -184,6 +212,7 @@ def default_handlers() -> dict[str, Callable[[], object]]:
         "prune": _prune,
         "curation-search": _curation_search_refresh,
         "curation-hot": _curation_hot_refresh,
+        "topic-statistics": _topic_statistics_refresh,
     }
 
 

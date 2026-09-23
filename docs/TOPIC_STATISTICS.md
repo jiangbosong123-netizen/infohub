@@ -45,6 +45,17 @@ does not move. A complete unchanged build appends one publication and moves the
 pointer atomically; repeated calls with no dirty inputs return that publication
 without creating another one.
 
+Operators can advance one bounded batch under the maintenance role:
+
+```text
+python cli.py topic-statistics-advance 25
+```
+
+The production worker keeps this task disabled by default. Setting
+`INFOHUB_TOPIC_STATISTICS_ENABLED=true` registers a durable one-minute schedule;
+each claimed job advances at most ten 25-topic batches and safely resumes on the
+next run. Turning the flag off disables an existing schedule and makes already
+queued jobs harmless no-ops.
+
 The topic API must stay unavailable until the first complete build is
-published. Scheduler integration and the API read projection remain separate
-reviewable changes.
+published. The API read projection remains a separate reviewable change.
