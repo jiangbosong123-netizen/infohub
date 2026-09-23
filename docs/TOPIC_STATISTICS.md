@@ -63,4 +63,8 @@ boundary: it rejects missing publications, pending dirty inputs, catalog gaps,
 and count/member mismatches before returning any topic. Its metadata always
 names the build, publication, dataset, and both policy versions, so a legitimate
 reviewed zero remains distinguishable from unavailable data. API route wiring
-remains a separate reviewable change.
+uses this boundary and remains behind the catalog feature flag.
+
+External release is a separate human gate documented in
+[`TOPIC_STATISTICS_ADMISSION.md`](TOPIC_STATISTICS_ADMISSION.md). A complete
+build alone does not authorize API or portal cutover.

@@ -2559,6 +2559,52 @@ def _topic_statistics_foundation(db: sqlite3.Connection) -> None:
     _execute_script(db, TOPIC_STATISTICS_SCHEMA_SQL)
 
 
+TOPIC_STATISTICS_ADMISSION_SCHEMA_SQL = """
+CREATE TABLE topic_statistics_admission_reviews (
+    id TEXT PRIMARY KEY,
+    publication_id TEXT NOT NULL REFERENCES topic_statistics_publications(id),
+    version INTEGER NOT NULL CHECK(version>0),
+    previous_review_id TEXT REFERENCES topic_statistics_admission_reviews(id),
+    decision TEXT NOT NULL CHECK(decision IN ('approved','rejected')),
+    minimum_decided_assignment_bps INTEGER NOT NULL
+        CHECK(minimum_decided_assignment_bps BETWEEN 0 AND 10000),
+    allow_zero_members INTEGER NOT NULL CHECK(allow_zero_members IN (0,1)),
+    metrics_json TEXT NOT NULL CHECK(json_valid(metrics_json)),
+    metrics_sha256 TEXT NOT NULL CHECK(length(metrics_sha256)=64),
+    reviewer_id TEXT NOT NULL CHECK(length(trim(reviewer_id)) BETWEEN 1 AND 120),
+    reason TEXT NOT NULL CHECK(length(trim(reason)) BETWEEN 1 AND 1000),
+    reviewed_at TEXT NOT NULL,
+    UNIQUE(publication_id,version),
+    CHECK((version=1 AND previous_review_id IS NULL)
+       OR (version>1 AND previous_review_id IS NOT NULL))
+);
+CREATE INDEX idx_topic_statistics_admission_current
+    ON topic_statistics_admission_reviews(publication_id,version DESC);
+CREATE TRIGGER topic_statistics_admission_valid_append
+BEFORE INSERT ON topic_statistics_admission_reviews
+WHEN NEW.version != COALESCE(
+         (SELECT MAX(version)+1 FROM topic_statistics_admission_reviews
+          WHERE publication_id=NEW.publication_id),1
+     )
+  OR (NEW.version=1 AND NEW.previous_review_id IS NOT NULL)
+  OR (NEW.version>1 AND NEW.previous_review_id IS NOT (
+         SELECT id FROM topic_statistics_admission_reviews
+         WHERE publication_id=NEW.publication_id AND version=NEW.version-1
+     ))
+BEGIN SELECT RAISE(ABORT,'topic statistics admission reviews must form a contiguous append-only chain'); END;
+CREATE TRIGGER topic_statistics_admission_no_update
+BEFORE UPDATE ON topic_statistics_admission_reviews
+BEGIN SELECT RAISE(ABORT,'topic statistics admission reviews are immutable'); END;
+CREATE TRIGGER topic_statistics_admission_no_delete
+BEFORE DELETE ON topic_statistics_admission_reviews
+BEGIN SELECT RAISE(ABORT,'topic statistics admission reviews are immutable'); END;
+"""
+
+
+def _topic_statistics_admission_foundation(db: sqlite3.Connection) -> None:
+    _execute_script(db, TOPIC_STATISTICS_ADMISSION_SCHEMA_SQL)
+
+
 # Migration 1 freezes the exact legacy schema at main@88a2a1e. Future schema
 # changes must append a new Migration instead of editing this definition.
 MIGRATIONS = (
@@ -2693,6 +2739,9 @@ MIGRATIONS = (
               TOPIC_ASSIGNMENT_REVIEW_SCHEMA_SQL, _topic_assignment_review_foundation),
     Migration(28, "auditable topic statistics projection foundation",
               TOPIC_STATISTICS_SCHEMA_SQL, _topic_statistics_foundation),
+    Migration(29, "append-only topic statistics publication admission",
+              TOPIC_STATISTICS_ADMISSION_SCHEMA_SQL,
+              _topic_statistics_admission_foundation),
 )
 CURRENT_SCHEMA_VERSION = MIGRATIONS[-1].version
 REQUIRED_MIGRATION_COLUMNS = {
@@ -2737,6 +2786,7 @@ EXPECTED_TABLES = LEGACY_ANCHORS | {
     "topic_statistics_builds", "topic_statistics_versions",
     "topic_statistics_members", "topic_statistics_publications",
     "topic_statistics_state", "topic_statistics_dirty",
+    "topic_statistics_admission_reviews",
 }
 EXPECTED_ITEM_COLUMNS = {
     "id", "source_id", "url", "title", "title_zh", "summary", "raw_summary",
@@ -2941,6 +2991,11 @@ EXPECTED_IDENTITY_AUXILIARY_COLUMNS = {
         "singleton", "status", "current_build_id", "current_publication_id", "updated_at",
     },
     "topic_statistics_dirty": {"topic_id", "reason", "queued_at"},
+    "topic_statistics_admission_reviews": {
+        "id", "publication_id", "version", "previous_review_id", "decision",
+        "minimum_decided_assignment_bps", "allow_zero_members", "metrics_json",
+        "metrics_sha256", "reviewer_id", "reason", "reviewed_at",
+    },
     "sec_security_keys": {
         "cik", "exchange", "ticker", "security_entity_id", "first_evidence_id",
         "available_at",
@@ -3201,6 +3256,8 @@ EXPECTED_INGEST_TRIGGERS = {
     "topic_statistics_state_ready_build", "topic_statistics_topic_insert",
     "topic_statistics_topic_update", "topic_statistics_assignment_insert",
     "topic_statistics_review_insert", "topic_statistics_event_update",
+    "topic_statistics_admission_valid_append",
+    "topic_statistics_admission_no_update", "topic_statistics_admission_no_delete",
     "sec_security_keys_no_update", "sec_security_keys_no_delete",
     "sec_filing_versions_valid_append", "sec_filing_versions_no_update",
     "sec_filing_versions_no_delete", "sec_filings_identity_immutable",
@@ -3665,6 +3722,37 @@ def _assert_current_schema(db: sqlite3.Connection) -> None:
         ).fetchone()[0]
         if invalid_topic_statistics:
             raise DatabaseVerificationError("ready topic statistics build is incomplete")
+    invalid_topic_admissions = 0
+    for review in db.execute("SELECT * FROM topic_statistics_admission_reviews"):
+        try:
+            metrics = json.loads(review["metrics_json"])
+            digest = hashlib.sha256(json.dumps(
+                metrics, ensure_ascii=False, sort_keys=True, separators=(",", ":"),
+                allow_nan=False,
+            ).encode("utf-8")).hexdigest()
+        except (TypeError, ValueError, json.JSONDecodeError):
+            metrics, digest = None, ""
+        if (
+            not isinstance(metrics, dict)
+            or digest != review["metrics_sha256"]
+            or metrics.get("publication_id") != review["publication_id"]
+            or (review["decision"] == "approved" and (
+                metrics.get("dirty_topics") != 0
+                or not isinstance(metrics.get("decided_assignment_bps"), int)
+                or metrics["decided_assignment_bps"]
+                   < review["minimum_decided_assignment_bps"]
+                or (
+                    metrics.get("published_document_members", 0)
+                    + metrics.get("published_event_members", 0) == 0
+                    and not review["allow_zero_members"]
+                )
+            ))
+        ):
+            invalid_topic_admissions += 1
+    if invalid_topic_admissions:
+        raise DatabaseVerificationError(
+            f"{invalid_topic_admissions} topic statistics admission review(s) are invalid"
+        )
     invalid_documents = db.execute(
         """SELECT COUNT(*) FROM documents AS document
            LEFT JOIN document_versions AS version

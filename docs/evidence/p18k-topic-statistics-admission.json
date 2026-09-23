@@ -1,0 +1,80 @@
+{
+  "source": "isolated completed real-data schema-28 topic publication",
+  "production_changed": false,
+  "schema": {
+    "before": 28,
+    "after": 29,
+    "applied": [
+      29
+    ]
+  },
+  "preview": {
+    "publication_id": "topic_statistics_publication_b44f96176a0e43da9b953efe8b3d704c",
+    "publication_version": 1,
+    "metrics": {
+      "publication_id": "topic_statistics_publication_b44f96176a0e43da9b953efe8b3d704c",
+      "publication_version": 1,
+      "build_id": "topic_statistics_build_15b10d1150fa4734b8fed65f15914176",
+      "dataset_id": "dataset_9f96eb3a599547a39ccc585332e3d2a6",
+      "assignment_total": 46089,
+      "effective_accepted": 0,
+      "effective_rejected": 1,
+      "effective_candidate": 46088,
+      "effective_superseded": 0,
+      "reviewed_assignments": 1,
+      "decided_assignment_bps": 0,
+      "human_review_bps": 0,
+      "catalog_topics": 56,
+      "topics_with_accepted_documents": 0,
+      "stable_public_events": 0,
+      "published_topics": 56,
+      "published_document_members": 0,
+      "published_event_members": 0,
+      "dirty_topics": 0
+    },
+    "metrics_sha256": "f788091249fde1e108e8f32b1a635e4580e5cf5d40b1994f8a5f5f63e25b6bd0",
+    "current_review_id": null,
+    "current_review_version": null,
+    "current_decision": null,
+    "current_reviewer_id": null,
+    "current_reason": null,
+    "current_reviewed_at": null
+  },
+  "recorded_decision": {
+    "decision": "rejected",
+    "review_version": 1,
+    "minimum_decided_assignment_bps": 9500,
+    "allow_zero_members": false
+  },
+  "admission_rows": 1,
+  "legacy_counts": {
+    "before": {
+      "items": 47266,
+      "item_topics": 46089,
+      "document_topic_assignments": 46089,
+      "topic_assignment_reviews": 2
+    },
+    "after": {
+      "items": 47266,
+      "item_topics": 46089,
+      "document_topic_assignments": 46089,
+      "topic_assignment_reviews": 2
+    },
+    "unchanged": true
+  },
+  "verification": {
+    "state": "current",
+    "integrity": "ok",
+    "foreign_key_violations": 0
+  },
+  "validation": {
+    "focused_tests": "38 passed",
+    "unit_tests": "410 passed",
+    "git_diff_check": "passed"
+  },
+  "limitations": [
+    "The rehearsal deliberately records rejection, not approval.",
+    "Decided and human-review basis points round down to zero because only one of 46,089 candidate assignments has a latest review.",
+    "Mac copy only; the legacy portal and Windows production were not changed."
+  ]
+}
