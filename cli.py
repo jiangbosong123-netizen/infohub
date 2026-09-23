@@ -33,6 +33,7 @@ from __future__ import annotations
   python cli.py raw-verify             # 全量校验原始载荷 CAS 引用和哈希
   python cli.py evidence-verify        # 校验原文、NLP 和日报的全部 CAS 引用
   python cli.py legacy-backfill [N]    # 可续跑迁移旧记录，每事务批 N 条（maintenance only）
+  python cli.py legacy-topic-backfill [N]  # 冻结并可续跑迁移旧主题归类（maintenance only）
   python cli.py legacy-event-project   # 将旧 story 映射为 shadow candidate event（maintenance only）
   python cli.py legacy-curation-enqueue [AFTER_ID] [LIMIT]  # 分页排入旧策展转换任务（maintenance only）
   python cli.py legacy-curation-process [N]  # 处理最多 N 个离线转换任务（maintenance only）
@@ -322,6 +323,20 @@ def cmd_legacy_backfill(batch_size: int) -> None:
     print(json.dumps(report.to_dict(), ensure_ascii=False, indent=2))
 
 
+def cmd_legacy_topic_backfill(batch_size: int) -> None:
+    if config.PROCESS_ROLE != "maintenance":
+        raise config.RuntimeConfigurationError(
+            "legacy-topic-backfill requires INFOHUB_PROCESS_ROLE=maintenance"
+        )
+    from app.db_admin import verify_database
+    from app.legacy_topic_backfill import backfill_legacy_topics_batch
+    verify_database(config.DB_PATH, require_current=True)
+    report = backfill_legacy_topics_batch(batch_size)
+    while report.status != "completed":
+        report = backfill_legacy_topics_batch(batch_size)
+    print(json.dumps(report.to_dict(), ensure_ascii=False, indent=2))
+
+
 def cmd_legacy_event_project() -> None:
     if config.PROCESS_ROLE != "maintenance":
         raise config.RuntimeConfigurationError(
@@ -499,6 +514,8 @@ def main() -> None:
         cmd_evidence_verify()
     elif cmd == "legacy-backfill":
         cmd_legacy_backfill(int(sys.argv[2]) if len(sys.argv) > 2 else 250)
+    elif cmd == "legacy-topic-backfill":
+        cmd_legacy_topic_backfill(int(sys.argv[2]) if len(sys.argv) > 2 else 250)
     elif cmd == "legacy-event-project":
         cmd_legacy_event_project()
     elif cmd == "legacy-curation-enqueue":

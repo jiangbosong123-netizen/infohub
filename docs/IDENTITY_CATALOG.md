@@ -25,8 +25,10 @@ P08a 在旧 `companies`、`topics` 和发布方识别逻辑旁建立只追加的
 previous_slugs: [old-slug]
 ```
 
-同步会在同一 topic ID 下追加新版本并同时保留新旧 slug。规则变更不会覆盖旧版本。当前 legacy
-`item_topics` 仍是页面投影；正式 `document_topic_assignments` 只追加，留给后续分类 PR 写入。
+同步会在同一 topic ID 下追加新版本并同时保留新旧 slug。规则变更不会覆盖旧版本。legacy
+`item_topics` 仍是页面投影；其冻结迁移由
+[legacy topic assignment backfill](LEGACY_TOPIC_BACKFILL.md) 负责，只会写入待复核的
+`candidate` 断言，不会把旧关键词结果升级为已确认事实。
 
 ## 发布方、来源与出处
 

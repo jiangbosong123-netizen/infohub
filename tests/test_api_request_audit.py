@@ -81,7 +81,10 @@ class ApiRequestAuditTests(unittest.TestCase):
             db.execute("INSERT INTO api_rate_buckets VALUES(?,?,?)",
                        (key.key_id, int(NOW.timestamp()), 2))
         report = db_admin.migrate_database(predecessor)
-        self.assertEqual(report.applied_versions, (25,))
+        self.assertEqual(
+            report.applied_versions,
+            tuple(range(25, db_admin.CURRENT_SCHEMA_VERSION + 1)),
+        )
         self.assertEqual(db_admin.verify_database(report.backup_path).schema_version, 24)
         with database.get_db(predecessor) as db:
             self.assertEqual(db.execute("SELECT used_count FROM api_rate_buckets").fetchone()[0], 2)

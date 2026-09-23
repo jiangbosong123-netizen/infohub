@@ -2294,6 +2294,80 @@ def _api_request_audit_foundation(db: sqlite3.Connection) -> None:
     _execute_script(db, API_REQUEST_AUDIT_SCHEMA_SQL)
 
 
+LEGACY_TOPIC_BACKFILL_SCHEMA_SQL = """
+CREATE TABLE legacy_topic_backfill_state (
+    singleton INTEGER PRIMARY KEY CHECK(singleton=1),
+    dataset_id TEXT NOT NULL,
+    cutoff_item_id INTEGER NOT NULL CHECK(cutoff_item_id>=0),
+    source_count INTEGER NOT NULL CHECK(source_count>=0),
+    source_sha256 TEXT NOT NULL CHECK(length(source_sha256)=64),
+    manifest_sha256 TEXT NOT NULL CHECK(length(manifest_sha256)=64),
+    status TEXT NOT NULL CHECK(status IN ('running','completed','failed')),
+    last_item_id INTEGER NOT NULL DEFAULT 0 CHECK(last_item_id>=0),
+    last_topic_slug TEXT NOT NULL DEFAULT '',
+    processed_count INTEGER NOT NULL DEFAULT 0 CHECK(processed_count>=0),
+    started_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    finished_at TEXT,
+    error_detail TEXT
+);
+CREATE TABLE legacy_topic_assignment_snapshot (
+    item_id INTEGER NOT NULL CHECK(item_id>0),
+    topic_slug TEXT NOT NULL CHECK(length(topic_slug)>0),
+    evidence_text TEXT NOT NULL,
+    evidence_sha256 TEXT NOT NULL CHECK(length(evidence_sha256)=64),
+    document_version_id TEXT NOT NULL REFERENCES document_versions(id),
+    topic_version_id TEXT NOT NULL REFERENCES topic_versions(id),
+    captured_at TEXT NOT NULL,
+    PRIMARY KEY(item_id,topic_slug)
+);
+CREATE TABLE legacy_topic_assignment_mappings (
+    item_id INTEGER NOT NULL,
+    topic_slug TEXT NOT NULL,
+    assignment_id TEXT NOT NULL UNIQUE REFERENCES document_topic_assignments(id),
+    evidence_sha256 TEXT NOT NULL CHECK(length(evidence_sha256)=64),
+    available_at TEXT NOT NULL,
+    PRIMARY KEY(item_id,topic_slug),
+    FOREIGN KEY(item_id,topic_slug)
+        REFERENCES legacy_topic_assignment_snapshot(item_id,topic_slug)
+);
+CREATE INDEX idx_legacy_topic_snapshot_topic
+    ON legacy_topic_assignment_snapshot(topic_version_id,document_version_id);
+CREATE TRIGGER legacy_topic_backfill_state_identity_immutable
+BEFORE UPDATE ON legacy_topic_backfill_state
+WHEN NEW.dataset_id IS NOT OLD.dataset_id
+  OR NEW.cutoff_item_id IS NOT OLD.cutoff_item_id
+  OR NEW.source_count IS NOT OLD.source_count
+  OR NEW.source_sha256 IS NOT OLD.source_sha256
+  OR NEW.manifest_sha256 IS NOT OLD.manifest_sha256
+  OR NEW.started_at IS NOT OLD.started_at
+BEGIN SELECT RAISE(ABORT,'legacy topic backfill manifest is immutable'); END;
+CREATE TRIGGER legacy_topic_backfill_state_no_delete
+BEFORE DELETE ON legacy_topic_backfill_state
+BEGIN SELECT RAISE(ABORT,'legacy topic backfill state cannot be deleted'); END;
+CREATE TRIGGER legacy_topic_assignment_snapshot_no_update
+BEFORE UPDATE ON legacy_topic_assignment_snapshot
+BEGIN SELECT RAISE(ABORT,'legacy topic assignment snapshot is immutable'); END;
+CREATE TRIGGER legacy_topic_assignment_snapshot_no_delete
+BEFORE DELETE ON legacy_topic_assignment_snapshot
+BEGIN SELECT RAISE(ABORT,'legacy topic assignment snapshot is immutable'); END;
+CREATE TRIGGER legacy_topic_assignment_snapshot_no_late_insert
+BEFORE INSERT ON legacy_topic_assignment_snapshot
+WHEN EXISTS(SELECT 1 FROM legacy_topic_backfill_state WHERE singleton=1)
+BEGIN SELECT RAISE(ABORT,'legacy topic assignment snapshot is already frozen'); END;
+CREATE TRIGGER legacy_topic_assignment_mappings_no_update
+BEFORE UPDATE ON legacy_topic_assignment_mappings
+BEGIN SELECT RAISE(ABORT,'legacy topic assignment mappings are immutable'); END;
+CREATE TRIGGER legacy_topic_assignment_mappings_no_delete
+BEFORE DELETE ON legacy_topic_assignment_mappings
+BEGIN SELECT RAISE(ABORT,'legacy topic assignment mappings are immutable'); END;
+"""
+
+
+def _legacy_topic_backfill_foundation(db: sqlite3.Connection) -> None:
+    _execute_script(db, LEGACY_TOPIC_BACKFILL_SCHEMA_SQL)
+
+
 # Migration 1 freezes the exact legacy schema at main@88a2a1e. Future schema
 # changes must append a new Migration instead of editing this definition.
 MIGRATIONS = (
@@ -2422,6 +2496,8 @@ MIGRATIONS = (
               API_REQUEST_LIMIT_SCHEMA_SQL, _api_request_limit_foundation),
     Migration(25, "allowlisted append-only API request audit",
               API_REQUEST_AUDIT_SCHEMA_SQL, _api_request_audit_foundation),
+    Migration(26, "frozen resumable legacy topic assignment import",
+              LEGACY_TOPIC_BACKFILL_SCHEMA_SQL, _legacy_topic_backfill_foundation),
 )
 CURRENT_SCHEMA_VERSION = MIGRATIONS[-1].version
 REQUIRED_MIGRATION_COLUMNS = {
@@ -2460,6 +2536,8 @@ EXPECTED_TABLES = LEGACY_ANCHORS | {
     "report_generation_reviews", "api_consumers", "api_keys", "api_key_audit",
     "api_rate_buckets", "api_request_leases",
     "api_request_audit",
+    "legacy_topic_backfill_state", "legacy_topic_assignment_snapshot",
+    "legacy_topic_assignment_mappings",
 }
 EXPECTED_ITEM_COLUMNS = {
     "id", "source_id", "url", "title", "title_zh", "summary", "raw_summary",
@@ -2626,6 +2704,19 @@ EXPECTED_IDENTITY_AUXILIARY_COLUMNS = {
     "document_topic_assignments": {
         "id", "document_version_id", "topic_version_id", "method", "method_version",
         "analysis_result_id", "evidence_ids_json", "status", "available_at",
+    },
+    "legacy_topic_backfill_state": {
+        "singleton", "dataset_id", "cutoff_item_id", "source_count",
+        "source_sha256", "manifest_sha256", "status", "last_item_id",
+        "last_topic_slug", "processed_count", "started_at", "updated_at",
+        "finished_at", "error_detail",
+    },
+    "legacy_topic_assignment_snapshot": {
+        "item_id", "topic_slug", "evidence_text", "evidence_sha256",
+        "document_version_id", "topic_version_id", "captured_at",
+    },
+    "legacy_topic_assignment_mappings": {
+        "item_id", "topic_slug", "assignment_id", "evidence_sha256", "available_at",
     },
     "sec_security_keys": {
         "cik", "exchange", "ticker", "security_entity_id", "first_evidence_id",
@@ -2868,6 +2959,13 @@ EXPECTED_INGEST_TRIGGERS = {
     "document_attributions_no_update", "document_attributions_no_delete",
     "topic_slug_aliases_no_update", "topic_slug_aliases_no_delete",
     "document_topic_assignments_no_update", "document_topic_assignments_no_delete",
+    "legacy_topic_backfill_state_identity_immutable",
+    "legacy_topic_backfill_state_no_delete",
+    "legacy_topic_assignment_snapshot_no_update",
+    "legacy_topic_assignment_snapshot_no_delete",
+    "legacy_topic_assignment_snapshot_no_late_insert",
+    "legacy_topic_assignment_mappings_no_update",
+    "legacy_topic_assignment_mappings_no_delete",
     "sec_security_keys_no_update", "sec_security_keys_no_delete",
     "sec_filing_versions_valid_append", "sec_filing_versions_no_update",
     "sec_filing_versions_no_delete", "sec_filings_identity_immutable",
@@ -3342,6 +3440,34 @@ def _assert_current_schema(db: sqlite3.Connection) -> None:
             "catalog current projections disagree with their versions: "
             f"entities={mismatched_entities}, publishers={mismatched_publishers}, "
             f"topics={mismatched_topics}"
+        )
+    invalid_topic_imports = db.execute(
+        """SELECT COUNT(*)
+           FROM legacy_topic_assignment_mappings AS mapping
+           JOIN legacy_topic_assignment_snapshot AS snapshot
+             ON snapshot.item_id=mapping.item_id
+            AND snapshot.topic_slug=mapping.topic_slug
+           LEFT JOIN document_topic_assignments AS assignment
+             ON assignment.id=mapping.assignment_id
+           WHERE assignment.id IS NULL
+              OR assignment.document_version_id<>snapshot.document_version_id
+              OR assignment.topic_version_id<>snapshot.topic_version_id
+              OR assignment.method<>'legacy_projection'
+              OR assignment.method_version<>'legacy-item-topics-v1'
+              OR assignment.status<>'candidate'
+              OR mapping.evidence_sha256<>snapshot.evidence_sha256"""
+    ).fetchone()[0]
+    completed_topic_imports = db.execute(
+        """SELECT COUNT(*) FROM legacy_topic_backfill_state AS state
+           WHERE state.status='completed'
+             AND (state.source_count<>state.processed_count
+               OR state.source_count<>(SELECT COUNT(*) FROM legacy_topic_assignment_snapshot)
+               OR state.source_count<>(SELECT COUNT(*) FROM legacy_topic_assignment_mappings))"""
+    ).fetchone()[0]
+    if invalid_topic_imports or completed_topic_imports:
+        raise DatabaseVerificationError(
+            "legacy topic assignment import is inconsistent: "
+            f"mappings={invalid_topic_imports}, completed_state={completed_topic_imports}"
         )
     invalid_sec_filings = db.execute(
         """SELECT COUNT(*) FROM sec_filings AS filing
