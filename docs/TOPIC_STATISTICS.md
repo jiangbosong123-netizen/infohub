@@ -58,4 +58,9 @@ next run. Turning the flag off disables an existing schedule and makes already
 queued jobs harmless no-ops.
 
 The topic API must stay unavailable until the first complete build is
-published. The API read projection remains a separate reviewable change.
+published. `published_topic_statistics()` is the shared fail-closed read
+boundary: it rejects missing publications, pending dirty inputs, catalog gaps,
+and count/member mismatches before returning any topic. Its metadata always
+names the build, publication, dataset, and both policy versions, so a legitimate
+reviewed zero remains distinguishable from unavailable data. API route wiring
+remains a separate reviewable change.

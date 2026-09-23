@@ -1,0 +1,30 @@
+{
+  "source": "isolated real-data completed topic-statistics publication",
+  "production_changed": false,
+  "published_read": {
+    "publication_id": "topic_statistics_publication_b44f96176a0e43da9b953efe8b3d704c",
+    "publication_version": 1,
+    "build_id": "topic_statistics_build_15b10d1150fa4734b8fed65f15914176",
+    "dataset_id": "dataset_9f96eb3a599547a39ccc585332e3d2a6",
+    "assignment_policy_version": "effective-review-v1",
+    "event_policy_version": "current-stable-event-v1",
+    "topics": 56,
+    "document_count": 0,
+    "event_count": 0,
+    "unique_manifests": 56
+  },
+  "dirty_read": {
+    "status": "unavailable",
+    "reason": "topic statistics have pending input changes"
+  },
+  "validation": {
+    "unit_tests": "401 passed",
+    "focused_tests": "10 passed",
+    "git_diff_check": "passed"
+  },
+  "limitations": [
+    "All 56 topic counts are legitimate policy zeros because this copy has no effectively accepted assignments and no active/resolved stable events.",
+    "The current legacy portal was not switched to this projection.",
+    "Mac copy only; Windows production remained off."
+  ]
+}
