@@ -2410,6 +2410,155 @@ def _topic_assignment_review_foundation(db: sqlite3.Connection) -> None:
     _execute_script(db, TOPIC_ASSIGNMENT_REVIEW_SCHEMA_SQL)
 
 
+TOPIC_STATISTICS_SCHEMA_SQL = """
+CREATE TABLE topic_statistics_builds (
+    id TEXT PRIMARY KEY,
+    dataset_id TEXT NOT NULL,
+    status TEXT NOT NULL CHECK(status IN ('building','ready','failed')),
+    assignment_policy_version TEXT NOT NULL,
+    event_policy_version TEXT NOT NULL,
+    last_topic_id TEXT NOT NULL DEFAULT '',
+    topic_count INTEGER NOT NULL DEFAULT 0 CHECK(topic_count>=0),
+    started_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    finished_at TEXT,
+    error_detail TEXT
+);
+CREATE TABLE topic_statistics_versions (
+    id TEXT PRIMARY KEY,
+    build_id TEXT NOT NULL REFERENCES topic_statistics_builds(id),
+    topic_version_id TEXT NOT NULL REFERENCES topic_versions(id),
+    document_count INTEGER NOT NULL CHECK(document_count>=0),
+    event_count INTEGER NOT NULL CHECK(event_count>=0),
+    input_manifest_sha256 TEXT NOT NULL CHECK(length(input_manifest_sha256)=64),
+    counted_at TEXT NOT NULL,
+    UNIQUE(build_id,topic_version_id)
+);
+CREATE TABLE topic_statistics_members (
+    statistics_id TEXT NOT NULL REFERENCES topic_statistics_versions(id),
+    ordinal INTEGER NOT NULL CHECK(ordinal>=0),
+    member_type TEXT NOT NULL CHECK(member_type IN ('document','event')),
+    resource_id TEXT NOT NULL,
+    version_id TEXT NOT NULL,
+    provenance_json TEXT NOT NULL CHECK(json_valid(provenance_json)),
+    member_sha256 TEXT NOT NULL CHECK(length(member_sha256)=64),
+    PRIMARY KEY(statistics_id,ordinal),
+    UNIQUE(statistics_id,member_type,resource_id)
+);
+CREATE INDEX idx_topic_statistics_versions_topic
+    ON topic_statistics_versions(topic_version_id,build_id);
+CREATE TABLE topic_statistics_publications (
+    id TEXT PRIMARY KEY,
+    version INTEGER NOT NULL UNIQUE CHECK(version>0),
+    build_id TEXT NOT NULL UNIQUE REFERENCES topic_statistics_builds(id),
+    previous_publication_id TEXT REFERENCES topic_statistics_publications(id),
+    published_at TEXT NOT NULL,
+    CHECK((version=1 AND previous_publication_id IS NULL)
+       OR (version>1 AND previous_publication_id IS NOT NULL))
+);
+CREATE TABLE topic_statistics_state (
+    singleton INTEGER PRIMARY KEY CHECK(singleton=1),
+    status TEXT NOT NULL CHECK(status IN ('empty','ready')),
+    current_build_id TEXT REFERENCES topic_statistics_builds(id),
+    current_publication_id TEXT REFERENCES topic_statistics_publications(id),
+    updated_at TEXT NOT NULL,
+    CHECK((status='empty' AND current_build_id IS NULL AND current_publication_id IS NULL)
+       OR (status='ready' AND current_build_id IS NOT NULL AND current_publication_id IS NOT NULL))
+);
+CREATE TABLE topic_statistics_dirty (
+    topic_id TEXT PRIMARY KEY REFERENCES topic_catalog(id),
+    reason TEXT NOT NULL,
+    queued_at TEXT NOT NULL
+);
+INSERT INTO topic_statistics_state(singleton,status,updated_at)
+VALUES(1,'empty',strftime('%Y-%m-%dT%H:%M:%fZ','now'));
+INSERT INTO topic_statistics_dirty(topic_id,reason,queued_at)
+SELECT id,'schema_initialize',strftime('%Y-%m-%dT%H:%M:%fZ','now') FROM topic_catalog;
+
+CREATE TRIGGER topic_statistics_builds_identity_immutable BEFORE UPDATE ON topic_statistics_builds
+WHEN NEW.id IS NOT OLD.id OR NEW.dataset_id IS NOT OLD.dataset_id
+  OR NEW.assignment_policy_version IS NOT OLD.assignment_policy_version
+  OR NEW.event_policy_version IS NOT OLD.event_policy_version
+  OR NEW.started_at IS NOT OLD.started_at
+BEGIN SELECT RAISE(ABORT,'topic statistics build identity is immutable'); END;
+CREATE TRIGGER topic_statistics_builds_valid_transition BEFORE UPDATE OF status ON topic_statistics_builds
+WHEN NOT (OLD.status='building' AND NEW.status IN ('building','ready','failed'))
+BEGIN SELECT RAISE(ABORT,'invalid topic statistics build transition'); END;
+CREATE TRIGGER topic_statistics_builds_no_delete BEFORE DELETE ON topic_statistics_builds
+BEGIN SELECT RAISE(ABORT,'topic statistics builds cannot be deleted'); END;
+CREATE TRIGGER topic_statistics_versions_building_only BEFORE INSERT ON topic_statistics_versions
+WHEN NOT EXISTS(SELECT 1 FROM topic_statistics_builds WHERE id=NEW.build_id AND status='building')
+BEGIN SELECT RAISE(ABORT,'topic statistics can only be appended to a building run'); END;
+CREATE TRIGGER topic_statistics_versions_no_update BEFORE UPDATE ON topic_statistics_versions
+BEGIN SELECT RAISE(ABORT,'topic statistics versions are immutable'); END;
+CREATE TRIGGER topic_statistics_versions_no_delete BEFORE DELETE ON topic_statistics_versions
+BEGIN SELECT RAISE(ABORT,'topic statistics versions are immutable'); END;
+CREATE TRIGGER topic_statistics_members_building_only BEFORE INSERT ON topic_statistics_members
+WHEN NOT EXISTS(
+    SELECT 1 FROM topic_statistics_versions AS version
+    JOIN topic_statistics_builds AS build ON build.id=version.build_id
+    WHERE version.id=NEW.statistics_id AND build.status='building'
+)
+BEGIN SELECT RAISE(ABORT,'topic statistic members can only be appended to a building run'); END;
+CREATE TRIGGER topic_statistics_members_no_update BEFORE UPDATE ON topic_statistics_members
+BEGIN SELECT RAISE(ABORT,'topic statistic members are immutable'); END;
+CREATE TRIGGER topic_statistics_members_no_delete BEFORE DELETE ON topic_statistics_members
+BEGIN SELECT RAISE(ABORT,'topic statistic members are immutable'); END;
+CREATE TRIGGER topic_statistics_publications_valid_append BEFORE INSERT ON topic_statistics_publications
+WHEN NEW.version != COALESCE((SELECT MAX(version)+1 FROM topic_statistics_publications),1)
+  OR (NEW.version=1 AND NEW.previous_publication_id IS NOT NULL)
+  OR (NEW.version>1 AND NEW.previous_publication_id IS NOT (
+      SELECT id FROM topic_statistics_publications WHERE version=NEW.version-1))
+  OR NOT EXISTS(SELECT 1 FROM topic_statistics_builds WHERE id=NEW.build_id AND status='ready')
+BEGIN SELECT RAISE(ABORT,'topic statistics publications must append a ready build'); END;
+CREATE TRIGGER topic_statistics_publications_no_update BEFORE UPDATE ON topic_statistics_publications
+BEGIN SELECT RAISE(ABORT,'topic statistics publications are immutable'); END;
+CREATE TRIGGER topic_statistics_publications_no_delete BEFORE DELETE ON topic_statistics_publications
+BEGIN SELECT RAISE(ABORT,'topic statistics publications are immutable'); END;
+CREATE TRIGGER topic_statistics_state_ready_build BEFORE UPDATE OF status,current_build_id,current_publication_id
+ON topic_statistics_state WHEN NEW.status='ready' AND NOT EXISTS(
+    SELECT 1 FROM topic_statistics_publications AS publication
+    JOIN topic_statistics_builds AS build ON build.id=publication.build_id
+    WHERE publication.id=NEW.current_publication_id
+      AND publication.build_id=NEW.current_build_id AND build.status='ready'
+)
+BEGIN SELECT RAISE(ABORT,'current topic statistics publication must reference the ready build'); END;
+
+CREATE TRIGGER topic_statistics_topic_insert AFTER INSERT ON topic_catalog BEGIN
+  INSERT OR REPLACE INTO topic_statistics_dirty(topic_id,reason,queued_at)
+  VALUES(NEW.id,'topic_insert',NEW.created_at);
+END;
+CREATE TRIGGER topic_statistics_topic_update AFTER UPDATE OF current_version_id,status ON topic_catalog BEGIN
+  INSERT OR REPLACE INTO topic_statistics_dirty(topic_id,reason,queued_at)
+  VALUES(NEW.id,'topic_update',strftime('%Y-%m-%dT%H:%M:%fZ','now'));
+END;
+CREATE TRIGGER topic_statistics_assignment_insert AFTER INSERT ON document_topic_assignments BEGIN
+  INSERT OR REPLACE INTO topic_statistics_dirty(topic_id,reason,queued_at)
+  SELECT topic_id,'assignment_insert',NEW.available_at FROM topic_versions WHERE id=NEW.topic_version_id;
+END;
+CREATE TRIGGER topic_statistics_review_insert AFTER INSERT ON topic_assignment_reviews BEGIN
+  INSERT OR REPLACE INTO topic_statistics_dirty(topic_id,reason,queued_at)
+  SELECT version.topic_id,'review_insert',NEW.reviewed_at
+  FROM document_topic_assignments AS assignment
+  JOIN topic_versions AS version ON version.id=assignment.topic_version_id
+  WHERE assignment.id=NEW.assignment_id;
+END;
+CREATE TRIGGER topic_statistics_event_update AFTER UPDATE OF current_version_id,status ON events BEGIN
+  INSERT OR REPLACE INTO topic_statistics_dirty(topic_id,reason,queued_at)
+  SELECT DISTINCT version.topic_id,'event_update',strftime('%Y-%m-%dT%H:%M:%fZ','now')
+  FROM topic_versions AS version
+  WHERE version.id IN (
+    SELECT value FROM event_versions AS event_version,json_each(event_version.topics_json)
+    WHERE event_version.id IN (OLD.current_version_id,NEW.current_version_id)
+  );
+END;
+"""
+
+
+def _topic_statistics_foundation(db: sqlite3.Connection) -> None:
+    _execute_script(db, TOPIC_STATISTICS_SCHEMA_SQL)
+
+
 # Migration 1 freezes the exact legacy schema at main@88a2a1e. Future schema
 # changes must append a new Migration instead of editing this definition.
 MIGRATIONS = (
@@ -2542,6 +2691,8 @@ MIGRATIONS = (
               LEGACY_TOPIC_BACKFILL_SCHEMA_SQL, _legacy_topic_backfill_foundation),
     Migration(27, "append-only topic assignment review decisions",
               TOPIC_ASSIGNMENT_REVIEW_SCHEMA_SQL, _topic_assignment_review_foundation),
+    Migration(28, "auditable topic statistics projection foundation",
+              TOPIC_STATISTICS_SCHEMA_SQL, _topic_statistics_foundation),
 )
 CURRENT_SCHEMA_VERSION = MIGRATIONS[-1].version
 REQUIRED_MIGRATION_COLUMNS = {
@@ -2583,6 +2734,9 @@ EXPECTED_TABLES = LEGACY_ANCHORS | {
     "legacy_topic_backfill_state", "legacy_topic_assignment_snapshot",
     "legacy_topic_assignment_mappings",
     "topic_assignment_reviews",
+    "topic_statistics_builds", "topic_statistics_versions",
+    "topic_statistics_members", "topic_statistics_publications",
+    "topic_statistics_state", "topic_statistics_dirty",
 }
 EXPECTED_ITEM_COLUMNS = {
     "id", "source_id", "url", "title", "title_zh", "summary", "raw_summary",
@@ -2767,6 +2921,26 @@ EXPECTED_IDENTITY_AUXILIARY_COLUMNS = {
         "id", "assignment_id", "version", "previous_review_id", "decision",
         "reviewer_id", "reason", "evidence_ids_json", "reviewed_at",
     },
+    "topic_statistics_builds": {
+        "id", "dataset_id", "status", "assignment_policy_version",
+        "event_policy_version", "last_topic_id", "topic_count", "started_at",
+        "updated_at", "finished_at", "error_detail",
+    },
+    "topic_statistics_versions": {
+        "id", "build_id", "topic_version_id", "document_count", "event_count",
+        "input_manifest_sha256", "counted_at",
+    },
+    "topic_statistics_members": {
+        "statistics_id", "ordinal", "member_type", "resource_id", "version_id",
+        "provenance_json", "member_sha256",
+    },
+    "topic_statistics_publications": {
+        "id", "version", "build_id", "previous_publication_id", "published_at",
+    },
+    "topic_statistics_state": {
+        "singleton", "status", "current_build_id", "current_publication_id", "updated_at",
+    },
+    "topic_statistics_dirty": {"topic_id", "reason", "queued_at"},
     "sec_security_keys": {
         "cik", "exchange", "ticker", "security_entity_id", "first_evidence_id",
         "available_at",
@@ -3017,6 +3191,16 @@ EXPECTED_INGEST_TRIGGERS = {
     "legacy_topic_assignment_mappings_no_delete",
     "topic_assignment_reviews_valid_append", "topic_assignment_reviews_no_update",
     "topic_assignment_reviews_no_delete",
+    "topic_statistics_builds_identity_immutable",
+    "topic_statistics_builds_valid_transition", "topic_statistics_builds_no_delete",
+    "topic_statistics_versions_building_only", "topic_statistics_versions_no_update",
+    "topic_statistics_versions_no_delete", "topic_statistics_members_building_only",
+    "topic_statistics_members_no_update", "topic_statistics_members_no_delete",
+    "topic_statistics_publications_valid_append",
+    "topic_statistics_publications_no_update", "topic_statistics_publications_no_delete",
+    "topic_statistics_state_ready_build", "topic_statistics_topic_insert",
+    "topic_statistics_topic_update", "topic_statistics_assignment_insert",
+    "topic_statistics_review_insert", "topic_statistics_event_update",
     "sec_security_keys_no_update", "sec_security_keys_no_delete",
     "sec_filing_versions_valid_append", "sec_filing_versions_no_update",
     "sec_filing_versions_no_delete", "sec_filings_identity_immutable",
@@ -3438,6 +3622,49 @@ def _assert_current_schema(db: sqlite3.Connection) -> None:
     ).fetchall()
     if len(story_metrics_state) != 1 or story_metrics_state[0]["singleton"] != 1:
         raise DatabaseVerificationError("curation story metrics must have one state row")
+    topic_statistics_state = db.execute(
+        """SELECT state.singleton,state.status,state.current_build_id,build.status,
+                  state.current_publication_id,publication.build_id AS publication_build_id
+           FROM topic_statistics_state AS state
+           LEFT JOIN topic_statistics_builds AS build ON build.id=state.current_build_id
+           LEFT JOIN topic_statistics_publications AS publication
+             ON publication.id=state.current_publication_id"""
+    ).fetchall()
+    if len(topic_statistics_state) != 1 or topic_statistics_state[0]["singleton"] != 1:
+        raise DatabaseVerificationError("topic statistics must have one state row")
+    if topic_statistics_state[0]["status"] == "ready" and (
+        topic_statistics_state[0][3] != "ready"
+        or topic_statistics_state[0]["publication_build_id"]
+        != topic_statistics_state[0]["current_build_id"]
+    ):
+        raise DatabaseVerificationError("topic statistics state points to an invalid publication")
+    if topic_statistics_state[0]["status"] == "ready":
+        build_id = topic_statistics_state[0]["current_build_id"]
+        invalid_topic_statistics = db.execute(
+            """SELECT
+               (SELECT topic_count FROM topic_statistics_builds WHERE id=?) <>
+                 (SELECT COUNT(*) FROM topic_statistics_versions WHERE build_id=?)
+               OR (SELECT COUNT(*) FROM topic_statistics_versions WHERE build_id=?) <>
+                  (SELECT COUNT(*) FROM topic_catalog)
+               OR EXISTS(
+                 SELECT 1 FROM topic_catalog AS topic
+                 LEFT JOIN topic_statistics_versions AS statistic
+                   ON statistic.build_id=? AND statistic.topic_version_id=topic.current_version_id
+                 WHERE statistic.id IS NULL
+               )
+               OR EXISTS(
+                 SELECT 1 FROM topic_statistics_versions AS statistic
+                 WHERE statistic.build_id=? AND (
+                   statistic.document_count<>(SELECT COUNT(*) FROM topic_statistics_members
+                     WHERE statistics_id=statistic.id AND member_type='document')
+                   OR statistic.event_count<>(SELECT COUNT(*) FROM topic_statistics_members
+                     WHERE statistics_id=statistic.id AND member_type='event')
+                 )
+               )""",
+            (build_id, build_id, build_id, build_id, build_id),
+        ).fetchone()[0]
+        if invalid_topic_statistics:
+            raise DatabaseVerificationError("ready topic statistics build is incomplete")
     invalid_documents = db.execute(
         """SELECT COUNT(*) FROM documents AS document
            LEFT JOIN document_versions AS version
