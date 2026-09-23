@@ -138,23 +138,35 @@ class ApiCatalogTests(unittest.TestCase):
                 "SELECT current_epoch FROM dataset_state WHERE singleton=1"
             ).fetchone()[0]
             token = encode_cursor(
-                db, authenticated, resource="entities", filters={"q": None, "type": None},
+                db, authenticated, resource="entities", filters={
+                    "q": None, "type": None, "identifier_namespace": None,
+                    "identifier_value": None, "exchange": None,
+                },
                 last_id="entity_a", dataset_epoch=epoch, now=1000,
             )
             with self.assertRaises(CursorFilterMismatch):
                 decode_cursor(
                     db, authenticated, token, resource="entities",
-                    filters={"q": "Alpha", "type": None}, dataset_epoch=epoch, now=1001,
+                    filters={
+                        "q": "Alpha", "type": None, "identifier_namespace": None,
+                        "identifier_value": None, "exchange": None,
+                    }, dataset_epoch=epoch, now=1001,
                 )
             with self.assertRaises(CursorEpochChanged):
                 decode_cursor(
                     db, authenticated, token, resource="entities",
-                    filters={"q": None, "type": None}, dataset_epoch="different", now=1001,
+                    filters={
+                        "q": None, "type": None, "identifier_namespace": None,
+                        "identifier_value": None, "exchange": None,
+                    }, dataset_epoch="different", now=1001,
                 )
             with self.assertRaises(CursorExpired):
                 decode_cursor(
                     db, authenticated, token, resource="entities",
-                    filters={"q": None, "type": None}, dataset_epoch=epoch, now=2000,
+                    filters={
+                        "q": None, "type": None, "identifier_namespace": None,
+                        "identifier_value": None, "exchange": None,
+                    }, dataset_epoch=epoch, now=2000,
                 )
 
         live_cursor = self.client.get(
@@ -190,6 +202,124 @@ class ApiCatalogTests(unittest.TestCase):
         ):
             with self.subTest(path=path):
                 response = self.client.get(path, headers=self.headers())
+                self.assertEqual(response.status_code, 422)
+                self.assertEqual(response.json()["error"]["code"], "invalid_parameter")
+
+    def test_exact_identifier_lookup_returns_candidates_and_binds_cursor(self):
+        with database.get_db(self.path) as db:
+            dataset_id = db.execute(
+                "SELECT dataset_id FROM dataset_state WHERE singleton=1"
+            ).fetchone()[0]
+            for entity_id, exchange in (("entity_d", "XNAS"), ("entity_e", "XNYS")):
+                db.execute(
+                    """INSERT INTO entities(id,dataset_id,type,status,created_at)
+                       VALUES(?,?,'security','active','2026-09-22T10:00:00.000000Z')""",
+                    (entity_id, dataset_id),
+                )
+                db.execute(
+                    """INSERT INTO entity_versions(
+                           id,entity_id,version,type,canonical_name,status,attributes_json,
+                           version_sha256,available_at,created_by)
+                       VALUES(?,?,1,'security',?,'active','{}',?,
+                              '2026-09-22T10:00:00.000000Z','test')""",
+                    (entity_id + "_v1", entity_id, entity_id.upper(), entity_id[-1] * 64),
+                )
+                db.execute(
+                    "UPDATE entities SET current_version_id=? WHERE id=?",
+                    (entity_id + "_v1", entity_id),
+                )
+                db.execute(
+                    """INSERT INTO entity_identifiers(
+                           id,entity_id,namespace,value,qualifier_json,verification_status,
+                           assertion_sha256,available_at)
+                       VALUES(?,?, 'exchange_ticker','DUAL',?,'verified',?,
+                              '2026-09-22T10:00:00.000000Z')""",
+                    (
+                        "identifier_" + entity_id, entity_id,
+                        '{"exchange":"' + exchange + '"}', entity_id[-1] * 64,
+                    ),
+                )
+            db.execute(
+                """INSERT INTO entity_identifiers(
+                       id,entity_id,namespace,value,qualifier_json,verification_status,
+                       assertion_sha256,available_at)
+                   VALUES('identifier_b_exchange','entity_b','exchange_ticker','DUAL',
+                          '{"exchange":"XNAS"}','verified',?,
+                          '2026-09-22T10:00:00.000000Z')""",
+                ("9" * 64,),
+            )
+            db.execute(
+                """INSERT INTO entity_identifiers(
+                       id,entity_id,namespace,value,verification_status,
+                       assertion_sha256,available_at)
+                   VALUES('identifier_a_unverified','entity_a','cik','0000000001',
+                          'legacy_unverified',?,'2026-09-22T10:00:00.000000Z')""",
+                ("8" * 64,),
+            )
+
+        ticker = self.client.get(
+            "/api/v1/entities",
+            params={"identifier_namespace": "ticker", "identifier_value": "beta"},
+            headers=self.headers(),
+        )
+        self.assertEqual(ticker.status_code, 200)
+        self.assertEqual([row["id"] for row in ticker.json()["data"]], ["entity_b"])
+
+        candidates = self.client.get(
+            "/api/v1/entities",
+            params={
+                "identifier_namespace": "exchange_ticker",
+                "identifier_value": "dual", "exchange": "xnas", "limit": 1,
+            },
+            headers=self.headers(),
+        )
+        self.assertEqual(candidates.status_code, 200)
+        self.assertEqual([row["id"] for row in candidates.json()["data"]], ["entity_b"])
+        cursor = candidates.json()["pagination"]["next_cursor"]
+        self.assertIsNotNone(cursor)
+        next_candidate = self.client.get(
+            "/api/v1/entities",
+            params={
+                "identifier_namespace": "exchange_ticker",
+                "identifier_value": "DUAL", "exchange": "XNAS", "limit": 1,
+                "cursor": cursor,
+            },
+            headers=self.headers(),
+        )
+        self.assertEqual(
+            [row["id"] for row in next_candidate.json()["data"]], ["entity_d"]
+        )
+        wrong_exchange = self.client.get(
+            "/api/v1/entities",
+            params={
+                "identifier_namespace": "exchange_ticker",
+                "identifier_value": "DUAL", "exchange": "XNYS", "limit": 1,
+                "cursor": cursor,
+            },
+            headers=self.headers(),
+        )
+        self.assertEqual(wrong_exchange.status_code, 400)
+        self.assertEqual(wrong_exchange.json()["error"]["code"], "filter_mismatch")
+        unverified = self.client.get(
+            "/api/v1/entities",
+            params={"identifier_namespace": "cik", "identifier_value": "0000000001"},
+            headers=self.headers(),
+        )
+        self.assertEqual(unverified.status_code, 200)
+        self.assertEqual(unverified.json()["data"], [])
+
+        invalid = (
+            {"identifier_namespace": "ticker"},
+            {"identifier_value": "BETA"},
+            {"exchange": "XNAS"},
+            {"identifier_namespace": "ticker", "identifier_value": "BETA", "exchange": "XNAS"},
+            {"identifier_namespace": "exchange_ticker", "identifier_value": "DUAL"},
+        )
+        for params in invalid:
+            with self.subTest(params=params):
+                response = self.client.get(
+                    "/api/v1/entities", params=params, headers=self.headers()
+                )
                 self.assertEqual(response.status_code, 422)
                 self.assertEqual(response.json()["error"]["code"], "invalid_parameter")
 
@@ -357,7 +487,10 @@ class ApiCatalogTests(unittest.TestCase):
         self.assertEqual(detail["x-required-scopes"], ["read:catalog"])
         self.assertEqual(
             {parameter["name"] for parameter in listing["parameters"]},
-            {"limit", "cursor", "q", "type"},
+            {
+                "limit", "cursor", "q", "type", "identifier_namespace",
+                "identifier_value", "exchange",
+            },
         )
         self.assertEqual(
             {parameter["name"] for parameter in detail["parameters"]},

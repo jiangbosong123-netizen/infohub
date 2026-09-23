@@ -68,3 +68,24 @@ current、精确 version 和相同时间的 logical as-of 都解析到同一预�
 `clock_status=unknown`，ETag 格式通过。演练使用临时副本和回滚事务，不修改源数据库，也不
 代表 Windows 生产已经开启。结果见
 [`p18b-api-entity-history.json`](evidence/p18b-api-entity-history.json)。
+
+## P18c：实体精确标识查询
+
+`GET /api/v1/entities` 增加 `identifier_namespace`、`identifier_value` 和 `exchange`。namespace 与
+value 必须成对出现；`exchange_ticker` 还必须同时给出 exchange，其他 namespace 禁止携带
+exchange。ticker 和 exchange ticker 在进入查询及游标签名前规范化为大写，其他标识保持精确
+字节值。空值、超长值、缺少配对参数、未知参数或重复参数返回 `422 invalid_parameter`。
+
+查询只匹配 `verification_status='verified'` 的 assertion，并走
+`idx_entity_identifiers_lookup(namespace,value,verification_status)`。同一个交易所 ticker 如果存在
+多个已核验候选，接口按稳定实体 ID 返回全部候选并分页，不擅自挑选第一个。标识筛选与 q/type
+可以组合，全部规范化筛选值都进入签名游标；翻页时改变 namespace、value 或 exchange 返回
+`400 filter_mismatch`。
+
+当前列表仍是 current catalog view；标识有效期的历史解释将与列表 `as_of`/P19 checkpoint 一起
+实现。返回的 identifier DTO 保留 valid_from/valid_to，消费者不能把当前列表当成完整历史证券
+主数据。2026-09-23 的 Mac 数据库隔离副本中有 65 条 identifier，全部是
+`legacy_unverified`，verified 和 verified exchange_ticker 都是 0；因此真实副本查询不会把旧
+watchlist ticker 冒充为已核验身份。合成契约测试覆盖大小写规范化、交易所限定、多候选分页、
+未核验排除和游标过滤绑定。结果见
+[`p18c-api-entity-identifiers.json`](evidence/p18c-api-entity-identifiers.json)。

@@ -207,6 +207,9 @@ def list_entities(
     cursor: str | None,
     query: str | None,
     entity_type: str | None,
+    identifier_namespace: str | None,
+    identifier_value: str | None,
+    exchange: str | None,
 ) -> EntityListResponse:
     identity = db.execute(
         "SELECT dataset_id,current_epoch FROM dataset_state WHERE singleton=1"
@@ -223,7 +226,13 @@ def list_entities(
     ).fetchone()[0]
     if unsupported:
         raise CatalogUnavailable("catalog contains identities requiring a reviewed public projection")
-    filters = {"q": query, "type": entity_type}
+    filters = {
+        "q": query,
+        "type": entity_type,
+        "identifier_namespace": identifier_namespace,
+        "identifier_value": identifier_value,
+        "exchange": exchange,
+    }
     last_id = ""
     if cursor:
         last_id = decode_cursor(
@@ -243,6 +252,18 @@ def list_entities(
               AND alias.ambiguity='unique'
               AND alias.alias LIKE ? ESCAPE '\\' COLLATE NOCASE))""")
         values.extend((pattern, pattern))
+    if identifier_namespace:
+        identifier_clause = """entity.id IN (
+            SELECT identifier.entity_id FROM entity_identifiers identifier
+            WHERE identifier.verification_status='verified'
+              AND identifier.namespace=?
+              AND identifier.value=?"""
+        values.extend((identifier_namespace, identifier_value))
+        if exchange:
+            identifier_clause += """
+              AND json_extract(identifier.qualifier_json,'$.exchange')=?"""
+            values.append(exchange)
+        clauses.append(identifier_clause + ")")
     values.append(limit + 1)
     rows = db.execute(
         f"""SELECT entity.id,version.id AS version_id,version.type,

@@ -75,6 +75,12 @@ _ENTITY_LIST_OPENAPI = {
          "schema": {"type": "string", "maxLength": 200}},
         {"name": "type", "in": "query", "required": False,
          "schema": {"type": "string", "enum": sorted(ENTITY_TYPES)}},
+        {"name": "identifier_namespace", "in": "query", "required": False,
+         "schema": {"type": "string", "maxLength": 64}},
+        {"name": "identifier_value", "in": "query", "required": False,
+         "schema": {"type": "string", "maxLength": 256}},
+        {"name": "exchange", "in": "query", "required": False,
+         "schema": {"type": "string", "maxLength": 32}},
     ],
 }
 _ENTITY_DETAIL_OPENAPI = {
@@ -640,7 +646,10 @@ def api_v1_entities(request: Request):
     request_id = request.state.request_id
     if not config.API_CATALOG_ENABLED:
         return v1_error(503, "not_ready", request_id)
-    allowed = {"limit", "cursor", "q", "type"}
+    allowed = {
+        "limit", "cursor", "q", "type", "identifier_namespace",
+        "identifier_value", "exchange",
+    }
     if set(request.query_params) - allowed or any(
         len(request.query_params.getlist(name)) != 1 for name in request.query_params
     ):
@@ -661,13 +670,38 @@ def api_v1_entities(request: Request):
     entity_type = request.query_params.get("type")
     if entity_type is not None and entity_type not in ENTITY_TYPES:
         return v1_error(422, "invalid_parameter", request_id)
+    identifier_namespace = request.query_params.get("identifier_namespace")
+    identifier_value = request.query_params.get("identifier_value")
+    exchange = request.query_params.get("exchange")
+    if identifier_namespace is not None:
+        identifier_namespace = identifier_namespace.strip().lower()
+    if identifier_value is not None:
+        identifier_value = identifier_value.strip()
+    if exchange is not None:
+        exchange = exchange.strip().upper()
+    if bool(identifier_namespace) != bool(identifier_value):
+        return v1_error(422, "invalid_parameter", request_id)
+    if any(value == "" for value in (identifier_namespace, identifier_value, exchange)
+           if value is not None):
+        return v1_error(422, "invalid_parameter", request_id)
+    if ((identifier_namespace and len(identifier_namespace) > 64)
+            or (identifier_value and len(identifier_value) > 256)
+            or (exchange and len(exchange) > 32)):
+        return v1_error(422, "invalid_parameter", request_id)
+    if exchange and identifier_namespace != "exchange_ticker":
+        return v1_error(422, "invalid_parameter", request_id)
+    if identifier_namespace == "exchange_ticker" and not exchange:
+        return v1_error(422, "invalid_parameter", request_id)
+    if identifier_namespace in {"ticker", "exchange_ticker"}:
+        identifier_value = identifier_value.upper()
     try:
         with get_db() as db:
             db.execute("BEGIN")
             return list_entities(
                 db, request.state.api_principal, request_id=request_id, limit=limit,
                 cursor=request.query_params.get("cursor"), query=query,
-                entity_type=entity_type,
+                entity_type=entity_type, identifier_namespace=identifier_namespace,
+                identifier_value=identifier_value, exchange=exchange,
             )
     except CursorExpired:
         return v1_error(410, "cursor_expired", request_id)
