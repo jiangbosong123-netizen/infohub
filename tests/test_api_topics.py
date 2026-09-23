@@ -107,6 +107,66 @@ class ApiTopicTests(unittest.TestCase):
         self.assertEqual([row["id"] for row in second.json()["data"]], ["topic-c"])
         self.assertIsNone(second.json()["pagination"]["next_cursor"])
 
+    def test_admitted_portal_read_switch_uses_versioned_statistics(self):
+        with database.get_db(self.path) as db:
+            dataset = db.execute("SELECT dataset_id FROM dataset_state").fetchone()[0]
+            db.execute(
+                "INSERT INTO sources(id,key,name,channel,type) VALUES(1,'portal','Portal','ai','rss')"
+            )
+            db.execute(
+                """INSERT INTO items(id,source_id,url,title,channel,published_at,fetched_at)
+                   VALUES(1,1,'https://example.test/portal','Admitted portal item','ai',?,?)""",
+                (NOW, NOW),
+            )
+            db.execute(
+                "INSERT INTO documents(id,dataset_id,legacy_item_id,kind,first_seen_at) VALUES('portal-doc',?,1,'article',?)",
+                (dataset, NOW),
+            )
+            db.execute(
+                """INSERT INTO document_versions(
+                       id,document_id,version,normalizer_version,normalized_at,title_original,
+                       language,text,content_sha256,version_sha256,canonical_url,source_id,
+                       published_precision,time_status,time_rule_version,tzdb_version,
+                       content_origin,content_extent,truncated,extraction_status,correction_kind,
+                       available_at,availability_basis,point_in_time_eligible)
+                   VALUES('portal-dv','portal-doc',1,'v1',?,'Admitted portal item','en','',?,?,
+                          'https://example.test/portal',1,'unknown','legacy_unverified','legacy',
+                          'unknown','legacy_unknown','none',0,'not_attempted','initial',?,
+                          'legacy_unknown',0)""",
+                (NOW, "c" * 64, "d" * 64, NOW),
+            )
+            db.execute(
+                "UPDATE documents SET current_version_id='portal-dv' WHERE id='portal-doc'"
+            )
+            db.execute(
+                """INSERT INTO document_topic_assignments(
+                       id,document_version_id,topic_version_id,method,method_version,status,available_at)
+                   VALUES('portal-assignment','portal-dv','tv-a','fixture','fixture-v1','accepted',?)""",
+                (NOW,),
+            )
+        advance_topic_statistics(25)
+        advance_topic_statistics(25)
+        with database.get_db(self.path) as db:
+            publication_id = db.execute(
+                "SELECT current_publication_id FROM topic_statistics_state WHERE singleton=1"
+            ).fetchone()[0]
+            record_admission_review(
+                db, publication_id=publication_id, decision="approved",
+                expected_previous_review_id=None, minimum_decided_assignment_bps=10_000,
+                allow_zero_members=False, reviewer_id="api-fixture",
+                reason="Accepted member portal fixture.", now=NOW,
+            )
+        with patch("app.web.routes.TOPIC_READ_ENABLED", True):
+            listing = self.client.get("/topics")
+            detail = self.client.get("/topics/alpha")
+        self.assertEqual(listing.status_code, 200)
+        self.assertIn("1 篇已审核资料", listing.text)
+        self.assertIn("0 个稳定事件", listing.text)
+        self.assertEqual(detail.status_code, 200)
+        self.assertIn("篇已审核资料", detail.text)
+        self.assertIn("个稳定事件", detail.text)
+        self.assertIn("Admitted portal item", detail.text)
+
     def test_detail_etag_not_found_and_dirty_fail_closed(self):
         detail = self.client.get("/api/v1/topics/topic-a", headers=self.headers())
         self.assertEqual(detail.status_code, 200)
@@ -178,6 +238,9 @@ class ApiTopicTests(unittest.TestCase):
             (hidden_missing.status_code, hidden_missing.json()["error"]["code"]),
             (503, "not_ready"),
         )
+        with patch("app.web.routes.TOPIC_READ_ENABLED", True):
+            rejected_portal = self.client.get("/topics")
+        self.assertEqual(rejected_portal.status_code, 503)
 
         with database.get_db(self.path) as db:
             dataset = db.execute("SELECT dataset_id FROM dataset_state").fetchone()[0]

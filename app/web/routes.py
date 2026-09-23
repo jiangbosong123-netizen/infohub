@@ -46,6 +46,7 @@ from ..config import (
     CURATION_SEARCH_ENABLED,
     CURATION_HOT_ENABLED,
     REPORT_READ_ENABLED,
+    TOPIC_READ_ENABLED,
     ENVIRONMENT,
     ENVIRONMENT_ID,
     DURABLE_JOBS_ENABLED,
@@ -63,6 +64,10 @@ from ..provenance import publisher, display_title
 from ..runtime_health import read_worker_heartbeat
 from ..timeutil import format_utc, parse_utc
 from ..topics import GROUPS
+from ..topic_portal_projection import (
+    published_portal_topic,
+    published_portal_topics,
+)
 from .v1_auth import v1_auth_guard
 from .transport_security import private_https_headers
 from .v1_errors import v1_error
@@ -274,6 +279,7 @@ def _system_snapshot() -> dict:
             "durable_jobs_enabled": DURABLE_JOBS_ENABLED,
             "curated_feed_enabled": CURATED_FEED_ENABLED,
             "api_catalog_enabled": config.API_CATALOG_ENABLED,
+            "topic_read_enabled": TOPIC_READ_ENABLED,
         },
         "readiness": {
             "status": "not_ready" if readiness_issues else "ready",
@@ -986,6 +992,8 @@ def about_heat():
 
 
 def _topic_stats(db):
+    if TOPIC_READ_ENABLED:
+        return published_portal_topics(db)
     cte, _, _, score_expr, _ = portal_curation_sql(CURATION_READ_ENABLED)
     selected = _selected_clause(score_expr=score_expr) if CURATED_FEED_ENABLED else "1=1"
     item_join = ("LEFT JOIN curation_values cv ON cv.item_id=it.item_id "
@@ -1003,8 +1011,12 @@ def _topic_stats(db):
 
 @app.get('/topics',response_class=HTMLResponse)
 def topics_index(request: Request):
-    with get_db() as db:
-        entries = _topic_stats(db)
+    try:
+        with get_db() as db:
+            db.execute("BEGIN")
+            entries = _topic_stats(db)
+    except (TopicStatisticsAdmissionError, TopicStatisticsUnavailable):
+        raise HTTPException(503, '主题统计尚未通过发布审核')
     groups = [dict(key=key,name=name,description=desc,topics=[t for t in entries if t['group_key']==key])
               for key,name,desc in GROUPS]
     return templates.TemplateResponse(request,'topics.html',dict(groups=groups,total=len(entries)))
@@ -1015,34 +1027,65 @@ def topic_detail(request: Request,slug: str,mode: str='selected',page: int=Query
     mode = mode if mode in ('all','selected') else 'selected'
     cte, curation_join, visible, score_expr, _ = portal_curation_sql(CURATION_READ_ENABLED)
     selected = " AND " + _selected_clause(score_expr=score_expr) if mode=='selected' and CURATED_FEED_ENABLED else ''
-    with get_db() as db:
-        topic = next((t for t in _topic_stats(db) if t['slug']==slug),None)
-        if topic is None:
-            raise HTTPException(404,'主题不存在')
-        base = f"""SELECT i.*,s.name AS source_name,si.story_id
-            {', cv.score AS curation_rank_score' if CURATION_READ_ENABLED else ''} FROM item_topics it
-            JOIN items i ON i.id=it.item_id JOIN sources s ON s.id=i.source_id
-            LEFT JOIN story_items si ON si.item_id=i.id
-            {curation_join}
-            WHERE it.topic_slug=? AND {visible} {selected}"""
-        if mode == 'selected':
-            sql = (cte + ", " if cte else "WITH ") + """eligible AS (""" + base + f"""), ranked AS (
-                SELECT eligible.*,ROW_NUMBER() OVER (
-                    PARTITION BY COALESCE(story_id,'item:' || id)
-                    ORDER BY published_at DESC,official DESC,COALESCE({'curation_rank_score' if CURATION_READ_ENABLED else 'score'},-1) DESC,id DESC
-                ) AS story_rank FROM eligible)
-                SELECT * FROM ranked WHERE story_rank=1
-                ORDER BY published_at DESC,id DESC LIMIT 21 OFFSET ?"""
-        else:
-            sql = cte + base + " ORDER BY i.published_at DESC,i.id DESC LIMIT 21 OFFSET ?"
-        rows = db.execute(sql,(slug,(page-1)*20)).fetchall()
+    try:
+        with get_db() as db:
+            db.execute("BEGIN")
+            if TOPIC_READ_ENABLED:
+                topic = published_portal_topic(db, slug)
+                base = f"""SELECT i.*,s.name AS source_name,si.story_id
+                    {', cv.score AS curation_rank_score' if CURATION_READ_ENABLED else ''}
+                    FROM topic_statistics_state topic_state
+                    JOIN topic_statistics_versions topic_statistic
+                      ON topic_statistic.build_id=topic_state.current_build_id
+                     AND topic_statistic.topic_version_id=?
+                    JOIN topic_statistics_members topic_member
+                      ON topic_member.statistics_id=topic_statistic.id
+                     AND topic_member.member_type='document'
+                    JOIN documents topic_document ON topic_document.id=topic_member.resource_id
+                    JOIN document_versions topic_document_version
+                      ON topic_document_version.id=topic_member.version_id
+                     AND topic_document_version.document_id=topic_document.id
+                    JOIN items i ON i.id=topic_document.legacy_item_id
+                    JOIN sources s ON s.id=i.source_id
+                    LEFT JOIN story_items si ON si.item_id=i.id
+                    {curation_join}
+                    WHERE topic_state.singleton=1 AND {visible} {selected}"""
+                base_params = (topic["version_id"],)
+            else:
+                topic = next((t for t in _topic_stats(db) if t['slug']==slug),None)
+                if topic is None:
+                    raise HTTPException(404,'主题不存在')
+                base = f"""SELECT i.*,s.name AS source_name,si.story_id
+                    {', cv.score AS curation_rank_score' if CURATION_READ_ENABLED else ''} FROM item_topics it
+                    JOIN items i ON i.id=it.item_id JOIN sources s ON s.id=i.source_id
+                    LEFT JOIN story_items si ON si.item_id=i.id
+                    {curation_join}
+                    WHERE it.topic_slug=? AND {visible} {selected}"""
+                base_params = (slug,)
+            if mode == 'selected':
+                sql = (cte + ", " if cte else "WITH ") + """eligible AS (""" + base + f"""), ranked AS (
+                    SELECT eligible.*,ROW_NUMBER() OVER (
+                        PARTITION BY COALESCE(story_id,'item:' || id)
+                        ORDER BY published_at DESC,official DESC,COALESCE({'curation_rank_score' if CURATION_READ_ENABLED else 'score'},-1) DESC,id DESC
+                    ) AS story_rank FROM eligible)
+                    SELECT * FROM ranked WHERE story_rank=1
+                    ORDER BY published_at DESC,id DESC LIMIT 21 OFFSET ?"""
+            else:
+                sql = cte + base + " ORDER BY i.published_at DESC,i.id DESC LIMIT 21 OFFSET ?"
+            rows = db.execute(sql,(*base_params,(page-1)*20)).fetchall()
+    except TopicStatisticsNotFound:
+        raise HTTPException(404,'主题不存在')
+    except (TopicStatisticsAdmissionError, TopicStatisticsUnavailable):
+        raise HTTPException(503,'主题统计尚未通过发布审核')
     days = []
     for item in _decorate(rows[:20]):
         if not days or days[-1]['key']!=item['date_key']:
             days.append(dict(key=item['date_key'],label=_date_label(datetime.fromisoformat(item['date_key'])),rows=[]))
         days[-1]['rows'].append(item)
     return templates.TemplateResponse(request,'topic_detail.html',dict(
-        topic=topic,days=days,clusters=_top_clusters(5,topic=slug,days=14),page=page,mode=mode,
+        topic=topic,days=days,
+        clusters=[] if TOPIC_READ_ENABLED else _top_clusters(5,topic=slug,days=14),
+        page=page,mode=mode,
         has_next=len(rows)>20,last_update=_relative(topic['last_at']) if topic['last_at'] else '暂无收录'))
 
 

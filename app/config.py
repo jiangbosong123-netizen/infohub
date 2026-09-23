@@ -81,6 +81,7 @@ class RuntimeSettings:
     curation_search_enabled: bool
     curation_hot_enabled: bool
     topic_statistics_enabled: bool
+    topic_read_enabled: bool
     report_read_enabled: bool
     report_write_enabled: bool
     api_catalog_enabled: bool
@@ -219,6 +220,7 @@ def load_runtime_settings(
     topic_statistics_enabled = _boolean(
         values, "INFOHUB_TOPIC_STATISTICS_ENABLED", False
     )
+    topic_read_enabled = _boolean(values, "INFOHUB_TOPIC_READ_ENABLED", False)
     report_read_enabled = _boolean(values, "INFOHUB_REPORT_READ_ENABLED", False)
     report_write_enabled = _boolean(values, "INFOHUB_REPORT_WRITE_ENABLED", False)
     if report_write_enabled and not report_read_enabled:
@@ -297,6 +299,7 @@ def load_runtime_settings(
         curation_search_enabled=curation_search_enabled,
         curation_hot_enabled=curation_hot_enabled,
         topic_statistics_enabled=topic_statistics_enabled,
+        topic_read_enabled=topic_read_enabled,
         report_read_enabled=report_read_enabled,
         report_write_enabled=report_write_enabled,
         api_catalog_enabled=api_catalog_enabled,
@@ -324,6 +327,7 @@ CURATION_READ_ENABLED = RUNTIME.curation_read_enabled
 CURATION_SEARCH_ENABLED = RUNTIME.curation_search_enabled
 CURATION_HOT_ENABLED = RUNTIME.curation_hot_enabled
 TOPIC_STATISTICS_ENABLED = RUNTIME.topic_statistics_enabled
+TOPIC_READ_ENABLED = RUNTIME.topic_read_enabled
 REPORT_READ_ENABLED = RUNTIME.report_read_enabled
 REPORT_WRITE_ENABLED = RUNTIME.report_write_enabled
 API_CATALOG_ENABLED = RUNTIME.api_catalog_enabled

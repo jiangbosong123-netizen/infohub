@@ -32,6 +32,7 @@ class RuntimeConfigurationTests(unittest.TestCase):
         self.assertFalse(settings.report_read_enabled)
         self.assertFalse(settings.report_write_enabled)
         self.assertFalse(settings.topic_statistics_enabled)
+        self.assertFalse(settings.topic_read_enabled)
         self.assertFalse(settings.api_catalog_enabled)
         self.assertEqual(settings.api_key_rate_per_minute, 60)
         self.assertEqual(settings.api_consumer_concurrency, 5)
@@ -76,6 +77,13 @@ class RuntimeConfigurationTests(unittest.TestCase):
             {"INFOHUB_TOPIC_STATISTICS_ENABLED": "true"}, self.root
         )
         self.assertTrue(settings.topic_statistics_enabled)
+
+    def test_topic_portal_read_switch_is_independent_and_defaults_off(self):
+        self.assertFalse(config.load_runtime_settings({}, self.root).topic_read_enabled)
+        settings = config.load_runtime_settings(
+            {"INFOHUB_TOPIC_READ_ENABLED": "true"}, self.root
+        )
+        self.assertTrue(settings.topic_read_enabled)
 
     def test_report_write_requires_visible_read_path(self):
         with self.assertRaisesRegex(config.RuntimeConfigurationError, "requires INFOHUB_REPORT_READ_ENABLED"):
@@ -178,6 +186,7 @@ class RuntimeConfigurationTests(unittest.TestCase):
             values["INFOHUB_CURATION_SEARCH_ENABLED"] = "false"
             values["INFOHUB_CURATION_HOT_ENABLED"] = "false"
             values["INFOHUB_TOPIC_STATISTICS_ENABLED"] = "false"
+            values["INFOHUB_TOPIC_READ_ENABLED"] = "false"
             values["INFOHUB_REPORT_READ_ENABLED"] = "false"
             values["INFOHUB_REPORT_WRITE_ENABLED"] = "false"
             values["INFOHUB_API_CATALOG_ENABLED"] = "false"
@@ -210,6 +219,8 @@ class RuntimeConfigurationTests(unittest.TestCase):
         worker_values["INFOHUB_CURATION_HOT_ENABLED"] = "false"
         web_values["INFOHUB_TOPIC_STATISTICS_ENABLED"] = "false"
         worker_values["INFOHUB_TOPIC_STATISTICS_ENABLED"] = "false"
+        web_values["INFOHUB_TOPIC_READ_ENABLED"] = "false"
+        worker_values["INFOHUB_TOPIC_READ_ENABLED"] = "false"
         web_values["INFOHUB_REPORT_READ_ENABLED"] = "false"
         worker_values["INFOHUB_REPORT_READ_ENABLED"] = "false"
         web_values["INFOHUB_REPORT_WRITE_ENABLED"] = "false"

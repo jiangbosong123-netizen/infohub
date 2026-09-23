@@ -5,7 +5,7 @@
 <div class="topic-breadcrumb"><span class="eyebrow">TOPIC · 主题</span><a href="/topics">全部主题 →</a></div>
 <header class="topic-heading">
   <h1 class="pagetitle">{{ topic.name }}</h1><p class="hint">{{ topic.description }}</p>
-  <div class="topic-stats"><span><b>{{ '{:,}'.format(topic.total) }}</b> 条收录</span><span><b>{{ '{:,}'.format(topic.selected) }}</b> 条精选</span><span class="updatetime">数据更新于 {{ last_update }}</span></div>
+  <div class="topic-stats">{% if topic.audited_statistics %}<span><b>{{ '{:,}'.format(topic.total) }}</b> 篇已审核资料</span><span><b>{{ '{:,}'.format(topic.event_count) }}</b> 个稳定事件</span>{% else %}<span><b>{{ '{:,}'.format(topic.total) }}</b> 条收录</span><span><b>{{ '{:,}'.format(topic.selected) }}</b> 条精选</span>{% endif %}<span class="updatetime">数据更新于 {{ last_update }}</span></div>
 </header>
 {% if clusters %}
 <section class="hotbox topic-focus">

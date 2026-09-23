@@ -68,3 +68,11 @@ uses this boundary and remains behind the catalog feature flag.
 External release is a separate human gate documented in
 [`TOPIC_STATISTICS_ADMISSION.md`](TOPIC_STATISTICS_ADMISSION.md). A complete
 build alone does not authorize API or portal cutover.
+
+The legacy `/topics` portal has a separate default-off
+`INFOHUB_TOPIC_READ_ENABLED` switch. When enabled, both its list and detail
+routes require a current approved statistics publication and read only its
+document members. Missing, rejected, stale, restricted, or incompletely mapped
+publications fail with HTTP 503; they never fall back silently to legacy topic
+assignments. Event counts come from the same immutable publication. The old
+route remains unchanged while the switch is false.
