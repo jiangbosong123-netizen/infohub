@@ -1,0 +1,35 @@
+{
+  "source": "isolated completed real-data topic-statistics publication with temporary API consumer",
+  "production_changed": false,
+  "list": {
+    "status": 200,
+    "pages": 3,
+    "topics": 56,
+    "unique_topics": 56,
+    "publication_version": 1,
+    "assignment_policy_version": "effective-review-v1",
+    "event_policy_version": "current-stable-event-v1",
+    "unreviewed_assignments_excluded": true,
+    "document_count": 0,
+    "event_count": 0
+  },
+  "detail": {
+    "status": 200,
+    "etag_present": true,
+    "conditional_status": 304
+  },
+  "openapi": {
+    "list_present": true,
+    "detail_present": true
+  },
+  "validation": {
+    "unit_tests": "406 passed",
+    "focused_tests": "19 passed",
+    "git_diff_check": "passed"
+  },
+  "limitations": [
+    "The temporary API key and consumer exist only in the isolated rehearsal copy.",
+    "Counts are policy-derived zeros because the source copy has no accepted assignments or stable public events.",
+    "The legacy portal was not switched; Windows production remained off."
+  ]
+}

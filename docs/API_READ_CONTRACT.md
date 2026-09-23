@@ -32,6 +32,27 @@ merged/restricted entity 定义足够的公开 canonical/restriction 投影，�
 P18 后续会按独立 PR 增加 entity detail、topic/source 目录、item/event/analysis 等领域读取。
 在统一查询服务、历史语义和生产消费者验收完成前，v1 仍不声明为稳定外部服务。
 
+## P18j：主题目录与可审计统计
+
+`GET /api/v1/topics` 和 `GET /api/v1/topics/{id}` 使用 `read:catalog` scope，并继续受
+`INFOHUB_API_CATALOG_ENABLED` 总开关控制。列表只接受 `limit`、`cursor` 和正式 group 枚举；
+详情当前只读完整发布中的 current topic version，不接受尚未定义的历史参数。未知、重复、空值或
+非规范参数返回 `422 invalid_parameter`。
+
+响应不会读取可变 legacy `item_topics` 计数。它只读取完整的 topic-statistics publication，并明确
+返回 publication/build ID、两个计数策略版本、topic version、计数时间和 input manifest hash。
+`unreviewed_assignments_excluded=true` 是契约字段：旧候选映射没有经人工或正式流程接受时不会冒充
+公开计数。完整策略计算得到的 0 是有效数据；没有发布、dirty 非空、目录缺口、版本状态冲突或
+count/member 不一致则整个接口返回 `503 not_ready`。
+
+列表游标绑定 API key、consumer、权限版本、dataset epoch、group 过滤条件和 publication ID。
+因此翻页期间发布发生变化会拒绝旧游标，调用方必须从第一页重启。详情返回包含权限、dataset、
+publication 和完整 DTO 的 ETag，支持 `If-None-Match`。merged/restricted topic 不会从列表中静默
+漏掉：列表 fail closed；restricted 详情返回 403，merged 详情在 canonical 投影完成前返回 503。
+
+这两个路由不会切换现有 `/topics` 门户页面，也不会自动开启后台统计构建。生产开放仍需要审核
+覆盖、真实非零/零语义验收和消费者契约验收。
+
 2026-09-22 的隔离 Mac 副本演练把 schema 0、44,497 条 legacy item 的当前库副本迁移到
 schema 25，再同步出 23 个实体、56 个主题和 11 个 publisher。实体列表返回 23 行；现有
 identifier/relation 都没有 verified 证据，所以公共 DTO 对这两类字段返回空数组，而没有把

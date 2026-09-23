@@ -25,6 +25,17 @@ from ..api_catalog import (
     list_entities,
 )
 from ..api_cursor import CursorEpochChanged, CursorError, CursorExpired, CursorFilterMismatch
+from ..api_topics import (
+    RestrictedTopic,
+    TOPIC_GROUPS,
+    TopicListResponse,
+    TopicResponse,
+    TopicStatisticsNotFound,
+    TopicStatisticsUnavailable,
+    get_topic,
+    list_topics,
+    topic_etag,
+)
 from ..config import (
     APP_TZ,
     APP_VERSION,
@@ -94,6 +105,24 @@ _ENTITY_DETAIL_OPENAPI = {
         {"name": "knowledge_checkpoint_id", "in": "query", "required": False,
          "schema": {"type": "string", "minLength": 1, "maxLength": 128},
          "description": "Reserved for P19; currently returns 422 unsupported_history."},
+        {"name": "If-None-Match", "in": "header", "required": False,
+         "schema": {"type": "string", "maxLength": 512}},
+    ],
+}
+_TOPIC_LIST_OPENAPI = {
+    "x-required-scopes": ["read:catalog"],
+    "parameters": [
+        {"name": "limit", "in": "query", "required": False,
+         "schema": {"type": "integer", "minimum": 1, "maximum": 100, "default": 50}},
+        {"name": "cursor", "in": "query", "required": False,
+         "schema": {"type": "string", "minLength": 1}},
+        {"name": "group", "in": "query", "required": False,
+         "schema": {"type": "string", "enum": sorted(TOPIC_GROUPS)}},
+    ],
+}
+_TOPIC_DETAIL_OPENAPI = {
+    "x-required-scopes": ["read:catalog"],
+    "parameters": [
         {"name": "If-None-Match", "in": "header", "required": False,
          "schema": {"type": "string", "maxLength": 512}},
     ],
@@ -775,6 +804,89 @@ def api_v1_entity(id: str, request: Request, response: Response):
         if "*" in validators or any(
             validator == etag
             or (validator.startswith("W/") and validator[2:] == etag)
+            for validator in validators
+        ):
+            return Response(status_code=304, headers={"ETag": etag})
+    response.headers["ETag"] = etag
+    return result
+
+
+@app.get(
+    "/api/v1/topics", response_model=TopicListResponse,
+    openapi_extra=_TOPIC_LIST_OPENAPI,
+)
+def api_v1_topics(request: Request):
+    request_id = request.state.request_id
+    if not config.API_CATALOG_ENABLED:
+        return v1_error(503, "not_ready", request_id)
+    allowed = {"limit", "cursor", "group"}
+    if set(request.query_params) - allowed or any(
+        len(request.query_params.getlist(name)) != 1 for name in request.query_params
+    ):
+        return v1_error(422, "invalid_parameter", request_id)
+    raw_limit = request.query_params.get("limit", "50")
+    try:
+        limit = int(raw_limit)
+    except ValueError:
+        return v1_error(422, "invalid_parameter", request_id)
+    group = request.query_params.get("group")
+    if str(limit) != raw_limit or not 1 <= limit <= 100 or (
+        group is not None and group not in TOPIC_GROUPS
+    ):
+        return v1_error(422, "invalid_parameter", request_id)
+    try:
+        with get_db() as db:
+            db.execute("BEGIN")
+            return list_topics(
+                db, request.state.api_principal, request_id=request_id, limit=limit,
+                cursor=request.query_params.get("cursor"), group=group,
+            )
+    except CursorExpired:
+        return v1_error(410, "cursor_expired", request_id)
+    except CursorFilterMismatch:
+        return v1_error(400, "filter_mismatch", request_id)
+    except CursorEpochChanged:
+        return v1_error(409, "epoch_changed", request_id)
+    except CursorError:
+        return v1_error(400, "invalid_cursor", request_id)
+    except (TopicStatisticsUnavailable, sqlite3.Error, OSError, KeyError, TypeError, ValueError):
+        return v1_error(503, "not_ready", request_id)
+
+
+@app.get(
+    "/api/v1/topics/{id}", response_model=TopicResponse,
+    openapi_extra=_TOPIC_DETAIL_OPENAPI,
+)
+def api_v1_topic(id: str, request: Request, response: Response):
+    request_id = request.state.request_id
+    if not config.API_CATALOG_ENABLED:
+        return v1_error(503, "not_ready", request_id)
+    if request.query_params or not id or len(id) > 128:
+        return v1_error(422, "invalid_parameter", request_id)
+    conditional = [
+        value for key, value in request.scope["headers"]
+        if key.lower() == b"if-none-match"
+    ]
+    if len(conditional) > 1 or (conditional and len(conditional[0]) > 512):
+        return v1_error(422, "invalid_parameter", request_id)
+    try:
+        with get_db() as db:
+            db.execute("BEGIN")
+            result = get_topic(db, request_id=request_id, topic_id=id)
+            etag = topic_etag(result, request.state.api_principal)
+    except TopicStatisticsNotFound:
+        return v1_error(404, "resource_not_found", request_id)
+    except RestrictedTopic:
+        return v1_error(403, "restricted_content", request_id)
+    except (TopicStatisticsUnavailable, sqlite3.Error, OSError, KeyError, TypeError, ValueError):
+        return v1_error(503, "not_ready", request_id)
+    if conditional:
+        try:
+            validators = [value.strip() for value in conditional[0].decode("ascii").split(",")]
+        except UnicodeDecodeError:
+            return v1_error(422, "invalid_parameter", request_id)
+        if "*" in validators or any(
+            validator == etag or (validator.startswith("W/") and validator[2:] == etag)
             for validator in validators
         ):
             return Response(status_code=304, headers={"ETag": etag})

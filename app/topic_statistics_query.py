@@ -86,6 +86,7 @@ def published_topic_statistics(db: sqlite3.Connection) -> PublishedTopicStatisti
     rows = db.execute(
         """SELECT topic.id AS topic_id,topic.current_version_id AS topic_version_id,
                   version.slug,version.name,version.group_key,topic.status,
+                  version.status AS version_status,
                   statistic.document_count,statistic.event_count,statistic.counted_at,
                   statistic.input_manifest_sha256,
                   (SELECT COUNT(*) FROM topic_statistics_members AS member
@@ -111,6 +112,7 @@ def published_topic_statistics(db: sqlite3.Connection) -> PublishedTopicStatisti
     for row in rows:
         if (
             row["document_count"] is None
+            or row["status"] != row["version_status"]
             or row["document_count"] != row["document_members"]
             or row["event_count"] != row["event_members"]
         ):
