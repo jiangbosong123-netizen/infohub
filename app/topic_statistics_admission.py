@@ -23,6 +23,9 @@ class ApprovedTopicStatisticsAdmission:
     metrics_sha256: str
     minimum_decided_assignment_bps: int
     allow_zero_members: bool
+    policy_version: str
+    sample_evaluation_id: str
+    sample_metrics_sha256: str
 
     def to_dict(self) -> dict:
         return asdict(self)
@@ -40,6 +43,8 @@ class TopicStatisticsAdmissionPreview:
     current_reviewer_id: str | None
     current_reason: str | None
     current_reviewed_at: str | None
+    current_policy_version: str | None
+    current_sample_evaluation_id: str | None
 
     def to_dict(self) -> dict:
         return asdict(self)
@@ -165,7 +170,8 @@ def admission_preview(
     metrics = _metrics(db, publication)
     digest = hashlib.sha256(_canonical(metrics)).hexdigest()
     review = db.execute(
-        """SELECT id,version,decision,reviewer_id,reason,reviewed_at
+        """SELECT id,version,decision,reviewer_id,reason,reviewed_at,
+                  policy_version,sample_evaluation_id
            FROM topic_statistics_admission_reviews WHERE publication_id=?
            ORDER BY version DESC LIMIT 1""",
         (publication_id,),
@@ -180,7 +186,55 @@ def admission_preview(
         current_reviewer_id=review["reviewer_id"] if review else None,
         current_reason=review["reason"] if review else None,
         current_reviewed_at=review["reviewed_at"] if review else None,
+        current_policy_version=review["policy_version"] if review else None,
+        current_sample_evaluation_id=review["sample_evaluation_id"] if review else None,
     )
+
+
+def _validated_sample_proof(
+    db: sqlite3.Connection, dataset_id: str, sample_evaluation_id: str
+) -> dict:
+    from .topic_review_sample_gate import (
+        TopicReviewSampleGateError,
+        approved_sample_evaluation,
+    )
+    row = db.execute(
+        """SELECT evaluation.id,evaluation.batch_id,evaluation.review_cutoff_sequence,
+                  evaluation.metrics_sha256,batch.dataset_id,
+                  batch.assignment_cutoff_sequence
+           FROM topic_review_sample_evaluations AS evaluation
+           JOIN topic_review_sampling_batches AS batch ON batch.id=evaluation.batch_id
+           WHERE evaluation.id=?""",
+        (sample_evaluation_id,),
+    ).fetchone()
+    if row is None:
+        raise TopicStatisticsAdmissionError("sample evaluation does not exist")
+    if row["dataset_id"] != dataset_id:
+        raise TopicStatisticsAdmissionError("sample evaluation belongs to another dataset")
+    try:
+        current = approved_sample_evaluation(db, row["batch_id"])
+    except TopicReviewSampleGateError as exc:
+        raise TopicStatisticsAdmissionError(str(exc)) from exc
+    if current["evaluation_id"] != sample_evaluation_id:
+        raise TopicStatisticsAdmissionError("sample evaluation is not the current approval")
+    assignment_high_water = db.execute(
+        "SELECT COALESCE(MAX(sequence),0) FROM topic_assignment_review_queue"
+    ).fetchone()[0]
+    review_high_water = db.execute(
+        "SELECT COALESCE(MAX(sequence),0) FROM topic_assignment_review_order"
+    ).fetchone()[0]
+    if row["assignment_cutoff_sequence"] != assignment_high_water:
+        raise TopicStatisticsAdmissionError(
+            "sample evaluation predates the current assignment population"
+        )
+    if row["review_cutoff_sequence"] != review_high_water:
+        raise TopicStatisticsAdmissionError(
+            "sample evaluation predates the current review population"
+        )
+    return {
+        "evaluation_id": sample_evaluation_id,
+        "metrics_sha256": row["metrics_sha256"],
+    }
 
 
 def record_admission_review(
@@ -191,6 +245,7 @@ def record_admission_review(
     expected_previous_review_id: str | None,
     minimum_decided_assignment_bps: int,
     allow_zero_members: bool,
+    sample_evaluation_id: str | None = None,
     reviewer_id: str,
     reason: str,
     now: str | None = None,
@@ -226,18 +281,30 @@ def record_admission_review(
             raise TopicStatisticsAdmissionError(
                 "zero-member publication requires an explicit allow_zero_members decision"
             )
+        if not sample_evaluation_id:
+            raise TopicStatisticsAdmissionError(
+                "sample-gated admission requires an approved sample evaluation"
+            )
+        sample_proof = _validated_sample_proof(
+            db, preview.metrics["dataset_id"], sample_evaluation_id
+        )
+    else:
+        sample_proof = None
     version = (preview.current_review_version or 0) + 1
     db.execute(
         """INSERT INTO topic_statistics_admission_reviews(
                id,publication_id,version,previous_review_id,decision,
                minimum_decided_assignment_bps,allow_zero_members,metrics_json,
-               metrics_sha256,reviewer_id,reason,reviewed_at)
-           VALUES(?,?,?,?,?,?,?,?,?,?,?,?)""",
+               metrics_sha256,reviewer_id,reason,reviewed_at,policy_version,
+               sample_evaluation_id,sample_metrics_sha256)
+           VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
         (
             f"topic_statistics_admission_{uuid4().hex}", publication_id, version,
             preview.current_review_id, decision, minimum_decided_assignment_bps,
             int(allow_zero_members), _canonical(preview.metrics).decode("utf-8"),
             preview.metrics_sha256, reviewer_id, reason, now or utc_now(),
+            "sample-gated-v2", sample_proof["evaluation_id"] if sample_proof else None,
+            sample_proof["metrics_sha256"] if sample_proof else None,
         ),
     )
     return admission_preview(db, publication_id)
@@ -254,7 +321,8 @@ def approved_admission(
     preview = admission_preview(db, publication_id)
     review = db.execute(
         """SELECT id,version,decision,minimum_decided_assignment_bps,
-                  allow_zero_members,metrics_sha256,reviewed_at
+                  allow_zero_members,metrics_sha256,reviewed_at,policy_version,
+                  sample_evaluation_id,sample_metrics_sha256
            FROM topic_statistics_admission_reviews
            WHERE publication_id=? ORDER BY version DESC LIMIT 1""",
         (publication_id,),
@@ -266,6 +334,21 @@ def approved_admission(
     if review["metrics_sha256"] != preview.metrics_sha256:
         raise TopicStatisticsAdmissionError(
             "topic statistics approval metrics are stale"
+        )
+    if review["policy_version"] != "sample-gated-v2":
+        raise TopicStatisticsAdmissionError(
+            "topic statistics approval uses the retired coverage-only policy"
+        )
+    if not review["sample_evaluation_id"]:
+        raise TopicStatisticsAdmissionError(
+            "topic statistics approval has no sample quality proof"
+        )
+    sample_proof = _validated_sample_proof(
+        db, preview.metrics["dataset_id"], review["sample_evaluation_id"]
+    )
+    if sample_proof["metrics_sha256"] != review["sample_metrics_sha256"]:
+        raise TopicStatisticsAdmissionError(
+            "topic statistics sample quality proof is stale"
         )
     if (
         preview.metrics["dirty_topics"] != 0
@@ -288,4 +371,7 @@ def approved_admission(
         reviewed_at=review["reviewed_at"], metrics_sha256=review["metrics_sha256"],
         minimum_decided_assignment_bps=review["minimum_decided_assignment_bps"],
         allow_zero_members=bool(review["allow_zero_members"]),
+        policy_version=review["policy_version"],
+        sample_evaluation_id=review["sample_evaluation_id"],
+        sample_metrics_sha256=review["sample_metrics_sha256"],
     )

@@ -2744,6 +2744,22 @@ def _topic_review_sample_gate_foundation(db: sqlite3.Connection) -> None:
     _execute_script(db, TOPIC_REVIEW_SAMPLE_GATE_SCHEMA_SQL)
 
 
+TOPIC_STATISTICS_QUALITY_GATE_SCHEMA_SQL = """
+ALTER TABLE topic_statistics_admission_reviews
+ADD COLUMN policy_version TEXT NOT NULL DEFAULT 'coverage-v1'
+CHECK(policy_version IN ('coverage-v1','sample-gated-v2'));
+ALTER TABLE topic_statistics_admission_reviews
+ADD COLUMN sample_evaluation_id TEXT REFERENCES topic_review_sample_evaluations(id);
+ALTER TABLE topic_statistics_admission_reviews
+ADD COLUMN sample_metrics_sha256 TEXT
+CHECK(sample_metrics_sha256 IS NULL OR length(sample_metrics_sha256)=64);
+"""
+
+
+def _topic_statistics_quality_gate_foundation(db: sqlite3.Connection) -> None:
+    _execute_script(db, TOPIC_STATISTICS_QUALITY_GATE_SCHEMA_SQL)
+
+
 # Migration 1 freezes the exact legacy schema at main@88a2a1e. Future schema
 # changes must append a new Migration instead of editing this definition.
 MIGRATIONS = (
@@ -2888,6 +2904,9 @@ MIGRATIONS = (
     Migration(32, "append-only topic review sample evaluation gate",
               TOPIC_REVIEW_SAMPLE_GATE_SCHEMA_SQL,
               _topic_review_sample_gate_foundation),
+    Migration(33, "bind topic statistics admission to sampled quality",
+              TOPIC_STATISTICS_QUALITY_GATE_SCHEMA_SQL,
+              _topic_statistics_quality_gate_foundation),
 )
 CURRENT_SCHEMA_VERSION = MIGRATIONS[-1].version
 REQUIRED_MIGRATION_COLUMNS = {
@@ -3145,6 +3164,7 @@ EXPECTED_IDENTITY_AUXILIARY_COLUMNS = {
         "id", "publication_id", "version", "previous_review_id", "decision",
         "minimum_decided_assignment_bps", "allow_zero_members", "metrics_json",
         "metrics_sha256", "reviewer_id", "reason", "reviewed_at",
+        "policy_version", "sample_evaluation_id", "sample_metrics_sha256",
     },
     "topic_assignment_review_queue": {"sequence", "assignment_id"},
     "topic_assignment_review_order": {"sequence", "review_id"},
@@ -3924,6 +3944,26 @@ def _assert_current_schema(db: sqlite3.Connection) -> None:
                     + metrics.get("published_event_members", 0) == 0
                     and not review["allow_zero_members"]
                 )
+            ))
+            or (review["policy_version"] == "sample-gated-v2" and review["decision"] == "approved" and (
+                review["sample_evaluation_id"] is None
+                or review["sample_metrics_sha256"] is None
+                or not db.execute(
+                    """SELECT 1 FROM topic_review_sample_evaluations AS evaluation
+                       JOIN topic_review_sampling_batches AS batch
+                         ON batch.id=evaluation.batch_id
+                       JOIN topic_statistics_publications AS publication
+                         ON publication.id=?
+                       JOIN topic_statistics_builds AS build
+                         ON build.id=publication.build_id
+                       WHERE evaluation.id=? AND evaluation.decision='approved'
+                         AND evaluation.metrics_sha256=?
+                         AND batch.dataset_id=build.dataset_id""",
+                    (
+                        review["publication_id"], review["sample_evaluation_id"],
+                        review["sample_metrics_sha256"],
+                    ),
+                ).fetchone()
             ))
         ):
             invalid_topic_admissions += 1

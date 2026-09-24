@@ -50,8 +50,9 @@ count/member 不一致则整个接口返回 `503 not_ready`。
 publication 和完整 DTO 的 ETag，支持 `If-None-Match`。merged/restricted topic 不会从列表中静默
 漏掉：列表 fail closed；restricted 详情返回 403，merged 详情在 canonical 投影完成前返回 503。
 
-主题响应 schema `1.1.0` 还包含 admission review ID/version、审核时间、审核时冻结的 metrics
-hash、最低 decided-assignment 覆盖率和显式零成员许可。API 在同一个 SQLite 读事务内重新计算
+主题响应 schema `1.2.0` 还包含 admission review ID/version、审核时间、审核时冻结的 metrics
+hash、最低 decided-assignment 覆盖率、显式零成员许可、`sample-gated-v2` 政策版本、抽样评估
+ID 及其 metrics hash。API 在同一个 SQLite 读事务内重新计算
 准入指标；没有最新批准、最新决定为拒绝、指标 hash 已变化或批准阈值不再满足时统一返回
 `503 not_ready`。响应和 ETag 都绑定 admission，撤回批准后旧缓存不能继续代表有效发布。
 reviewer 身份和内部理由不会暴露给外部消费者。

@@ -1,3 +1,4 @@
+import json
 import tempfile
 import unittest
 from pathlib import Path
@@ -5,6 +6,9 @@ from unittest.mock import patch
 
 from app import config, database, db_admin
 from app.topic_statistics import advance_topic_statistics
+from app.topic_assignment_reviews import record_topic_assignment_review
+from app.topic_review_sample_gate import record_sample_evaluation
+from app.topic_review_sampling import create_sample_batch, sample_queue
 from app.topic_statistics_admission import (
     TopicStatisticsAdmissionError,
     admission_preview,
@@ -71,6 +75,24 @@ class TopicStatisticsAdmissionTests(unittest.TestCase):
                    VALUES('a','dv','tv','fixture','fixture-v1','candidate',?)""",
                 (NOW,),
             )
+            batch = create_sample_batch(
+                db, seed="admission-fixture", per_topic_limit=10,
+                created_by="fixture", now=NOW,
+            )
+            for item in sample_queue(db, batch.batch_id, limit=10):
+                record_topic_assignment_review(
+                    db, assignment_id=item.assignment_id, decision="accepted",
+                    expected_previous_review_id=None, reviewer_id="fixture",
+                    reason="Synthetic positive fixture.", now=NOW,
+                )
+            quality = record_sample_evaluation(
+                db, batch_id=batch.batch_id, decision="approved",
+                expected_previous_evaluation_id=None,
+                minimum_decided_bps=10_000, minimum_topic_decided_bps=10_000,
+                minimum_acceptance_bps=1, minimum_topic_acceptance_bps=1,
+                evaluator_id="fixture", reason="Synthetic quality fixture.", now=NOW,
+            )
+            self.sample_evaluation = quality.current_evaluation_id
         advance_topic_statistics(25)
         self.publication = advance_topic_statistics(25).publication_id
 
@@ -78,29 +100,24 @@ class TopicStatisticsAdmissionTests(unittest.TestCase):
         with database.get_db() as db:
             preview = admission_preview(db, self.publication)
         self.assertEqual(preview.metrics["assignment_total"], 1)
-        self.assertEqual(preview.metrics["effective_candidate"], 1)
-        self.assertEqual(preview.metrics["decided_assignment_bps"], 0)
-        self.assertEqual(preview.metrics["published_document_members"], 0)
+        self.assertEqual(preview.metrics["effective_accepted"], 1)
+        self.assertEqual(preview.metrics["decided_assignment_bps"], 10_000)
+        self.assertEqual(preview.metrics["published_document_members"], 1)
         self.assertIsNone(preview.current_decision)
 
-    def test_approval_enforces_coverage_and_explicit_zero_exception(self):
+    def test_approval_requires_sample_quality_proof(self):
         with database.get_db() as db:
-            with self.assertRaisesRegex(TopicStatisticsAdmissionError, "coverage"):
+            with self.assertRaisesRegex(TopicStatisticsAdmissionError, "sample-gated"):
                 record_admission_review(
                     db, publication_id=self.publication, decision="approved",
-                    expected_previous_review_id=None, minimum_decided_assignment_bps=1,
+                    expected_previous_review_id=None, minimum_decided_assignment_bps=10_000,
                     allow_zero_members=True, reviewer_id="reviewer", reason="Not enough.", now=NOW,
-                )
-            with self.assertRaisesRegex(TopicStatisticsAdmissionError, "zero-member"):
-                record_admission_review(
-                    db, publication_id=self.publication, decision="approved",
-                    expected_previous_review_id=None, minimum_decided_assignment_bps=0,
-                    allow_zero_members=False, reviewer_id="reviewer", reason="No zero.", now=NOW,
                 )
             approved = record_admission_review(
                 db, publication_id=self.publication, decision="approved",
                 expected_previous_review_id=None, minimum_decided_assignment_bps=0,
-                allow_zero_members=True, reviewer_id="reviewer", reason="Synthetic exception.", now=NOW,
+                allow_zero_members=False, sample_evaluation_id=self.sample_evaluation,
+                reviewer_id="reviewer", reason="Synthetic exception.", now=NOW,
             )
         self.assertEqual((approved.current_decision, approved.current_review_version),
                          ("approved", 1))
@@ -122,6 +139,7 @@ class TopicStatisticsAdmissionTests(unittest.TestCase):
                 db, publication_id=self.publication, decision="approved",
                 expected_previous_review_id=rejected.current_review_id,
                 minimum_decided_assignment_bps=0, allow_zero_members=True,
+                sample_evaluation_id=self.sample_evaluation,
                 reviewer_id="reviewer", reason="Explicit test exception.", now=NOW,
             )
             self.assertEqual(approved.current_review_version, 2)
@@ -137,8 +155,8 @@ class TopicStatisticsAdmissionTests(unittest.TestCase):
             approved = record_admission_review(
                 db, publication_id=self.publication, decision="approved",
                 expected_previous_review_id=None, minimum_decided_assignment_bps=0,
-                allow_zero_members=True, reviewer_id="reviewer",
-                reason="Synthetic exception.", now=NOW,
+                allow_zero_members=True, sample_evaluation_id=self.sample_evaluation,
+                reviewer_id="reviewer", reason="Synthetic exception.", now=NOW,
             )
             served = approved_admission(db, self.publication)
             self.assertEqual(served.review_id, approved.current_review_id)
@@ -149,16 +167,53 @@ class TopicStatisticsAdmissionTests(unittest.TestCase):
             with self.assertRaisesRegex(TopicStatisticsAdmissionError, "metrics are stale"):
                 approved_admission(db, self.publication)
 
+    def test_coverage_only_historical_approval_cannot_serve(self):
+        with database.get_db() as db:
+            preview = admission_preview(db, self.publication)
+            db.execute(
+                """INSERT INTO topic_statistics_admission_reviews(
+                       id,publication_id,version,decision,
+                       minimum_decided_assignment_bps,allow_zero_members,
+                       metrics_json,metrics_sha256,reviewer_id,reason,reviewed_at)
+                   VALUES('legacy-approval',?,1,'approved',0,0,?,?,
+                          'legacy-reviewer','Historical coverage approval.',?)""",
+                (
+                    self.publication,
+                    json.dumps(
+                        preview.metrics, ensure_ascii=False, sort_keys=True,
+                        separators=(",", ":"),
+                    ),
+                    preview.metrics_sha256,
+                    NOW,
+                ),
+            )
+            with self.assertRaisesRegex(TopicStatisticsAdmissionError, "retired"):
+                approved_admission(db, self.publication)
+
     def test_migration_29_preserves_schema_28_database(self):
         predecessor = self.path.parent / "predecessor.db"
         with database.get_db(predecessor) as db:
             db_admin.apply_migrations(db, db_admin.MIGRATIONS[:28])
             db.execute("INSERT INTO sources(key,name,channel,type) VALUES('x','X','ai','rss')")
         report = db_admin.migrate_database(predecessor)
-        self.assertEqual(report.applied_versions, (29, 30, 31, 32))
+        self.assertEqual(report.applied_versions, (29, 30, 31, 32, 33))
         self.assertEqual(db_admin.verify_database(report.backup_path).schema_version, 28)
         with database.get_db(predecessor) as db:
             self.assertEqual(db.execute("SELECT key FROM sources").fetchone()[0], "x")
+
+    def test_migration_33_preserves_schema_32_database(self):
+        predecessor = self.path.parent / "schema32.db"
+        with database.get_db(predecessor) as db:
+            db_admin.apply_migrations(db, db_admin.MIGRATIONS[:32])
+            db.execute("INSERT INTO sources(key,name,channel,type) VALUES('x','X','ai','rss')")
+        report = db_admin.migrate_database(predecessor)
+        self.assertEqual(report.applied_versions, (33,))
+        self.assertEqual(db_admin.verify_database(report.backup_path).schema_version, 32)
+        with database.get_db(predecessor) as db:
+            columns = {row["name"] for row in db.execute(
+                "PRAGMA table_info(topic_statistics_admission_reviews)"
+            )}
+            self.assertIn("sample_evaluation_id", columns)
 
 
 if __name__ == "__main__":

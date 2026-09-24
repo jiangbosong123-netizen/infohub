@@ -1,0 +1,58 @@
+{
+  "source": "isolated real-data schema-32 database from p18p rehearsal",
+  "production_changed": false,
+  "migration": {
+    "before": 32,
+    "after": 33,
+    "applied": [
+      33
+    ],
+    "integrity": "ok",
+    "foreign_key_violations": 0
+  },
+  "counts_before": {
+    "assignments": 46089,
+    "assignment_reviews": 2,
+    "sampling_batches": 1,
+    "sample_evaluations": 1,
+    "statistics_admissions": 1
+  },
+  "counts_after": {
+    "assignments": 46089,
+    "assignment_reviews": 2,
+    "sampling_batches": 1,
+    "sample_evaluations": 1,
+    "statistics_admissions": 2
+  },
+  "historical_admission": {
+    "decision": "rejected",
+    "policy_version": "coverage-v1",
+    "sample_evaluation_id": null,
+    "preserved_without_rewrite": true
+  },
+  "quality_gate": {
+    "attempted_decision": "approved",
+    "approval_blocked": true,
+    "failure": "topic review sample has no current approval",
+    "recorded_decision": "rejected",
+    "recorded_policy_version": "sample-gated-v2"
+  },
+  "serving_contract": {
+    "topic_api_schema": "1.2.0",
+    "requires_current_statistics_approval": true,
+    "requires_current_sample_quality_approval": true,
+    "requires_current_assignment_high_water": true,
+    "requires_current_review_high_water": true,
+    "coverage_v1_can_serve": false
+  },
+  "limitations": [
+    "The current real-data sample remains unreviewed and rejected, so no production approval was possible.",
+    "Windows and production data were not changed.",
+    "This rehearsal validates migration and fail-closed behavior; it makes no quality claim."
+  ],
+  "validation": {
+    "unit_tests": "423 passed",
+    "python_compile": "passed",
+    "git_diff_check": "passed"
+  }
+}

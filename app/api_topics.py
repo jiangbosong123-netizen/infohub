@@ -56,6 +56,9 @@ class TopicAdmission(_StrictModel):
     metrics_sha256: str = Field(min_length=64, max_length=64)
     minimum_decided_assignment_bps: int = Field(ge=0, le=10_000)
     allow_zero_members: bool
+    policy_version: Literal["sample-gated-v2"]
+    sample_evaluation_id: str
+    sample_metrics_sha256: str = Field(min_length=64, max_length=64)
 
 
 class TopicView(_StrictModel):
@@ -79,7 +82,7 @@ class TopicPagination(_StrictModel):
 
 class TopicListResponse(_StrictModel):
     api_version: Literal["v1"] = "v1"
-    schema_version: Literal["1.1.0"] = "1.1.0"
+    schema_version: Literal["1.2.0"] = "1.2.0"
     dataset_id: str
     dataset_epoch: str
     request_id: str
@@ -92,7 +95,7 @@ class TopicListResponse(_StrictModel):
 
 class TopicResponse(_StrictModel):
     api_version: Literal["v1"] = "v1"
-    schema_version: Literal["1.1.0"] = "1.1.0"
+    schema_version: Literal["1.2.0"] = "1.2.0"
     dataset_id: str
     dataset_epoch: str
     request_id: str

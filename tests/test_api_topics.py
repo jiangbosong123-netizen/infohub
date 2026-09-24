@@ -10,6 +10,9 @@ from app import config, database, db_admin
 from app.api_auth import create_consumer, issue_api_key
 from app.topic_statistics import advance_topic_statistics
 from app.topic_statistics_admission import admission_preview, record_admission_review
+from app.topic_assignment_reviews import record_topic_assignment_review
+from app.topic_review_sample_gate import record_sample_evaluation
+from app.topic_review_sampling import create_sample_batch, sample_queue
 from app.web.routes import app
 
 
@@ -44,6 +47,9 @@ class ApiTopicTests(unittest.TestCase):
             self._topic(db, dataset, "topic-a", "tv-a", "alpha", "technology")
             self._topic(db, dataset, "topic-b", "tv-b", "beta", "macro")
             self._topic(db, dataset, "topic-c", "tv-c", "gamma", "technology")
+            db.execute("INSERT INTO sources(id,key,name,channel,type) VALUES(1,'fixture','Fixture','ai','rss')")
+            self._assignment(db, dataset, 1, "tv-a", "Initial admitted item")
+            self.sample_evaluation = self._approve_quality(db, "api-initial")
         advance_topic_statistics(25)
         advance_topic_statistics(25)
         with database.get_db(self.path) as db:
@@ -53,8 +59,8 @@ class ApiTopicTests(unittest.TestCase):
             record_admission_review(
                 db, publication_id=publication_id, decision="approved",
                 expected_previous_review_id=None, minimum_decided_assignment_bps=0,
-                allow_zero_members=True, reviewer_id="api-fixture",
-                reason="Synthetic zero-member API fixture.", now=NOW,
+                allow_zero_members=False, sample_evaluation_id=self.sample_evaluation,
+                reviewer_id="api-fixture", reason="Synthetic API fixture.", now=NOW,
             )
         self.db_patch = patch("app.web.routes.get_db", lambda: database.get_db(self.path))
         self.auth_patch = patch("app.web.v1_auth.get_db", lambda: database.get_db(self.path))
@@ -80,6 +86,59 @@ class ApiTopicTests(unittest.TestCase):
             "UPDATE topic_catalog SET current_version_id=? WHERE id=?", (version_id, topic_id)
         )
 
+    def _assignment(self, db, dataset, index, topic_version_id, title):
+        db.execute(
+            """INSERT INTO items(id,source_id,url,title,channel,published_at,fetched_at)
+               VALUES(?,1,?,?,'ai',?,?)""",
+            (index, f"https://example.test/{index}", title, NOW, NOW),
+        )
+        db.execute(
+            "INSERT INTO documents(id,dataset_id,legacy_item_id,kind,first_seen_at) VALUES(?,?,?,'article',?)",
+            (f"doc-{index}", dataset, index, NOW),
+        )
+        db.execute(
+            """INSERT INTO document_versions(
+                   id,document_id,version,normalizer_version,normalized_at,title_original,
+                   language,text,content_sha256,version_sha256,canonical_url,source_id,
+                   published_precision,time_status,time_rule_version,tzdb_version,
+                   content_origin,content_extent,truncated,extraction_status,correction_kind,
+                   available_at,availability_basis,point_in_time_eligible)
+               VALUES(?,?,1,'v1',?,?,'en','',?,?,?,1,'unknown','legacy_unverified','legacy',
+                      'unknown','legacy_unknown','none',0,'not_attempted','initial',?,
+                      'legacy_unknown',0)""",
+            (f"dv-{index}", f"doc-{index}", NOW, title, f"{index:064x}",
+             f"{index + 100:064x}", f"https://example.test/{index}", NOW),
+        )
+        db.execute(
+            "UPDATE documents SET current_version_id=? WHERE id=?",
+            (f"dv-{index}", f"doc-{index}"),
+        )
+        db.execute(
+            """INSERT INTO document_topic_assignments(
+                   id,document_version_id,topic_version_id,method,method_version,status,available_at)
+               VALUES(?,?,?,'fixture','fixture-v1','candidate',?)""",
+            (f"assignment-{index}", f"dv-{index}", topic_version_id, NOW),
+        )
+
+    def _approve_quality(self, db, seed):
+        batch = create_sample_batch(
+            db, seed=seed, per_topic_limit=20, created_by="api-fixture", now=NOW
+        )
+        for item in sample_queue(db, batch.batch_id, limit=250):
+            record_topic_assignment_review(
+                db, assignment_id=item.assignment_id, decision="accepted",
+                expected_previous_review_id=None, reviewer_id="api-fixture",
+                reason="Synthetic evidence checked.", now=NOW,
+            )
+        evaluation = record_sample_evaluation(
+            db, batch_id=batch.batch_id, decision="approved",
+            expected_previous_evaluation_id=None,
+            minimum_decided_bps=10_000, minimum_topic_decided_bps=10_000,
+            minimum_acceptance_bps=10_000, minimum_topic_acceptance_bps=10_000,
+            evaluator_id="api-fixture", reason="Synthetic quality fixture.", now=NOW,
+        )
+        return evaluation.current_evaluation_id
+
     def headers(self, key=None):
         return {"Authorization": f"Bearer {(key or self.key).token}"}
 
@@ -90,14 +149,15 @@ class ApiTopicTests(unittest.TestCase):
         self.assertEqual(first.status_code, 200)
         body = first.json()
         self.assertEqual(body["api_version"], "v1")
-        self.assertEqual(body["schema_version"], "1.1.0")
+        self.assertEqual(body["schema_version"], "1.2.0")
         self.assertEqual(body["pagination"]["consistency"], "publication")
         self.assertEqual(body["publication"]["version"], 1)
         self.assertEqual(body["admission"]["review_version"], 1)
-        self.assertTrue(body["admission"]["allow_zero_members"])
+        self.assertFalse(body["admission"]["allow_zero_members"])
+        self.assertEqual(body["admission"]["policy_version"], "sample-gated-v2")
         self.assertTrue(body["publication"]["count_policy"]["unreviewed_assignments_excluded"])
         self.assertEqual(body["data"][0]["id"], "topic-a")
-        self.assertEqual((body["data"][0]["document_count"], body["data"][0]["event_count"]), (0, 0))
+        self.assertEqual((body["data"][0]["document_count"], body["data"][0]["event_count"]), (1, 0))
         second = self.client.get(
             "/api/v1/topics",
             params={"limit": 1, "group": "technology", "cursor": body["pagination"]["next_cursor"]},
@@ -111,15 +171,12 @@ class ApiTopicTests(unittest.TestCase):
         with database.get_db(self.path) as db:
             dataset = db.execute("SELECT dataset_id FROM dataset_state").fetchone()[0]
             db.execute(
-                "INSERT INTO sources(id,key,name,channel,type) VALUES(1,'portal','Portal','ai','rss')"
-            )
-            db.execute(
                 """INSERT INTO items(id,source_id,url,title,channel,published_at,fetched_at)
-                   VALUES(1,1,'https://example.test/portal','Admitted portal item','ai',?,?)""",
+                   VALUES(2,1,'https://example.test/portal','Admitted portal item','ai',?,?)""",
                 (NOW, NOW),
             )
             db.execute(
-                "INSERT INTO documents(id,dataset_id,legacy_item_id,kind,first_seen_at) VALUES('portal-doc',?,1,'article',?)",
+                "INSERT INTO documents(id,dataset_id,legacy_item_id,kind,first_seen_at) VALUES('portal-doc',?,2,'article',?)",
                 (dataset, NOW),
             )
             db.execute(
@@ -141,9 +198,10 @@ class ApiTopicTests(unittest.TestCase):
             db.execute(
                 """INSERT INTO document_topic_assignments(
                        id,document_version_id,topic_version_id,method,method_version,status,available_at)
-                   VALUES('portal-assignment','portal-dv','tv-a','fixture','fixture-v1','accepted',?)""",
+                   VALUES('portal-assignment','portal-dv','tv-a','fixture','fixture-v1','candidate',?)""",
                 (NOW,),
             )
+            sample_evaluation = self._approve_quality(db, "api-portal")
         advance_topic_statistics(25)
         advance_topic_statistics(25)
         with database.get_db(self.path) as db:
@@ -153,14 +211,15 @@ class ApiTopicTests(unittest.TestCase):
             record_admission_review(
                 db, publication_id=publication_id, decision="approved",
                 expected_previous_review_id=None, minimum_decided_assignment_bps=10_000,
-                allow_zero_members=False, reviewer_id="api-fixture",
+                allow_zero_members=False, sample_evaluation_id=sample_evaluation,
+                reviewer_id="api-fixture",
                 reason="Accepted member portal fixture.", now=NOW,
             )
         with patch("app.web.routes.TOPIC_READ_ENABLED", True):
             listing = self.client.get("/topics")
             detail = self.client.get("/topics/alpha")
         self.assertEqual(listing.status_code, 200)
-        self.assertIn("1 篇已审核资料", listing.text)
+        self.assertIn("2 篇已审核资料", listing.text)
         self.assertIn("0 个稳定事件", listing.text)
         self.assertEqual(detail.status_code, 200)
         self.assertIn("篇已审核资料", detail.text)
@@ -205,7 +264,8 @@ class ApiTopicTests(unittest.TestCase):
             record_admission_review(
                 db, publication_id=publication_id, decision="approved",
                 expected_previous_review_id=None, minimum_decided_assignment_bps=0,
-                allow_zero_members=True, reviewer_id="api-fixture",
+                allow_zero_members=True, sample_evaluation_id=self.sample_evaluation,
+                reviewer_id="api-fixture",
                 reason="Approve replacement fixture publication.", now=NOW,
             )
         stale = self.client.get(

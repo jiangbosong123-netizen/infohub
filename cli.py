@@ -45,7 +45,7 @@ from __future__ import annotations
   python cli.py topic-sample-gate-review BATCH_ID approved|rejected EXPECTED|none OVERALL_DECIDED_BPS TOPIC_DECIDED_BPS OVERALL_ACCEPTANCE_BPS TOPIC_ACCEPTANCE_BPS REASON
   python cli.py topic-statistics-advance [N]  # 推进至多 N 个主题统计（maintenance only，可续跑）
   python cli.py topic-admission-preview PUBLICATION_ID
-  python cli.py topic-admission-review PUBLICATION_ID approved|rejected EXPECTED|none MIN_BPS true|false REASON
+  python cli.py topic-admission-review PUBLICATION_ID approved|rejected EXPECTED|none MIN_BPS true|false SAMPLE_EVALUATION|none REASON
   python cli.py legacy-event-project   # 将旧 story 映射为 shadow candidate event（maintenance only）
   python cli.py legacy-curation-enqueue [AFTER_ID] [LIMIT]  # 分页排入旧策展转换任务（maintenance only）
   python cli.py legacy-curation-process [N]  # 处理最多 N 个离线转换任务（maintenance only）
@@ -523,7 +523,7 @@ def cmd_topic_admission_preview(publication_id: str) -> None:
 
 def cmd_topic_admission_review(
     publication_id: str, decision: str, expected_previous: str,
-    minimum_bps: int, allow_zero_raw: str, reason: str,
+    minimum_bps: int, allow_zero_raw: str, sample_evaluation: str, reason: str,
 ) -> None:
     if config.PROCESS_ROLE != "maintenance":
         raise config.RuntimeConfigurationError(
@@ -544,6 +544,9 @@ def cmd_topic_admission_review(
             ),
             minimum_decided_assignment_bps=minimum_bps,
             allow_zero_members=allow_zero_raw == "true",
+            sample_evaluation_id=(
+                None if sample_evaluation == "none" else sample_evaluation
+            ),
             reviewer_id=getpass.getuser(), reason=reason,
         )
     print(json.dumps(result.to_dict(), ensure_ascii=False, indent=2))
@@ -762,10 +765,10 @@ def main() -> None:
         cmd_topic_statistics_advance(int(sys.argv[2]) if len(sys.argv) > 2 else 25)
     elif cmd == "topic-admission-preview" and len(sys.argv) == 3:
         cmd_topic_admission_preview(sys.argv[2])
-    elif cmd == "topic-admission-review" and len(sys.argv) >= 8:
+    elif cmd == "topic-admission-review" and len(sys.argv) >= 9:
         cmd_topic_admission_review(
             sys.argv[2], sys.argv[3], sys.argv[4], int(sys.argv[5]),
-            sys.argv[6], " ".join(sys.argv[7:]),
+            sys.argv[6], sys.argv[7], " ".join(sys.argv[8:]),
         )
     elif cmd == "legacy-event-project":
         cmd_legacy_event_project()
