@@ -153,7 +153,7 @@ class TopicReviewSamplingTests(unittest.TestCase):
             db_admin.apply_migrations(db, db_admin.MIGRATIONS[:30])
             db.execute("INSERT INTO sources(key,name,channel,type) VALUES('x','X','ai','rss')")
         report = db_admin.migrate_database(predecessor)
-        self.assertEqual(report.applied_versions, (31,))
+        self.assertEqual(report.applied_versions, (31, 32))
         self.assertEqual(db_admin.verify_database(report.backup_path).schema_version, 30)
         with database.get_db(predecessor) as db:
             self.assertEqual(db.execute("SELECT key FROM sources").fetchone()[0], "x")

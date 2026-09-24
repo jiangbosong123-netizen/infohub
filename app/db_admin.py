@@ -2696,6 +2696,54 @@ def _topic_review_sampling_foundation(db: sqlite3.Connection) -> None:
     _execute_script(db, TOPIC_REVIEW_SAMPLING_SCHEMA_SQL)
 
 
+TOPIC_REVIEW_SAMPLE_GATE_SCHEMA_SQL = """
+CREATE TABLE topic_review_sample_evaluations (
+    id TEXT PRIMARY KEY,
+    batch_id TEXT NOT NULL REFERENCES topic_review_sampling_batches(id),
+    version INTEGER NOT NULL CHECK(version>0),
+    previous_evaluation_id TEXT REFERENCES topic_review_sample_evaluations(id),
+    decision TEXT NOT NULL CHECK(decision IN ('approved','rejected')),
+    review_cutoff_sequence INTEGER NOT NULL CHECK(review_cutoff_sequence>=0),
+    minimum_decided_bps INTEGER NOT NULL CHECK(minimum_decided_bps BETWEEN 1 AND 10000),
+    minimum_topic_decided_bps INTEGER NOT NULL CHECK(minimum_topic_decided_bps BETWEEN 1 AND 10000),
+    minimum_acceptance_bps INTEGER NOT NULL CHECK(minimum_acceptance_bps BETWEEN 1 AND 10000),
+    minimum_topic_acceptance_bps INTEGER NOT NULL CHECK(minimum_topic_acceptance_bps BETWEEN 1 AND 10000),
+    metrics_json TEXT NOT NULL CHECK(json_valid(metrics_json)),
+    metrics_sha256 TEXT NOT NULL CHECK(length(metrics_sha256)=64),
+    evaluator_id TEXT NOT NULL CHECK(length(trim(evaluator_id)) BETWEEN 1 AND 120),
+    reason TEXT NOT NULL CHECK(length(trim(reason)) BETWEEN 1 AND 1000),
+    evaluated_at TEXT NOT NULL,
+    UNIQUE(batch_id,version),
+    CHECK((version=1 AND previous_evaluation_id IS NULL)
+       OR (version>1 AND previous_evaluation_id IS NOT NULL))
+);
+CREATE INDEX idx_topic_review_sample_evaluations_current
+    ON topic_review_sample_evaluations(batch_id,version DESC);
+CREATE TRIGGER topic_review_sample_evaluations_valid_append
+BEFORE INSERT ON topic_review_sample_evaluations
+WHEN NEW.version != COALESCE(
+         (SELECT MAX(version)+1 FROM topic_review_sample_evaluations
+          WHERE batch_id=NEW.batch_id),1
+     )
+  OR (NEW.version=1 AND NEW.previous_evaluation_id IS NOT NULL)
+  OR (NEW.version>1 AND NEW.previous_evaluation_id IS NOT (
+         SELECT id FROM topic_review_sample_evaluations
+         WHERE batch_id=NEW.batch_id AND version=NEW.version-1
+     ))
+BEGIN SELECT RAISE(ABORT,'topic review sample evaluations must form a contiguous append-only chain'); END;
+CREATE TRIGGER topic_review_sample_evaluations_no_update
+BEFORE UPDATE ON topic_review_sample_evaluations
+BEGIN SELECT RAISE(ABORT,'topic review sample evaluations are immutable'); END;
+CREATE TRIGGER topic_review_sample_evaluations_no_delete
+BEFORE DELETE ON topic_review_sample_evaluations
+BEGIN SELECT RAISE(ABORT,'topic review sample evaluations are immutable'); END;
+"""
+
+
+def _topic_review_sample_gate_foundation(db: sqlite3.Connection) -> None:
+    _execute_script(db, TOPIC_REVIEW_SAMPLE_GATE_SCHEMA_SQL)
+
+
 # Migration 1 freezes the exact legacy schema at main@88a2a1e. Future schema
 # changes must append a new Migration instead of editing this definition.
 MIGRATIONS = (
@@ -2837,6 +2885,9 @@ MIGRATIONS = (
               TOPIC_REVIEW_QUEUE_SCHEMA_SQL, _topic_review_queue_foundation),
     Migration(31, "immutable reproducible topic review sampling",
               TOPIC_REVIEW_SAMPLING_SCHEMA_SQL, _topic_review_sampling_foundation),
+    Migration(32, "append-only topic review sample evaluation gate",
+              TOPIC_REVIEW_SAMPLE_GATE_SCHEMA_SQL,
+              _topic_review_sample_gate_foundation),
 )
 CURRENT_SCHEMA_VERSION = MIGRATIONS[-1].version
 REQUIRED_MIGRATION_COLUMNS = {
@@ -2885,6 +2936,7 @@ EXPECTED_TABLES = LEGACY_ANCHORS | {
     "topic_assignment_review_queue",
     "topic_assignment_review_order", "topic_review_sampling_batches",
     "topic_review_sampling_members",
+    "topic_review_sample_evaluations",
 }
 EXPECTED_ITEM_COLUMNS = {
     "id", "source_id", "url", "title", "title_zh", "summary", "raw_summary",
@@ -3105,6 +3157,13 @@ EXPECTED_IDENTITY_AUXILIARY_COLUMNS = {
     "topic_review_sampling_members": {
         "batch_id", "ordinal", "assignment_id", "topic_id", "queue_sequence",
         "selection_sha256",
+    },
+    "topic_review_sample_evaluations": {
+        "id", "batch_id", "version", "previous_evaluation_id", "decision",
+        "review_cutoff_sequence",
+        "minimum_decided_bps", "minimum_topic_decided_bps",
+        "minimum_acceptance_bps", "minimum_topic_acceptance_bps",
+        "metrics_json", "metrics_sha256", "evaluator_id", "reason", "evaluated_at",
     },
     "sec_security_keys": {
         "cik", "exchange", "ticker", "security_entity_id", "first_evidence_id",
@@ -3374,6 +3433,9 @@ EXPECTED_INGEST_TRIGGERS = {
     "topic_assignment_review_order_no_update", "topic_assignment_review_order_no_delete",
     "topic_review_sampling_batches_no_update", "topic_review_sampling_batches_no_delete",
     "topic_review_sampling_members_no_update", "topic_review_sampling_members_no_delete",
+    "topic_review_sample_evaluations_valid_append",
+    "topic_review_sample_evaluations_no_update",
+    "topic_review_sample_evaluations_no_delete",
     "sec_security_keys_no_update", "sec_security_keys_no_delete",
     "sec_filing_versions_valid_append", "sec_filing_versions_no_update",
     "sec_filing_versions_no_delete", "sec_filings_identity_immutable",
@@ -3888,6 +3950,8 @@ def _assert_current_schema(db: sqlite3.Connection) -> None:
     try:
         from .topic_review_sampling import verify_sampling_batches
         verify_sampling_batches(db)
+        from .topic_review_sample_gate import verify_sample_evaluations
+        verify_sample_evaluations(db)
     except (ValueError, RuntimeError) as exc:
         raise DatabaseVerificationError(str(exc)) from exc
     invalid_documents = db.execute(

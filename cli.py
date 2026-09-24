@@ -41,6 +41,8 @@ from __future__ import annotations
   python cli.py topic-review-sample-create PER_TOPIC_LIMIT SEED
   python cli.py topic-review-sample-report BATCH_ID
   python cli.py topic-review-sample-queue BATCH_ID [AFTER_ORDINAL|none] [LIMIT] [pending|all]
+  python cli.py topic-sample-gate-preview BATCH_ID
+  python cli.py topic-sample-gate-review BATCH_ID approved|rejected EXPECTED|none OVERALL_DECIDED_BPS TOPIC_DECIDED_BPS OVERALL_ACCEPTANCE_BPS TOPIC_ACCEPTANCE_BPS REASON
   python cli.py topic-statistics-advance [N]  # 推进至多 N 个主题统计（maintenance only，可续跑）
   python cli.py topic-admission-preview PUBLICATION_ID
   python cli.py topic-admission-review PUBLICATION_ID approved|rejected EXPECTED|none MIN_BPS true|false REASON
@@ -452,6 +454,49 @@ def cmd_topic_review_sample_queue(
     print(json.dumps([row.to_dict() for row in rows], ensure_ascii=False, indent=2))
 
 
+def cmd_topic_sample_gate_preview(batch_id: str) -> None:
+    if config.PROCESS_ROLE != "maintenance":
+        raise config.RuntimeConfigurationError(
+            "topic-sample-gate-preview requires maintenance role"
+        )
+    from app.db_admin import verify_database
+    from app.topic_review_sample_gate import sample_gate_preview
+    verify_database(config.DB_PATH, require_current=True)
+    with get_db() as db:
+        result = sample_gate_preview(db, batch_id)
+    print(json.dumps(result.to_dict(), ensure_ascii=False, indent=2))
+
+
+def cmd_topic_sample_gate_review(
+    batch_id: str, decision: str, expected_previous: str,
+    minimum_decided_bps: int, minimum_topic_decided_bps: int,
+    minimum_acceptance_bps: int, minimum_topic_acceptance_bps: int,
+    reason: str,
+) -> None:
+    if config.PROCESS_ROLE != "maintenance":
+        raise config.RuntimeConfigurationError(
+            "topic-sample-gate-review requires maintenance role"
+        )
+    import getpass
+    from app.db_admin import verify_database
+    from app.topic_review_sample_gate import record_sample_evaluation
+    verify_database(config.DB_PATH, require_current=True)
+    with get_db() as db:
+        db.execute("BEGIN IMMEDIATE")
+        result = record_sample_evaluation(
+            db, batch_id=batch_id, decision=decision,
+            expected_previous_evaluation_id=(
+                None if expected_previous == "none" else expected_previous
+            ),
+            minimum_decided_bps=minimum_decided_bps,
+            minimum_topic_decided_bps=minimum_topic_decided_bps,
+            minimum_acceptance_bps=minimum_acceptance_bps,
+            minimum_topic_acceptance_bps=minimum_topic_acceptance_bps,
+            evaluator_id=getpass.getuser(), reason=reason,
+        )
+    print(json.dumps(result.to_dict(), ensure_ascii=False, indent=2))
+
+
 def cmd_topic_statistics_advance(limit: int) -> None:
     if config.PROCESS_ROLE != "maintenance":
         raise config.RuntimeConfigurationError(
@@ -704,6 +749,14 @@ def main() -> None:
             sys.argv[2], sys.argv[3] if len(sys.argv) > 3 else "none",
             int(sys.argv[4]) if len(sys.argv) > 4 else 50,
             sys.argv[5] if len(sys.argv) > 5 else "pending",
+        )
+    elif cmd == "topic-sample-gate-preview" and len(sys.argv) == 3:
+        cmd_topic_sample_gate_preview(sys.argv[2])
+    elif cmd == "topic-sample-gate-review" and len(sys.argv) >= 10:
+        cmd_topic_sample_gate_review(
+            sys.argv[2], sys.argv[3], sys.argv[4], int(sys.argv[5]),
+            int(sys.argv[6]), int(sys.argv[7]), int(sys.argv[8]),
+            " ".join(sys.argv[9:]),
         )
     elif cmd == "topic-statistics-advance":
         cmd_topic_statistics_advance(int(sys.argv[2]) if len(sys.argv) > 2 else 25)

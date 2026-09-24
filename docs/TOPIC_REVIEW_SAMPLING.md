@@ -40,3 +40,7 @@ completion.
 The workflow never creates review decisions and provides no bulk-accept path.
 Each member must still pass through the append-only review ledger. A later
 statistics publication still needs its separate admission review.
+
+After a batch has been reviewed, use the
+[sample evaluation gate](TOPIC_REVIEW_SAMPLE_GATE.md) to freeze the measured
+result and the exact quality thresholds used by the evaluator.

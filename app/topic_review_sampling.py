@@ -364,15 +364,31 @@ def sample_queue(
     ) for row in rows)
 
 
-def sample_report(db: sqlite3.Connection, batch_id: str) -> TopicReviewSampleReport:
+def sample_report(
+    db: sqlite3.Connection,
+    batch_id: str,
+    *,
+    review_cutoff_sequence: int | None = None,
+) -> TopicReviewSampleReport:
     batch = get_sample_batch(db, batch_id)
+    if review_cutoff_sequence is None:
+        review_cutoff_sequence = db.execute(
+            "SELECT COALESCE(MAX(sequence),0) FROM topic_assignment_review_order"
+        ).fetchone()[0]
+    if not isinstance(review_cutoff_sequence, int) or review_cutoff_sequence < 0:
+        raise ValueError("review_cutoff_sequence must be a non-negative integer")
     rows = db.execute(
         """WITH latest_review AS (
                SELECT review.* FROM topic_assignment_reviews AS review
-               WHERE NOT EXISTS(
+               JOIN topic_assignment_review_order AS review_order
+                 ON review_order.review_id=review.id
+               WHERE review_order.sequence<=? AND NOT EXISTS(
                    SELECT 1 FROM topic_assignment_reviews AS later
+                   JOIN topic_assignment_review_order AS later_order
+                     ON later_order.review_id=later.id
                    WHERE later.assignment_id=review.assignment_id
                      AND later.version>review.version
+                     AND later_order.sequence<=?
                )
            )
            SELECT topic.id AS topic_id,version.slug,version.name,
@@ -388,7 +404,7 @@ def sample_report(db: sqlite3.Connection, batch_id: str) -> TopicReviewSampleRep
            WHERE member.batch_id=?
            GROUP BY topic.id,version.slug,version.name
            ORDER BY version.group_key,version.name,topic.id""",
-        (batch_id,),
+        (review_cutoff_sequence, review_cutoff_sequence, batch_id),
     ).fetchall()
     topics = []
     for row in rows:

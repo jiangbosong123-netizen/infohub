@@ -1,0 +1,61 @@
+{
+  "source": "isolated real-data schema-31 database from p18o rehearsal",
+  "production_changed": false,
+  "migration": {
+    "before": 31,
+    "after": 32,
+    "applied": [
+      32
+    ],
+    "integrity": "ok",
+    "foreign_key_violations": 0
+  },
+  "counts_before": {
+    "assignments": 46089,
+    "reviews": 2,
+    "sampling_batches": 1,
+    "sampling_members": 1092
+  },
+  "counts_after": {
+    "assignments": 46089,
+    "reviews": 2,
+    "sampling_batches": 1,
+    "sampling_members": 1092,
+    "sample_evaluations": 1
+  },
+  "frozen_metrics": {
+    "sample_topics": 56,
+    "member_count": 1092,
+    "pending": 1092,
+    "accepted": 0,
+    "rejected": 0,
+    "review_cutoff_sequence": 2,
+    "decided_bps": 0,
+    "acceptance_bps": null,
+    "metrics_sha256": "a3394d8e6ac9280aaced85028da5c62974907347ec973bf1c2768c041d30cca3"
+  },
+  "policy": {
+    "minimum_decided_bps": 10000,
+    "minimum_topic_decided_bps": 10000,
+    "minimum_acceptance_bps": 9000,
+    "minimum_topic_acceptance_bps": 8500
+  },
+  "result": {
+    "approval_blocked": true,
+    "approval_failure": "overall and all 56 per-topic completion and acceptance checks failed",
+    "recorded_decision": "rejected",
+    "recorded_version": 1
+  },
+  "interpretation": [
+    "An unreviewed sample cannot receive an approval.",
+    "A rejection preserves the exact evidence and policy without claiming quality.",
+    "The gate measures sampled candidate precision, not recall.",
+    "This evaluation does not approve topic statistics or activate an API or portal reader."
+  ],
+  "validation": {
+    "focused_tests": "14 passed",
+    "unit_tests": "421 passed",
+    "python_compile": "passed",
+    "git_diff_check": "passed"
+  }
+}
