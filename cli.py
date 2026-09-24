@@ -38,6 +38,9 @@ from __future__ import annotations
   python cli.py topic-review-queue [AFTER|none] [LIMIT] [TOPIC_ID|all]
   python cli.py topic-review-coverage
   python cli.py topic-review ASSIGNMENT_ID accepted|rejected EXPECTED_PREVIOUS|none REASON
+  python cli.py topic-review-sample-create PER_TOPIC_LIMIT SEED
+  python cli.py topic-review-sample-report BATCH_ID
+  python cli.py topic-review-sample-queue BATCH_ID [AFTER_ORDINAL|none] [LIMIT] [pending|all]
   python cli.py topic-statistics-advance [N]  # 推进至多 N 个主题统计（maintenance only，可续跑）
   python cli.py topic-admission-preview PUBLICATION_ID
   python cli.py topic-admission-review PUBLICATION_ID approved|rejected EXPECTED|none MIN_BPS true|false REASON
@@ -398,6 +401,57 @@ def cmd_topic_review(
     print(json.dumps(result.to_dict(), ensure_ascii=False, indent=2))
 
 
+def cmd_topic_review_sample_create(per_topic_limit: int, seed: str) -> None:
+    if config.PROCESS_ROLE != "maintenance":
+        raise config.RuntimeConfigurationError(
+            "topic-review-sample-create requires maintenance role"
+        )
+    import getpass
+    from app.db_admin import verify_database
+    from app.topic_review_sampling import create_sample_batch
+    verify_database(config.DB_PATH, require_current=True)
+    with get_db() as db:
+        db.execute("BEGIN IMMEDIATE")
+        result = create_sample_batch(
+            db, seed=seed, per_topic_limit=per_topic_limit,
+            created_by=getpass.getuser(),
+        )
+    print(json.dumps(result.to_dict(), ensure_ascii=False, indent=2))
+
+
+def cmd_topic_review_sample_report(batch_id: str) -> None:
+    if config.PROCESS_ROLE != "maintenance":
+        raise config.RuntimeConfigurationError(
+            "topic-review-sample-report requires maintenance role"
+        )
+    from app.db_admin import verify_database
+    from app.topic_review_sampling import sample_report
+    verify_database(config.DB_PATH, require_current=True)
+    with get_db() as db:
+        result = sample_report(db, batch_id)
+    print(json.dumps(result.to_dict(), ensure_ascii=False, indent=2))
+
+
+def cmd_topic_review_sample_queue(
+    batch_id: str, after: str, limit: int, mode: str
+) -> None:
+    if config.PROCESS_ROLE != "maintenance":
+        raise config.RuntimeConfigurationError(
+            "topic-review-sample-queue requires maintenance role"
+        )
+    if mode not in {"pending", "all"}:
+        raise ValueError("sample queue mode must be pending or all")
+    from app.db_admin import verify_database
+    from app.topic_review_sampling import sample_queue
+    verify_database(config.DB_PATH, require_current=True)
+    with get_db() as db:
+        rows = sample_queue(
+            db, batch_id, after_ordinal=-1 if after == "none" else int(after),
+            limit=limit, pending_only=mode == "pending",
+        )
+    print(json.dumps([row.to_dict() for row in rows], ensure_ascii=False, indent=2))
+
+
 def cmd_topic_statistics_advance(limit: int) -> None:
     if config.PROCESS_ROLE != "maintenance":
         raise config.RuntimeConfigurationError(
@@ -641,6 +695,16 @@ def main() -> None:
         cmd_topic_review_coverage()
     elif cmd == "topic-review" and len(sys.argv) >= 6:
         cmd_topic_review(sys.argv[2], sys.argv[3], sys.argv[4], " ".join(sys.argv[5:]))
+    elif cmd == "topic-review-sample-create" and len(sys.argv) >= 4:
+        cmd_topic_review_sample_create(int(sys.argv[2]), " ".join(sys.argv[3:]))
+    elif cmd == "topic-review-sample-report" and len(sys.argv) == 3:
+        cmd_topic_review_sample_report(sys.argv[2])
+    elif cmd == "topic-review-sample-queue" and len(sys.argv) >= 3:
+        cmd_topic_review_sample_queue(
+            sys.argv[2], sys.argv[3] if len(sys.argv) > 3 else "none",
+            int(sys.argv[4]) if len(sys.argv) > 4 else 50,
+            sys.argv[5] if len(sys.argv) > 5 else "pending",
+        )
     elif cmd == "topic-statistics-advance":
         cmd_topic_statistics_advance(int(sys.argv[2]) if len(sys.argv) > 2 else 25)
     elif cmd == "topic-admission-preview" and len(sys.argv) == 3:

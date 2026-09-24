@@ -2630,6 +2630,72 @@ def _topic_review_queue_foundation(db: sqlite3.Connection) -> None:
     _execute_script(db, TOPIC_REVIEW_QUEUE_SCHEMA_SQL)
 
 
+TOPIC_REVIEW_SAMPLING_SCHEMA_SQL = """
+CREATE TABLE topic_assignment_review_order (
+    sequence INTEGER PRIMARY KEY AUTOINCREMENT,
+    review_id TEXT NOT NULL UNIQUE REFERENCES topic_assignment_reviews(id)
+);
+INSERT INTO topic_assignment_review_order(review_id)
+SELECT id FROM topic_assignment_reviews ORDER BY rowid;
+CREATE TRIGGER topic_assignment_review_order_review_insert
+AFTER INSERT ON topic_assignment_reviews
+BEGIN
+  INSERT INTO topic_assignment_review_order(review_id) VALUES(NEW.id);
+END;
+CREATE TRIGGER topic_assignment_review_order_no_update
+BEFORE UPDATE ON topic_assignment_review_order
+BEGIN SELECT RAISE(ABORT,'topic assignment review order is immutable'); END;
+CREATE TRIGGER topic_assignment_review_order_no_delete
+BEFORE DELETE ON topic_assignment_review_order
+BEGIN SELECT RAISE(ABORT,'topic assignment review order is immutable'); END;
+
+CREATE TABLE topic_review_sampling_batches (
+    id TEXT PRIMARY KEY,
+    dataset_id TEXT NOT NULL,
+    seed TEXT NOT NULL CHECK(length(trim(seed)) BETWEEN 1 AND 120),
+    per_topic_limit INTEGER NOT NULL CHECK(per_topic_limit BETWEEN 1 AND 250),
+    assignment_cutoff_sequence INTEGER NOT NULL CHECK(assignment_cutoff_sequence>=0),
+    review_cutoff_sequence INTEGER NOT NULL CHECK(review_cutoff_sequence>=0),
+    candidate_count INTEGER NOT NULL CHECK(candidate_count>=0),
+    topic_count INTEGER NOT NULL CHECK(topic_count>=0),
+    member_count INTEGER NOT NULL CHECK(member_count>=0),
+    manifest_sha256 TEXT NOT NULL CHECK(length(manifest_sha256)=64),
+    created_by TEXT NOT NULL CHECK(length(trim(created_by)) BETWEEN 1 AND 120),
+    created_at TEXT NOT NULL,
+    UNIQUE(dataset_id,seed,per_topic_limit,assignment_cutoff_sequence,
+           review_cutoff_sequence,manifest_sha256)
+);
+CREATE TABLE topic_review_sampling_members (
+    batch_id TEXT NOT NULL REFERENCES topic_review_sampling_batches(id),
+    ordinal INTEGER NOT NULL CHECK(ordinal>=0),
+    assignment_id TEXT NOT NULL REFERENCES document_topic_assignments(id),
+    topic_id TEXT NOT NULL REFERENCES topic_catalog(id),
+    queue_sequence INTEGER NOT NULL CHECK(queue_sequence>0),
+    selection_sha256 TEXT NOT NULL CHECK(length(selection_sha256)=64),
+    PRIMARY KEY(batch_id,ordinal),
+    UNIQUE(batch_id,assignment_id)
+);
+CREATE INDEX idx_topic_review_sampling_members_topic
+    ON topic_review_sampling_members(batch_id,topic_id,ordinal);
+CREATE TRIGGER topic_review_sampling_batches_no_update
+BEFORE UPDATE ON topic_review_sampling_batches
+BEGIN SELECT RAISE(ABORT,'topic review sampling batches are immutable'); END;
+CREATE TRIGGER topic_review_sampling_batches_no_delete
+BEFORE DELETE ON topic_review_sampling_batches
+BEGIN SELECT RAISE(ABORT,'topic review sampling batches are immutable'); END;
+CREATE TRIGGER topic_review_sampling_members_no_update
+BEFORE UPDATE ON topic_review_sampling_members
+BEGIN SELECT RAISE(ABORT,'topic review sampling members are immutable'); END;
+CREATE TRIGGER topic_review_sampling_members_no_delete
+BEFORE DELETE ON topic_review_sampling_members
+BEGIN SELECT RAISE(ABORT,'topic review sampling members are immutable'); END;
+"""
+
+
+def _topic_review_sampling_foundation(db: sqlite3.Connection) -> None:
+    _execute_script(db, TOPIC_REVIEW_SAMPLING_SCHEMA_SQL)
+
+
 # Migration 1 freezes the exact legacy schema at main@88a2a1e. Future schema
 # changes must append a new Migration instead of editing this definition.
 MIGRATIONS = (
@@ -2769,6 +2835,8 @@ MIGRATIONS = (
               _topic_statistics_admission_foundation),
     Migration(30, "stable topic assignment review queue",
               TOPIC_REVIEW_QUEUE_SCHEMA_SQL, _topic_review_queue_foundation),
+    Migration(31, "immutable reproducible topic review sampling",
+              TOPIC_REVIEW_SAMPLING_SCHEMA_SQL, _topic_review_sampling_foundation),
 )
 CURRENT_SCHEMA_VERSION = MIGRATIONS[-1].version
 REQUIRED_MIGRATION_COLUMNS = {
@@ -2815,6 +2883,8 @@ EXPECTED_TABLES = LEGACY_ANCHORS | {
     "topic_statistics_state", "topic_statistics_dirty",
     "topic_statistics_admission_reviews",
     "topic_assignment_review_queue",
+    "topic_assignment_review_order", "topic_review_sampling_batches",
+    "topic_review_sampling_members",
 }
 EXPECTED_ITEM_COLUMNS = {
     "id", "source_id", "url", "title", "title_zh", "summary", "raw_summary",
@@ -3025,6 +3095,17 @@ EXPECTED_IDENTITY_AUXILIARY_COLUMNS = {
         "metrics_sha256", "reviewer_id", "reason", "reviewed_at",
     },
     "topic_assignment_review_queue": {"sequence", "assignment_id"},
+    "topic_assignment_review_order": {"sequence", "review_id"},
+    "topic_review_sampling_batches": {
+        "id", "dataset_id", "seed", "per_topic_limit",
+        "assignment_cutoff_sequence", "review_cutoff_sequence",
+        "candidate_count", "topic_count", "member_count", "manifest_sha256",
+        "created_by", "created_at",
+    },
+    "topic_review_sampling_members": {
+        "batch_id", "ordinal", "assignment_id", "topic_id", "queue_sequence",
+        "selection_sha256",
+    },
     "sec_security_keys": {
         "cik", "exchange", "ticker", "security_entity_id", "first_evidence_id",
         "available_at",
@@ -3289,6 +3370,10 @@ EXPECTED_INGEST_TRIGGERS = {
     "topic_statistics_admission_no_update", "topic_statistics_admission_no_delete",
     "topic_assignment_review_queue_assignment_insert",
     "topic_assignment_review_queue_no_update", "topic_assignment_review_queue_no_delete",
+    "topic_assignment_review_order_review_insert",
+    "topic_assignment_review_order_no_update", "topic_assignment_review_order_no_delete",
+    "topic_review_sampling_batches_no_update", "topic_review_sampling_batches_no_delete",
+    "topic_review_sampling_members_no_update", "topic_review_sampling_members_no_delete",
     "sec_security_keys_no_update", "sec_security_keys_no_delete",
     "sec_filing_versions_valid_append", "sec_filing_versions_no_update",
     "sec_filing_versions_no_delete", "sec_filings_identity_immutable",
@@ -3800,6 +3885,11 @@ def _assert_current_schema(db: sqlite3.Connection) -> None:
         raise DatabaseVerificationError(
             "topic assignment review queue does not cover every assignment"
         )
+    try:
+        from .topic_review_sampling import verify_sampling_batches
+        verify_sampling_batches(db)
+    except (ValueError, RuntimeError) as exc:
+        raise DatabaseVerificationError(str(exc)) from exc
     invalid_documents = db.execute(
         """SELECT COUNT(*) FROM documents AS document
            LEFT JOIN document_versions AS version

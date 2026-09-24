@@ -40,6 +40,11 @@ Migration 30 backfills one immutable queue sequence per existing assignment and
 assigns a higher sequence to each future assignment, so late inserts cannot
 appear behind a saved cursor.
 
+For measured evaluation rather than an unbounded queue walk, use the
+[immutable sampling workflow](TOPIC_REVIEW_SAMPLING.md). It selects a fixed
+number of unresolved candidates per topic and reports the human decisions
+without changing this review ledger.
+
 This ledger is the prerequisite for topic statistics. Public counts must use
 the effective decision and must not count an unreviewed `candidate`. The
 initial legacy import therefore remains excluded until explicitly reviewed.
