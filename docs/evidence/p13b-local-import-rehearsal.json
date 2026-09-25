@@ -1,0 +1,21 @@
+{
+  "captured_at": "2026-09-19T14:43:04.425187Z",
+  "evidence_version": "p13b-local-isolated-rehearsal-v1",
+  "limitations": [
+    "only two legacy rows backfilled and one item imported in this rehearsal",
+    "historical model/prompt/usage cannot be recovered",
+    "quality metrics and Windows production behavior not established"
+  ],
+  "migrated_schema_version": 16,
+  "p07_backfill_batch_processed": 2,
+  "provider_calls": 0,
+  "result_status_counts": {
+    "needs_review": 4
+  },
+  "results_published": 4,
+  "sample_legacy_items_enqueued": 1,
+  "scope": "Mac legacy database consistent copy; not a Windows production import",
+  "source_access": "SQLite consistent backup; original database read-only",
+  "source_legacy_items_in_copy": 31231,
+  "task_jobs_ensured": 4
+}

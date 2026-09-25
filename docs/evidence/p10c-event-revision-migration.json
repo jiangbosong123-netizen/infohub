@@ -1,0 +1,63 @@
+{
+  "checked_at": "2026-09-17",
+  "scope": "P10c event fact revision schema rehearsal",
+  "source": {
+    "path_class": "local development database",
+    "access": "read-only consistent SQLite backup",
+    "size_bytes": 82362368,
+    "production_or_windows_accessed": false
+  },
+  "migration": {
+    "previous_state": "legacy_unversioned",
+    "result_schema_version": 13,
+    "legacy_core_unchanged": true,
+    "new_table_counts": {
+      "event_revisions": 0
+    }
+  },
+  "legacy_core": {
+    "companies": {
+      "rows": 23,
+      "sha256": "84a8b255408ee72d72b1360fec2b8796f767c920e62d4c639773596c163567fc"
+    },
+    "sources": {
+      "rows": 57,
+      "sha256": "9dc4524c1b91d7483bab34d738d62d83eb1a711cd18661f150c3657c4a8dcee0"
+    },
+    "items": {
+      "rows": 25155,
+      "sha256": "218ab5da13b1d4cb8f62a9b3d7cb7d84f5f975ebaabedd9a736afb7ba182c352"
+    },
+    "item_discoveries": {
+      "rows": 26446,
+      "sha256": "f64698af0c594706343a4ed34051305b7af1325892ec5d5e7479dd44b3be58e2"
+    },
+    "item_companies": {
+      "rows": 14560,
+      "sha256": "8979601ce7d3f7f9b34aa44e5f41f0c48dce7e48ed05955dd5bbb67f4bc5d8aa"
+    },
+    "daily_reports": {
+      "rows": 6,
+      "sha256": "a13a98bdb2e88956f90518f08e3ba476723a0a9ca83e245c7f3f1e3d06fb86f7"
+    },
+    "stories": {
+      "rows": 21644,
+      "sha256": "f5e93e79745b249362d8944ae13b189ca38a9c80bdef92e1079470fe9e0a22ae"
+    },
+    "story_items": {
+      "rows": 17745,
+      "sha256": "c50b5b9a4ccd547096f761c66fd5dbe3501f82939b068aa0d9d228336a55fa34"
+    }
+  },
+  "verification": {
+    "integrity_before": "ok",
+    "integrity_after": "ok",
+    "foreign_key_violations": 0,
+    "source_written": false,
+    "temporary_copy_deleted": true
+  },
+  "limits": [
+    "This rehearsal used the local development database, not the Windows production database.",
+    "The event revision table is intentionally empty; atomic revision writes are covered by unit tests."
+  ]
+}

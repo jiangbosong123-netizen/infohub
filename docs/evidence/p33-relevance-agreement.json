@@ -1,0 +1,16 @@
+{
+  "module": "app.evaluation_agreement",
+  "environment": "Synthetic private workflow fixtures only; no real human labels",
+  "checks": [
+    "Named reviewer pair is measured without mixing third-person gold labels or other reviewer pairs.",
+    "Three-label Cohen kappa, confusion counts and split/language coverage are computed from validated frozen reviews.",
+    "No pairs and degenerate single-class reviews cannot masquerade as perfect kappa.",
+    "The CLI reports aggregate counts only and does not change the private dataset."
+  ],
+  "real_human_reviews": 0,
+  "real_agreement_measurement": null,
+  "limitations": [
+    "A human must verify reviewer identity and independence.",
+    "A kappa result alone does not certify the gold dataset or model quality."
+  ]
+}

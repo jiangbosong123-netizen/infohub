@@ -1,0 +1,15 @@
+{
+  "source": "Mac isolated 36,262-item copy; not Windows production",
+  "source_schema_version": 21,
+  "target_schema_version": 24,
+  "applied_versions": [22, 23, 24],
+  "pre_migration_backup_verified": true,
+  "database_integrity": "ok",
+  "legacy_compare_status": "ok",
+  "legacy_tables_unchanged": 11,
+  "items": 36262,
+  "api_keys": 0,
+  "api_rate_buckets": 0,
+  "api_request_leases": 0,
+  "windows_export_verified": false
+}

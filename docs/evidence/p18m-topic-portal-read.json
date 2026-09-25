@@ -1,0 +1,29 @@
+{
+  "source": "isolated real-data schema-29 database from p18k rehearsal",
+  "production_changed": false,
+  "database": {
+    "schema_version": 29,
+    "integrity": "ok",
+    "foreign_key_violations": 0
+  },
+  "portal_switch": {
+    "configured_default": false,
+    "rejected_publication_boundary": {
+      "type": "TopicStatisticsAdmissionError",
+      "reason": "topic statistics publication has no current approval",
+      "http_status": 503
+    },
+    "silent_legacy_fallback": false
+  },
+  "expected": "The audited portal path refuses the current rejected publication; the default-off legacy path is unchanged.",
+  "limitations": [
+    "No production approval exists, so real-data rendering is deliberately not rehearsed.",
+    "Mac isolated copy only; Windows, feature flags, and legacy portal were not changed."
+  ],
+  "validation": {
+    "focused_tests": "34 passed",
+    "unit_tests": "414 passed",
+    "python_compile": "passed",
+    "git_diff_check": "passed"
+  }
+}

@@ -13,6 +13,9 @@ from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 
 from .. import company_match
 from ..database import get_db
+from ..documents import project_candidate
+from ..ingest import RawObservation, begin_ingest_run, finish_ingest_run, observe_candidate
+from ..sec_identity import project_sec_candidate
 from . import fastnews, hkex_source, html_source, rss_source, sec_source, sina_source
 from . import googlenews
 from .sources import all_sources
@@ -45,7 +48,41 @@ def _normalize_url(url: str) -> str:
                        urlencode(query), ""))
 
 
-def insert_item(source_key: str, raw: dict, via: str = "normal") -> bool:
+def _legacy_publication_projection(raw: dict) -> tuple[str, str]:
+    """Keep the NOT NULL legacy page sortable without inventing source truth."""
+    inserted = datetime.now(timezone.utc)
+    observed = inserted
+    try:
+        candidate_observed = datetime.fromisoformat(
+            str(raw.get("observed_at") or "").replace("Z", "+00:00")
+        )
+        if candidate_observed.tzinfo is None:
+            raise ValueError("naive observed_at")
+        observed = candidate_observed.astimezone(timezone.utc)
+    except (TypeError, ValueError):
+        pass
+    try:
+        published = datetime.fromisoformat(
+            str(raw.get("published_at") or "").replace("Z", "+00:00")
+        )
+        if published.tzinfo is None:
+            raise ValueError("naive source timestamp")
+        published = published.astimezone(timezone.utc)
+        if published > observed + timedelta(minutes=10):
+            raise ValueError("future source timestamp")
+        return published.isoformat(), "source_published"
+    except (TypeError, ValueError):
+        basis = "connector_observed" if observed != inserted else "item_inserted"
+        return observed.isoformat(), basis
+
+
+def insert_item(
+    source_key: str,
+    raw: dict,
+    via: str = "normal",
+    *,
+    observation: RawObservation | None = None,
+) -> bool:
     """入库一条（去重）。返回是否新插入。raw 带 _error 时只记日志。"""
     if "_error" in raw:
         log.warning("源 %s 部分子任务失败: %s", source_key, raw["_error"])
@@ -54,22 +91,18 @@ def insert_item(source_key: str, raw: dict, via: str = "normal") -> bool:
     title = (raw.get("title") or "").strip()
     if not url or not title:
         return False
-    try:
-        published = datetime.fromisoformat(raw.get("published_at") or "")
-        if published.tzinfo is None:
-            published = published.replace(tzinfo=timezone.utc)
-        published = published.astimezone(timezone.utc)
-        if published > datetime.now(timezone.utc) + timedelta(minutes=10):
-            published = datetime.now(timezone.utc)
-    except (ValueError, TypeError):
-        published = datetime.now(timezone.utc)
-    published_at = published.isoformat()
+    published_at, legacy_time_basis = _legacy_publication_projection(raw)
     with get_db() as db:
-        src = db.execute("SELECT id, channel, tier FROM sources WHERE key=?", (source_key,)).fetchone()
+        db.execute("BEGIN IMMEDIATE")
+        src = db.execute(
+            "SELECT id,channel,tier,type FROM sources WHERE key=?", (source_key,)
+        ).fetchone()
         if not src:
             return False
         text = f"{title} {raw.get('summary') or ''}"
         slugs = list(dict.fromkeys((raw.get("companies") or []) + company_match.match_companies(text)))
+        legacy_extra = dict(raw.get("extra") or {})
+        legacy_extra["_legacy_time_basis"] = legacy_time_basis
         cur = db.execute(
             """INSERT OR IGNORE INTO items (source_id, url, title, title_en, summary, raw_summary, channel, event_type,
                                   score, heat, companies, official, via, published_at, fetched_at, extra)
@@ -77,7 +110,7 @@ def insert_item(source_key: str, raw: dict, via: str = "normal") -> bool:
             (src["id"], url, title, raw.get("title_en") or "", raw.get("summary") or "", raw.get("summary") or "",
              raw.get("channel") or src["channel"], raw.get("event_type") or "", None, 0,
              json.dumps(slugs, ensure_ascii=False), 1 if raw.get("official") or src["tier"] == "official" else 0,
-             via, published_at, _now(), json.dumps(raw.get("extra") or {}, ensure_ascii=False)),
+             via, published_at, _now(), json.dumps(legacy_extra, ensure_ascii=False)),
         )
         inserted = bool(cur.rowcount)
         if inserted:
@@ -98,6 +131,32 @@ def insert_item(source_key: str, raw: dict, via: str = "normal") -> bool:
             if row:
                 db.execute("INSERT OR IGNORE INTO item_companies (item_id, company_id) VALUES (?,?)",
                            (item_id, row["id"]))
+        if observation is not None:
+            projection = project_candidate(
+                db,
+                source=src,
+                legacy_item_id=item_id,
+                candidate=raw,
+                canonical_url=url,
+                observation=observation,
+            )
+            if src["type"] == "sec":
+                project_sec_candidate(
+                    db,
+                    candidate=raw,
+                    observation=observation,
+                    document=projection,
+                )
+            if projection.created_version and not inserted:
+                # ``items`` remains the compatibility projection used by the
+                # portal until versioned reads are enabled in a later PR.
+                values = [title, raw.get("summary") or "", raw.get("summary") or ""]
+                assignment = "title=?,summary=?,raw_summary=?"
+                if projection.published_at is not None:
+                    assignment += ",published_at=?"
+                    values.append(projection.published_at)
+                values.append(item_id)
+                db.execute(f"UPDATE items SET {assignment} WHERE id=?", values)
     return inserted
 
 
@@ -108,28 +167,62 @@ def run_source(source: dict) -> tuple[int, bool, str]:
         message = f"未知源类型 {source['type']}"
         _record(source["key"], ok=False, new=0, message=message)
         return 0, False, message
+    ingest_run = begin_ingest_run(source)
     try:
         raws = fetcher(source)
     except Exception as exc:  # noqa: BLE001 - 源级失败，记健康状态
         log.warning("源 %s 抓取失败: %s", source["key"], exc)
+        finish_ingest_run(
+            ingest_run,
+            status="failed",
+            raw_count=0,
+            accepted_count=0,
+            duplicate_count=0,
+            rejected_count=0,
+            byte_count=0,
+            error_code=f"fetch_{type(exc).__name__}",
+        )
         _record(source["key"], ok=False, new=0, message=str(exc)[:300])
         return 0, False, str(exc)[:300]
 
     errors = [r["_error"] for r in raws if "_error" in r]
     inserted = 0
-    for raw in raws:
+    accepted = 0
+    duplicates = 0
+    rejected = 0
+    observed_bytes = 0
+    for ordinal, raw in enumerate(raws):
         if "_error" in raw:
             continue
         try:
-            if insert_item(source["key"], raw):
+            observation = observe_candidate(
+                ingest_run, raw, ordinal=ordinal, observed_at=raw.get("observed_at")
+            )
+            observed_bytes += observation.size_bytes
+            if insert_item(source["key"], raw, observation=observation):
                 inserted += 1
+            else:
+                duplicates += 1
+            accepted += 1
         except Exception as exc:
-            errors.append(f"入库失败: {type(exc).__name__}")
-            log.exception("源 %s 条目入库失败", source["key"])
+            rejected += 1
+            errors.append(f"证据或入库失败: {type(exc).__name__}")
+            log.exception("源 %s 条目证据或入库失败", source["key"])
     ok = not errors  # 部分失败也展示，已成功抓取的条目照常保留
     message = "; ".join(errors[-3:]) if errors else ""
+    run_status = "succeeded" if ok else ("partial" if accepted else "failed")
+    finish_ingest_run(
+        ingest_run,
+        status=run_status,
+        raw_count=sum("_error" not in raw for raw in raws),
+        accepted_count=accepted,
+        duplicate_count=duplicates,
+        rejected_count=rejected,
+        byte_count=observed_bytes,
+        error_code="candidate_rejected" if errors else None,
+    )
     _record(source["key"], ok=ok, new=inserted, message=message,
-            partial=bool(errors) and len(errors)<len(raws))
+            partial=bool(errors) and accepted > 0)
     return inserted, ok, message
 
 
@@ -223,7 +316,8 @@ def upsert_sources() -> None:
                    VALUES (?,?,?,?,?,?,?,1,?)
                    ON CONFLICT(key) DO UPDATE SET name=excluded.name, url=excluded.url,
                        channel=excluded.channel, tier=excluded.tier, type=excluded.type,
-                       company_slug=excluded.company_slug, interval_minutes=excluded.interval_minutes""",
+                       company_slug=excluded.company_slug, interval_minutes=excluded.interval_minutes,
+                       enabled=1""",
                 (s["key"], s["name"], s["channel"], s.get("tier", "media"), s["type"],
                  s.get("url", ""), s.get("company_slug", ""), s.get("interval_minutes", 30)))
             if previous and previous["channel"] != s["channel"]:

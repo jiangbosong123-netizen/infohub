@@ -9,7 +9,6 @@ import markdown as md
 import nh3
 
 from .. import config, ranking
-from ..config import APP_TZ
 from ..database import get_db
 
 log = logging.getLogger(__name__)
@@ -23,7 +22,7 @@ EVENT_NAMES = {
 
 
 def _day_bounds(date_str: str) -> tuple[str, str]:
-    d0 = datetime.strptime(date_str, "%Y-%m-%d").replace(tzinfo=APP_TZ)
+    d0 = datetime.strptime(date_str, "%Y-%m-%d").replace(tzinfo=config.APP_TZ)
     return d0.astimezone(timezone.utc).isoformat(), (d0 + timedelta(days=1)).astimezone(timezone.utc).isoformat()
 
 
@@ -62,7 +61,7 @@ def _collect(date_str: str) -> dict:
         d = dict(r)
         d["title"] = r["title_zh"] if r["title_zh"] and r["title_zh"] != "-" else r["title"]  # 优先中文标题
         d.pop("title_zh", None)
-        d["time"] = datetime.fromisoformat(r["published_at"]).astimezone(APP_TZ).strftime("%H:%M")
+        d["time"] = datetime.fromisoformat(r["published_at"]).astimezone(config.APP_TZ).strftime("%H:%M")
         out_items.append(d)
     return dict(items=out_items, clusters=clusters[:12])
 
@@ -86,7 +85,7 @@ def _digest_fallback(date_str: str, data: dict) -> str:
             continue
         lines += [f"## {CHANNEL_NAMES.get(ch, ch)}", ""]
         for it in its[:20]:
-            hm = datetime.fromisoformat(it["published_at"]).astimezone(APP_TZ).strftime("%H:%M")
+            hm = datetime.fromisoformat(it["published_at"]).astimezone(config.APP_TZ).strftime("%H:%M")
             tag = f"（{EVENT_NAMES.get(it['event_type'], '')}）" if it["event_type"] else ""
             score = f" · 评分 {it['score']}" if it["score"] is not None else ""
             lines.append(f"- **{hm}** [{it['title']}]({it['url']}) — {it['source_name']}{score}{tag}")
@@ -96,9 +95,13 @@ def _digest_fallback(date_str: str, data: dict) -> str:
     return "\n".join(lines)
 
 
-def generate_daily(date_str: str | None = None) -> str | None:
-    """生成（或覆盖）某日日报，返回日期。默认覆盖「昨天」。"""
-    date_str = date_str or (datetime.now(APP_TZ) - timedelta(days=1)).strftime("%Y-%m-%d")
+def generate_daily(date_str: str | None = None, *, overwrite: bool = True) -> str | None:
+    """Generate a legacy report; scheduled calls may forbid replacing existing work."""
+    date_str = date_str or (datetime.now(config.APP_TZ) - timedelta(days=1)).strftime("%Y-%m-%d")
+    if not overwrite:
+        with get_db() as db:
+            if db.execute("SELECT 1 FROM daily_reports WHERE date=?", (date_str,)).fetchone():
+                return None
     data = _collect(date_str)
     if not data["items"] and not data["clusters"]:
         log.info("%s 无数据，跳过日报", date_str)
@@ -114,11 +117,25 @@ def generate_daily(date_str: str | None = None) -> str | None:
         content = _digest_fallback(date_str, data)
 
     with get_db() as db:
-        db.execute(
-            """INSERT INTO daily_reports (date, content, created_at) VALUES (?,?,?)
-               ON CONFLICT(date) DO UPDATE SET content=excluded.content,
-                                              created_at=excluded.created_at""",
-            (date_str, content, datetime.now(APP_TZ).isoformat()))
+        if overwrite:
+            db.execute(
+                """INSERT INTO daily_reports (date, content, created_at) VALUES (?,?,?)
+                   ON CONFLICT(date) DO UPDATE SET content=excluded.content,
+                                                  created_at=excluded.created_at""",
+                (date_str, content, datetime.now(config.APP_TZ).isoformat()))
+        else:
+            inserted = db.execute(
+                """INSERT INTO daily_reports (date, content, created_at)
+                   SELECT ?,?,? WHERE NOT EXISTS (
+                     SELECT 1 FROM report_publications p JOIN dataset_state d
+                       ON d.singleton=1 AND d.dataset_id=p.dataset_id
+                     WHERE p.report_key=?
+                   ) ON CONFLICT(date) DO NOTHING""",
+                (date_str, content, datetime.now(config.APP_TZ).isoformat(),
+                 f"calendar_daily:{date_str}:{config.APP_TZ}"),
+            ).rowcount
+            if not inserted:
+                return None
     return date_str
 
 

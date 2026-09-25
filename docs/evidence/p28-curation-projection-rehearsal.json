@@ -1,0 +1,45 @@
+{
+  "recorded_date": "2026-09-21",
+  "environment": "Mac disposable SQLite copy of the isolated historical backfill; Windows off",
+  "source_snapshot": "p22 isolated backfill with p24 offline legacy curation publications",
+  "search_projection": {
+    "batches": 74,
+    "items": 36262,
+    "indexed_documents": 36262,
+    "dirty_remaining": 0,
+    "stale_publication_pointers": 0,
+    "readiness": "ready"
+  },
+  "hot_projection": {
+    "batches": 312,
+    "stories": 31042,
+    "indexed_metrics": 31042,
+    "dirty_remaining": 0,
+    "readiness": "ready"
+  },
+  "portal_http_smoke": {
+    "routes": ["/", "/search?q=AI", "/hot", "/topics", "/api/live"],
+    "http_statuses": [200, 200, 200, 200, 200],
+    "search_projection_calls": 1,
+    "hot_projection_calls": 1,
+    "curation_flags_enabled_only_for_isolated_smoke": true
+  },
+  "validation": {
+    "db_projection_audit": "ok",
+    "db_verify": "ok",
+    "evidence_verify": "ok",
+    "legacy_tables_compared": 11,
+    "legacy_tables_unchanged": 11,
+    "unit_tests": 319,
+    "unit_tests_result": "ok"
+  },
+  "limitations": [
+    "HTTP 200 and projection invocation prove read-path wiring, not content quality or ranking relevance.",
+    "No human judgment of topic, event, source or NLP correctness was performed.",
+    "The snapshot is historical; new production writes must enqueue and refresh dirty projections before cutover.",
+    "The read-only audit checks coverage and publication pointers but does not independently prove FTS token accuracy or recalculate every heat score.",
+    "No Mac live database or Windows production environment was modified."
+  ],
+  "live_database_modified": false,
+  "windows_touched": false
+}

@@ -8,6 +8,7 @@
       {% if it.official %}<span class="badge official">官方</span>{% endif %}
       {% if it.event_label %}<span class="badge event">{{ it.event_label }}</span>{% endif %}
       {% if it.translated %}<span class="badge tr">译</span>{% endif %}
+      {% if it.curation_needs_review %}<span class="badge">AI 待复核</span>{% endif %}
       {% if it.via == 'reconcile' %}<span class="badge recon">对账补录</span>{% endif %}
       {% for c in it.companies %}<a class="chip sm" href="/topics/{{ c.slug }}">{{ c.label }}</a>{% endfor %}
       <span class="t-spacer"></span>
@@ -29,6 +30,7 @@
 {% endmacro %}
 
 {% macro focus_list(clusters) %}
+{% if clusters and clusters[0].metrics_pending %}<p class="hint">热点统计正在更新，暂时显示旧口径数值。</p>{% endif %}
 <ol class="hotlist event-list">
 {% for c in clusters %}
 <li id="cluster-{{ c.id }}"><span class="rank r{{ loop.index if loop.index <= 3 else 0 }}">{{ loop.index }}</span>

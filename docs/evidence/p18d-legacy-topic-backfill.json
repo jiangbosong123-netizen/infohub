@@ -1,0 +1,71 @@
+{
+  "source": "isolated real-data schema-25 Mac rehearsal copy (47,266 stable documents already backfilled)",
+  "production_changed": false,
+  "schema": {
+    "before": 25,
+    "after": 26,
+    "applied": [
+      26
+    ],
+    "migration_26_checksum": "f02343b05dd298a027515e922db38e51234b0934a92a56476f0f6f2139e429d5",
+    "expected_migration_26_checksum": "f02343b05dd298a027515e922db38e51234b0934a92a56476f0f6f2139e429d5"
+  },
+  "legacy_topic_backfill": {
+    "status": "completed",
+    "cutoff_item_id": 47266,
+    "source_count": 46089,
+    "snapshot_count": 46089,
+    "mapped_count": 46089,
+    "unexplained_count": 0,
+    "batch_processed": 1089,
+    "source_sha256": "dd3ee24a7993ca0e71253f2eccbdaa5916421efdcacbf6668ffbd231505bd216",
+    "manifest_sha256": "e1be8e85e2a64c5d72e71858ef3619d491337c20480445b530d07dd7bb51f70d",
+    "runs": 10
+  },
+  "assertions": {
+    "statuses": {
+      "candidate": 46089
+    },
+    "methods": {
+      "legacy_projection": 46089
+    },
+    "invariant_violations": 0
+  },
+  "legacy_preservation": {
+    "items_before": [
+      47266,
+      "c58cbf1602adf472f2cf0b73bfff20d7071f6dc5e9e9ad89cc6ee176813aa116"
+    ],
+    "items_after": [
+      47266,
+      "c58cbf1602adf472f2cf0b73bfff20d7071f6dc5e9e9ad89cc6ee176813aa116"
+    ],
+    "item_topics_before": [
+      46089,
+      "299c9fb362371569117aa39793c53fa03e410b6c883ff2d62aa6dc458d0c3cbb"
+    ],
+    "item_topics_after": [
+      46089,
+      "299c9fb362371569117aa39793c53fa03e410b6c883ff2d62aa6dc458d0c3cbb"
+    ],
+    "unchanged": true
+  },
+  "verification": {
+    "state": "current",
+    "integrity": "ok",
+    "foreign_key_violations": 0
+  },
+  "elapsed_seconds": 10.511,
+  "rehearsed_at": "2026-09-23",
+  "runtime": "Python 3.12 isolated virtual environment on macOS",
+  "validation": {
+    "unit_tests": "385 passed",
+    "focused_tests": "27 passed",
+    "git_diff_check": "passed"
+  },
+  "limitations": [
+    "Mac real-data copy only; Windows production remained off and was not exercised.",
+    "The prerequisite document backfill and catalog were already complete in this schema-25 rehearsal source.",
+    "Legacy assignments remain candidate and are not eligible for public topic counts."
+  ]
+}

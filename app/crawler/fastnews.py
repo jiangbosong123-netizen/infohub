@@ -15,6 +15,7 @@ from urllib.parse import urlencode
 from bs4 import BeautifulSoup
 
 from . import http
+from ..source_time import parse_source_time
 
 log = logging.getLogger(__name__)
 
@@ -50,6 +51,7 @@ def fetch_cls(source: dict) -> list[dict]:
     params["sign"] = _cls_sign(params)
     resp = http.fetch(f"{CLS_API}?{urlencode(params)}",
                       headers={"Referer": "https://www.cls.cn/telegraph"})
+    response_observed_at = datetime.now(timezone.utc)
     data = resp.json()
     out = []
     for rec in ((data.get("data") or {}).get("roll_data") or [])[:50]:
@@ -58,18 +60,26 @@ def fetch_cls(source: dict) -> list[dict]:
         if not title:
             continue
         ctime = rec.get("ctime")
-        published = (datetime.fromtimestamp(int(ctime), tz=timezone.utc).isoformat()
-                     if ctime else datetime.now(timezone.utc).isoformat())
+        source_time = parse_source_time(
+            ctime, field_path="data.roll_data.ctime", role="published",
+            epoch_unit="seconds", interpretation="CLS Unix seconds",
+            observed_at=response_observed_at,
+        )
+        published = source_time.utc if source_time.status == "valid" else None
         link = (rec.get("shareurl") or "").strip() or f"https://www.cls.cn/detail/{rec.get('id')}"
         out.append(dict(url=link, title=title, summary=content,
                         published_at=published, event_type="", official=0,
-                        companies=None, extra={}))
+                        companies=None, extra={},
+                        source_time_values=[source_time.to_dict()],
+                        observed_at=response_observed_at.isoformat(),
+                        source_record=rec, payload_kind="api_record"))
     return out
 
 
 def fetch_wscn_live(source: dict) -> list[dict]:
     """华尔街见闻快讯（全球频道）：分钟级，比其 RSS 快。"""
     resp = http.fetch(f"{WSCN_LIVE_API}?channel=global-channel&client=web&limit=50")
+    response_observed_at = datetime.now(timezone.utc)
     data = resp.json()
     out = []
     for rec in ((data.get("data") or {}).get("items") or [])[:50]:
@@ -85,9 +95,16 @@ def fetch_wscn_live(source: dict) -> list[dict]:
         if not uri:
             uri = f"https://wallstreetcn.com/live/{rec.get('id')}"
         ts = rec.get("display_time")
-        published = (datetime.fromtimestamp(int(ts), tz=timezone.utc).isoformat()
-                     if ts else datetime.now(timezone.utc).isoformat())
+        source_time = parse_source_time(
+            ts, field_path="data.items.display_time", role="published",
+            epoch_unit="seconds", interpretation="WSCN Unix seconds",
+            observed_at=response_observed_at,
+        )
+        published = source_time.utc if source_time.status == "valid" else None
         out.append(dict(url=uri, title=title, summary=content,
                         published_at=published, event_type="", official=0,
-                        companies=None, extra={}))
+                        companies=None, extra={},
+                        source_time_values=[source_time.to_dict()],
+                        observed_at=response_observed_at.isoformat(),
+                        source_record=rec, payload_kind="api_record"))
     return out

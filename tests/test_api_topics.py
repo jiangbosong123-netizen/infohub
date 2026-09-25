@@ -1,0 +1,350 @@
+import tempfile
+import unittest
+from datetime import datetime, timedelta, timezone
+from pathlib import Path
+from unittest.mock import patch
+
+from fastapi.testclient import TestClient
+
+from app import config, database, db_admin
+from app.api_auth import create_consumer, issue_api_key
+from app.topic_statistics import advance_topic_statistics
+from app.topic_statistics_admission import admission_preview, record_admission_review
+from app.topic_assignment_reviews import record_topic_assignment_review
+from app.topic_review_sample_gate import record_sample_evaluation
+from app.topic_review_sampling import create_sample_batch, sample_queue
+from app.web.routes import app
+
+
+NOW = "2026-09-23T17:00:00.000000Z"
+
+
+class ApiTopicTests(unittest.TestCase):
+    def setUp(self):
+        temporary = tempfile.TemporaryDirectory()
+        self.addCleanup(temporary.cleanup)
+        self.path = Path(temporary.name) / "topics.db"
+        for mocked in (
+            patch.object(database, "DB_PATH", self.path),
+            patch.object(config, "DB_PATH", self.path),
+        ):
+            mocked.start()
+            self.addCleanup(mocked.stop)
+        db_admin.migrate_database(self.path)
+        now = datetime.now(timezone.utc)
+        with database.get_db(self.path) as db:
+            consumer = create_consumer(db, "topic-test", actor="test")
+            self.key = issue_api_key(
+                db, consumer, {"read:catalog"}, expires_at=now + timedelta(days=1),
+                actor="test",
+            )
+            wrong = create_consumer(db, "topic-wrong", actor="test")
+            self.wrong_key = issue_api_key(
+                db, wrong, {"read:events"}, expires_at=now + timedelta(days=1),
+                actor="test",
+            )
+            dataset = db.execute("SELECT dataset_id FROM dataset_state").fetchone()[0]
+            self._topic(db, dataset, "topic-a", "tv-a", "alpha", "technology")
+            self._topic(db, dataset, "topic-b", "tv-b", "beta", "macro")
+            self._topic(db, dataset, "topic-c", "tv-c", "gamma", "technology")
+            db.execute("INSERT INTO sources(id,key,name,channel,type) VALUES(1,'fixture','Fixture','ai','rss')")
+            self._assignment(db, dataset, 1, "tv-a", "Initial admitted item")
+            self.sample_evaluation = self._approve_quality(db, "api-initial")
+        advance_topic_statistics(25)
+        advance_topic_statistics(25)
+        with database.get_db(self.path) as db:
+            publication_id = db.execute(
+                "SELECT current_publication_id FROM topic_statistics_state WHERE singleton=1"
+            ).fetchone()[0]
+            record_admission_review(
+                db, publication_id=publication_id, decision="approved",
+                expected_previous_review_id=None, minimum_decided_assignment_bps=0,
+                allow_zero_members=False, sample_evaluation_id=self.sample_evaluation,
+                reviewer_id="api-fixture", reason="Synthetic API fixture.", now=NOW,
+            )
+        self.db_patch = patch("app.web.routes.get_db", lambda: database.get_db(self.path))
+        self.auth_patch = patch("app.web.v1_auth.get_db", lambda: database.get_db(self.path))
+        self.flag_patch = patch("app.config.API_CATALOG_ENABLED", True)
+        for mocked in (self.db_patch, self.auth_patch, self.flag_patch):
+            mocked.start()
+            self.addCleanup(mocked.stop)
+        self.client = TestClient(app)
+
+    def _topic(self, db, dataset, topic_id, version_id, slug, group):
+        db.execute(
+            "INSERT INTO topic_catalog(id,dataset_id,status,created_at) VALUES(?,?,'active',?)",
+            (topic_id, dataset, NOW),
+        )
+        db.execute(
+            """INSERT INTO topic_versions(
+                   id,topic_id,version,slug,name,group_key,description,rules_json,
+                   rules_hash,version_sha256,status,available_at)
+               VALUES(?,?,1,?,?,?,'','{}',?,?,'active',?)""",
+            (version_id, topic_id, slug, slug.title(), group, "a" * 64, "b" * 64, NOW),
+        )
+        db.execute(
+            "UPDATE topic_catalog SET current_version_id=? WHERE id=?", (version_id, topic_id)
+        )
+
+    def _assignment(self, db, dataset, index, topic_version_id, title):
+        db.execute(
+            """INSERT INTO items(id,source_id,url,title,channel,published_at,fetched_at)
+               VALUES(?,1,?,?,'ai',?,?)""",
+            (index, f"https://example.test/{index}", title, NOW, NOW),
+        )
+        db.execute(
+            "INSERT INTO documents(id,dataset_id,legacy_item_id,kind,first_seen_at) VALUES(?,?,?,'article',?)",
+            (f"doc-{index}", dataset, index, NOW),
+        )
+        db.execute(
+            """INSERT INTO document_versions(
+                   id,document_id,version,normalizer_version,normalized_at,title_original,
+                   language,text,content_sha256,version_sha256,canonical_url,source_id,
+                   published_precision,time_status,time_rule_version,tzdb_version,
+                   content_origin,content_extent,truncated,extraction_status,correction_kind,
+                   available_at,availability_basis,point_in_time_eligible)
+               VALUES(?,?,1,'v1',?,?,'en','',?,?,?,1,'unknown','legacy_unverified','legacy',
+                      'unknown','legacy_unknown','none',0,'not_attempted','initial',?,
+                      'legacy_unknown',0)""",
+            (f"dv-{index}", f"doc-{index}", NOW, title, f"{index:064x}",
+             f"{index + 100:064x}", f"https://example.test/{index}", NOW),
+        )
+        db.execute(
+            "UPDATE documents SET current_version_id=? WHERE id=?",
+            (f"dv-{index}", f"doc-{index}"),
+        )
+        db.execute(
+            """INSERT INTO document_topic_assignments(
+                   id,document_version_id,topic_version_id,method,method_version,status,available_at)
+               VALUES(?,?,?,'fixture','fixture-v1','candidate',?)""",
+            (f"assignment-{index}", f"dv-{index}", topic_version_id, NOW),
+        )
+
+    def _approve_quality(self, db, seed):
+        batch = create_sample_batch(
+            db, seed=seed, per_topic_limit=20, created_by="api-fixture", now=NOW
+        )
+        for item in sample_queue(db, batch.batch_id, limit=250):
+            record_topic_assignment_review(
+                db, assignment_id=item.assignment_id, decision="accepted",
+                expected_previous_review_id=None, reviewer_id="api-fixture",
+                reason="Synthetic evidence checked.", now=NOW,
+            )
+        evaluation = record_sample_evaluation(
+            db, batch_id=batch.batch_id, decision="approved",
+            expected_previous_evaluation_id=None,
+            minimum_decided_bps=10_000, minimum_topic_decided_bps=10_000,
+            minimum_acceptance_bps=10_000, minimum_topic_acceptance_bps=10_000,
+            evaluator_id="api-fixture", reason="Synthetic quality fixture.", now=NOW,
+        )
+        return evaluation.current_evaluation_id
+
+    def headers(self, key=None):
+        return {"Authorization": f"Bearer {(key or self.key).token}"}
+
+    def test_list_is_publication_bound_typed_and_paginated(self):
+        first = self.client.get(
+            "/api/v1/topics?limit=1&group=technology", headers=self.headers()
+        )
+        self.assertEqual(first.status_code, 200)
+        body = first.json()
+        self.assertEqual(body["api_version"], "v1")
+        self.assertEqual(body["schema_version"], "1.2.0")
+        self.assertEqual(body["pagination"]["consistency"], "publication")
+        self.assertEqual(body["publication"]["version"], 1)
+        self.assertEqual(body["admission"]["review_version"], 1)
+        self.assertFalse(body["admission"]["allow_zero_members"])
+        self.assertEqual(body["admission"]["policy_version"], "sample-gated-v2")
+        self.assertTrue(body["publication"]["count_policy"]["unreviewed_assignments_excluded"])
+        self.assertEqual(body["data"][0]["id"], "topic-a")
+        self.assertEqual((body["data"][0]["document_count"], body["data"][0]["event_count"]), (1, 0))
+        second = self.client.get(
+            "/api/v1/topics",
+            params={"limit": 1, "group": "technology", "cursor": body["pagination"]["next_cursor"]},
+            headers=self.headers(),
+        )
+        self.assertEqual(second.status_code, 200)
+        self.assertEqual([row["id"] for row in second.json()["data"]], ["topic-c"])
+        self.assertIsNone(second.json()["pagination"]["next_cursor"])
+
+    def test_admitted_portal_read_switch_uses_versioned_statistics(self):
+        with database.get_db(self.path) as db:
+            dataset = db.execute("SELECT dataset_id FROM dataset_state").fetchone()[0]
+            db.execute(
+                """INSERT INTO items(id,source_id,url,title,channel,published_at,fetched_at)
+                   VALUES(2,1,'https://example.test/portal','Admitted portal item','ai',?,?)""",
+                (NOW, NOW),
+            )
+            db.execute(
+                "INSERT INTO documents(id,dataset_id,legacy_item_id,kind,first_seen_at) VALUES('portal-doc',?,2,'article',?)",
+                (dataset, NOW),
+            )
+            db.execute(
+                """INSERT INTO document_versions(
+                       id,document_id,version,normalizer_version,normalized_at,title_original,
+                       language,text,content_sha256,version_sha256,canonical_url,source_id,
+                       published_precision,time_status,time_rule_version,tzdb_version,
+                       content_origin,content_extent,truncated,extraction_status,correction_kind,
+                       available_at,availability_basis,point_in_time_eligible)
+                   VALUES('portal-dv','portal-doc',1,'v1',?,'Admitted portal item','en','',?,?,
+                          'https://example.test/portal',1,'unknown','legacy_unverified','legacy',
+                          'unknown','legacy_unknown','none',0,'not_attempted','initial',?,
+                          'legacy_unknown',0)""",
+                (NOW, "c" * 64, "d" * 64, NOW),
+            )
+            db.execute(
+                "UPDATE documents SET current_version_id='portal-dv' WHERE id='portal-doc'"
+            )
+            db.execute(
+                """INSERT INTO document_topic_assignments(
+                       id,document_version_id,topic_version_id,method,method_version,status,available_at)
+                   VALUES('portal-assignment','portal-dv','tv-a','fixture','fixture-v1','candidate',?)""",
+                (NOW,),
+            )
+            sample_evaluation = self._approve_quality(db, "api-portal")
+        advance_topic_statistics(25)
+        advance_topic_statistics(25)
+        with database.get_db(self.path) as db:
+            publication_id = db.execute(
+                "SELECT current_publication_id FROM topic_statistics_state WHERE singleton=1"
+            ).fetchone()[0]
+            record_admission_review(
+                db, publication_id=publication_id, decision="approved",
+                expected_previous_review_id=None, minimum_decided_assignment_bps=10_000,
+                allow_zero_members=False, sample_evaluation_id=sample_evaluation,
+                reviewer_id="api-fixture",
+                reason="Accepted member portal fixture.", now=NOW,
+            )
+        with patch("app.web.routes.TOPIC_READ_ENABLED", True):
+            listing = self.client.get("/topics")
+            detail = self.client.get("/topics/alpha")
+        self.assertEqual(listing.status_code, 200)
+        self.assertIn("2 篇已审核资料", listing.text)
+        self.assertIn("0 个稳定事件", listing.text)
+        self.assertEqual(detail.status_code, 200)
+        self.assertIn("篇已审核资料", detail.text)
+        self.assertIn("个稳定事件", detail.text)
+        self.assertIn("Admitted portal item", detail.text)
+
+    def test_detail_etag_not_found_and_dirty_fail_closed(self):
+        detail = self.client.get("/api/v1/topics/topic-a", headers=self.headers())
+        self.assertEqual(detail.status_code, 200)
+        self.assertEqual(detail.json()["data"]["version_id"], "tv-a")
+        self.assertEqual(
+            self.client.get(
+                "/api/v1/topics/topic-a",
+                headers={**self.headers(), "If-None-Match": detail.headers["etag"]},
+            ).status_code,
+            304,
+        )
+        missing = self.client.get("/api/v1/topics/missing", headers=self.headers())
+        self.assertEqual((missing.status_code, missing.json()["error"]["code"]),
+                         (404, "resource_not_found"))
+        with database.get_db(self.path) as db:
+            db.execute(
+                "INSERT INTO topic_statistics_dirty(topic_id,reason,queued_at) VALUES('topic-a','fixture',?)",
+                (NOW,),
+            )
+        unavailable = self.client.get("/api/v1/topics", headers=self.headers())
+        self.assertEqual((unavailable.status_code, unavailable.json()["error"]["code"]),
+                         (503, "not_ready"))
+
+    def test_cursor_cannot_cross_a_new_publication(self):
+        first = self.client.get("/api/v1/topics?limit=1", headers=self.headers())
+        cursor = first.json()["pagination"]["next_cursor"]
+        with database.get_db(self.path) as db:
+            dataset = db.execute("SELECT dataset_id FROM dataset_state").fetchone()[0]
+            self._topic(db, dataset, "topic-d", "tv-d", "delta", "research")
+        advance_topic_statistics(25)
+        advance_topic_statistics(25)
+        with database.get_db(self.path) as db:
+            publication_id = db.execute(
+                "SELECT current_publication_id FROM topic_statistics_state WHERE singleton=1"
+            ).fetchone()[0]
+            record_admission_review(
+                db, publication_id=publication_id, decision="approved",
+                expected_previous_review_id=None, minimum_decided_assignment_bps=0,
+                allow_zero_members=True, sample_evaluation_id=self.sample_evaluation,
+                reviewer_id="api-fixture",
+                reason="Approve replacement fixture publication.", now=NOW,
+            )
+        stale = self.client.get(
+            "/api/v1/topics", params={"limit": 1, "cursor": cursor},
+            headers=self.headers(),
+        )
+        self.assertEqual((stale.status_code, stale.json()["error"]["code"]),
+                         (400, "filter_mismatch"))
+
+    def test_missing_or_rejected_admission_fails_closed(self):
+        with database.get_db(self.path) as db:
+            current = admission_preview(
+                db, db.execute(
+                    "SELECT current_publication_id FROM topic_statistics_state WHERE singleton=1"
+                ).fetchone()[0],
+            )
+            record_admission_review(
+                db, publication_id=current.publication_id, decision="rejected",
+                expected_previous_review_id=current.current_review_id,
+                minimum_decided_assignment_bps=0, allow_zero_members=True,
+                reviewer_id="api-fixture", reason="Withdraw synthetic approval.", now=NOW,
+            )
+        rejected = self.client.get("/api/v1/topics", headers=self.headers())
+        self.assertEqual((rejected.status_code, rejected.json()["error"]["code"]),
+                         (503, "not_ready"))
+        hidden_missing = self.client.get(
+            "/api/v1/topics/not-present", headers=self.headers()
+        )
+        self.assertEqual(
+            (hidden_missing.status_code, hidden_missing.json()["error"]["code"]),
+            (503, "not_ready"),
+        )
+        with patch("app.web.routes.TOPIC_READ_ENABLED", True):
+            rejected_portal = self.client.get("/topics")
+        self.assertEqual(rejected_portal.status_code, 503)
+
+        with database.get_db(self.path) as db:
+            dataset = db.execute("SELECT dataset_id FROM dataset_state").fetchone()[0]
+            self._topic(db, dataset, "topic-new", "tv-new", "new", "research")
+        advance_topic_statistics(25)
+        advance_topic_statistics(25)
+        missing = self.client.get("/api/v1/topics", headers=self.headers())
+        self.assertEqual((missing.status_code, missing.json()["error"]["code"]),
+                         (503, "not_ready"))
+
+    def test_auth_flag_and_parameters_are_enforced(self):
+        self.assertEqual(self.client.get("/api/v1/topics").status_code, 401)
+        denied = self.client.get("/api/v1/topics", headers=self.headers(self.wrong_key))
+        self.assertEqual((denied.status_code, denied.json()["error"]["code"]),
+                         (403, "insufficient_scope"))
+        for url in (
+            "/api/v1/topics?unknown=1", "/api/v1/topics?limit=01",
+            "/api/v1/topics?limit=1&limit=2", "/api/v1/topics?group=unknown",
+            "/api/v1/topics/topic-a?version=tv-a",
+        ):
+            with self.subTest(url=url):
+                response = self.client.get(url, headers=self.headers())
+                self.assertEqual((response.status_code, response.json()["error"]["code"]),
+                                 (422, "invalid_parameter"))
+        with patch("app.config.API_CATALOG_ENABLED", False):
+            disabled = self.client.get("/api/v1/topics", headers=self.headers())
+        self.assertEqual((disabled.status_code, disabled.json()["error"]["code"]),
+                         (503, "not_ready"))
+
+    def test_openapi_declares_topic_contract(self):
+        schema = app.openapi()
+        listing = schema["paths"]["/api/v1/topics"]["get"]
+        detail = schema["paths"]["/api/v1/topics/{id}"]["get"]
+        self.assertEqual(listing["x-required-scopes"], ["read:catalog"])
+        self.assertEqual(detail["x-required-scopes"], ["read:catalog"])
+        self.assertEqual(
+            {parameter["name"] for parameter in listing["parameters"]},
+            {"limit", "cursor", "group"},
+        )
+        self.assertEqual(
+            detail["responses"]["200"]["content"]["application/json"]["schema"],
+            {"$ref": "#/components/schemas/TopicResponse"},
+        )
+
+
+if __name__ == "__main__":
+    unittest.main()

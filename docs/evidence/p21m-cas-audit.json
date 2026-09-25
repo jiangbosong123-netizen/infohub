@@ -1,0 +1,61 @@
+{
+  "module": "p21m-cas-audit",
+  "source": "isolated Mac SQLite backup copy",
+  "prior_schema_version": 0,
+  "current_schema_version": 21,
+  "before_counts": {
+    "items": 34088,
+    "daily_reports": 9
+  },
+  "after_counts": {
+    "items": 34088,
+    "daily_reports": 9
+  },
+  "evidence_audit": {
+    "status": "ok",
+    "raw_records": {
+      "status": "ok",
+      "records": 0,
+      "verified": 0,
+      "missing": 0,
+      "corrupt": 0
+    },
+    "analysis_inputs": {
+      "status": "ok",
+      "records": 0,
+      "verified": 0,
+      "missing": 0,
+      "corrupt": 0
+    },
+    "analysis_responses": {
+      "status": "ok",
+      "records": 0,
+      "verified": 0,
+      "missing": 0,
+      "corrupt": 0
+    },
+    "analysis_outputs": {
+      "status": "ok",
+      "records": 0,
+      "verified": 0,
+      "missing": 0,
+      "corrupt": 0
+    },
+    "report_prompts": {
+      "status": "ok",
+      "records": 0,
+      "verified": 0,
+      "missing": 0,
+      "corrupt": 0
+    },
+    "report_responses": {
+      "status": "ok",
+      "records": 0,
+      "verified": 0,
+      "missing": 0,
+      "corrupt": 0
+    }
+  },
+  "windows_touched": false,
+  "provider_calls": 0
+}

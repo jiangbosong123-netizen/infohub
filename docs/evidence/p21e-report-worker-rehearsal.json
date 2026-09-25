@@ -1,0 +1,14 @@
+{
+  "source": "Mac data/app.db isolated SQLite backup",
+  "date": "2026-09-10",
+  "legacy_count": 9,
+  "legacy_unchanged": true,
+  "first_status": "published",
+  "citation_count": 34,
+  "retry_status": "already_published",
+  "snapshots": 1,
+  "versions": 1,
+  "integrity": "ok",
+  "foreign_key_violations": 0,
+  "windows_production_changed": false
+}

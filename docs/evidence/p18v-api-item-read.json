@@ -1,0 +1,65 @@
+{
+  "source": "isolated real-data schema-33 database from p18q rehearsal",
+  "production_changed": false,
+  "catalog": {
+    "document_statuses": {
+      "active": 47266
+    },
+    "document_kinds": {
+      "article": 24172,
+      "filing": 633,
+      "flash": 22461
+    },
+    "current_version_quality": {
+      "published_at_present": 0,
+      "publisher_links": 0,
+      "point_in_time_eligible": 0,
+      "legacy_unknown_content": 47266,
+      "legacy_unverified_time": 47266
+    }
+  },
+  "read_rehearsal": {
+    "first_page_rows": 100,
+    "second_page_rows": 100,
+    "pages_overlap": false,
+    "first_detail_id": "document_242a837acd8e4846a5c0c236c71ef32d",
+    "first_detail_time_status": "legacy_unverified",
+    "first_detail_point_in_time_eligible": false,
+    "list_two_pages_and_detail_elapsed_seconds": 0.080058,
+    "table_counts_before": {
+      "documents": 47266,
+      "document_versions": 47266,
+      "document_version_inputs": 47266
+    },
+    "table_counts_after": {
+      "documents": 47266,
+      "document_versions": 47266,
+      "document_version_inputs": 47266
+    },
+    "database_sha256_before": "5b6c34d77134309a97037b9d19a3497cdbaaa4ef60b275b76d24e70e3d83b878",
+    "database_sha256_after": "5b6c34d77134309a97037b9d19a3497cdbaaa4ef60b275b76d24e70e3d83b878"
+  },
+  "contract": {
+    "scope": "read:items",
+    "stable_document_identity": true,
+    "current_immutable_version_only": true,
+    "legacy_time_promoted_to_published_at": false,
+    "content_and_version_hashes_recomputed": true,
+    "published_time_evidence_verified": true,
+    "raw_cas_payload_exposed": false,
+    "sensitive_url_components_removed": true,
+    "detail_etag": true,
+    "cursor_bound_to_filters_and_authorization": true
+  },
+  "limitations": [
+    "All rehearsed documents are legacy backfill and remain ineligible for point-in-time claims.",
+    "Version history is reserved for the next item-history contract.",
+    "Raw evidence requires the separate read:evidence contract.",
+    "Live pagination is for interactive reads; complete synchronization requires P19 snapshots and changes."
+  ],
+  "validation": {
+    "unit_tests": "451 passed",
+    "python_compile": "passed",
+    "git_diff_check": "passed"
+  }
+}

@@ -7,7 +7,7 @@ from datetime import datetime, timezone
 from concurrent.futures import ThreadPoolExecutor
 
 from fastapi.testclient import TestClient
-from app import database, company_match, ranking
+from app import config, database, company_match, ranking
 from app.ai import daily, pipeline
 from app.crawler import runner
 from app.web import routes
@@ -20,6 +20,9 @@ class RegressionTests(unittest.TestCase):
         patcher = patch.object(database, 'DB_PATH', Path(self.temp.name) / 'test.db')
         patcher.start()
         self.addCleanup(patcher.stop)
+        blob_patcher = patch.object(config, 'BLOB_PATH', Path(self.temp.name) / 'blobs')
+        blob_patcher.start()
+        self.addCleanup(blob_patcher.stop)
         database.init_schema()
         company_match.invalidate_cache()
         self.addCleanup(company_match.invalidate_cache)
@@ -65,7 +68,11 @@ class RegressionTests(unittest.TestCase):
             row = db.execute('SELECT * FROM items').fetchone()
         self.assertEqual(row['published_at'], '2026-09-11T16:00:00+00:00')
         self.assertEqual(row['official'], 1)
-        self.item('naive', published_at='2026-09-12T00:00:00')
+        naive_id = self.item('naive', published_at='2026-09-12T00:00:00')
+        with database.get_db() as db:
+            naive = db.execute('SELECT published_at,extra FROM items WHERE id=?', (naive_id,)).fetchone()
+        self.assertNotEqual(naive['published_at'], '2026-09-12T00:00:00+00:00')
+        self.assertEqual(__import__('json').loads(naive['extra'])['_legacy_time_basis'], 'item_inserted')
         self.assertFalse(runner.insert_item('test', dict(url='javascript:alert(1)', title='bad')))
 
     def test_concurrent_dedup(self):
@@ -182,16 +189,16 @@ class RegressionTests(unittest.TestCase):
         self.assertEqual(rendered, [visible])
         self.assertNotIn(other, rendered)
 
-    def test_selected_mode_without_llm(self):
+    def test_selected_mode_without_curated_feed(self):
         self.item()
-        with patch.object(routes, 'llm_enabled', return_value=False):
+        with patch.object(routes, 'CURATED_FEED_ENABLED', False):
             self.assertEqual(len(routes._query_items()), 1)
 
     def test_company_low_score_does_not_bypass_selection(self):
         one = self.item(companies=['nvidia'])
         with database.get_db() as db:
             db.execute('UPDATE items SET score=45 WHERE id=?', (one,))
-        with patch.object(routes, 'llm_enabled', return_value=True):
+        with patch.object(routes, 'CURATED_FEED_ENABLED', True):
             self.assertEqual(routes._query_items(), [])
             self.assertEqual(len(routes._query_items(mode='all')), 1)
 
@@ -202,7 +209,7 @@ class RegressionTests(unittest.TestCase):
         two = self.item('OpenAI launches a major coding model today', score=40,
                         url='https://second.example/second', published_at=now)
         refresh_derived()
-        with patch.object(routes, 'llm_enabled', return_value=True):
+        with patch.object(routes, 'CURATED_FEED_ENABLED', True):
             selected = routes._query_items(mode='selected')
             self.assertEqual(len(selected), 1)
             self.assertIn(selected[0]['id'], (one, two))
@@ -213,11 +220,11 @@ class RegressionTests(unittest.TestCase):
         single = self.item('A routine single-source company update', score=60,
                            url='https://example.com/routine', published_at=now)
         refresh_derived()
-        with patch.object(routes, 'llm_enabled', return_value=True):
+        with patch.object(routes, 'CURATED_FEED_ENABLED', True):
             self.assertNotIn(single, {row['id'] for row in routes._query_items(mode='selected')})
         with database.get_db() as db:
             db.execute('UPDATE items SET score=70 WHERE id=?', (single,))
-        with patch.object(routes, 'llm_enabled', return_value=True):
+        with patch.object(routes, 'CURATED_FEED_ENABLED', True):
             self.assertIn(single, {row['id'] for row in routes._query_items(mode='selected')})
 
     def test_search_index_delete(self):

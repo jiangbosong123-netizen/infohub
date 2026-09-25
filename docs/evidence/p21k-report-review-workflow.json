@@ -1,0 +1,14 @@
+{
+  "source": "Mac data/app.db isolated SQLite backup",
+  "preview_claims": 1,
+  "source_links": 1,
+  "review_decision": "rejected",
+  "review_purpose": "synthetic fixture rejection; no human approval",
+  "report_versions": 0,
+  "legacy_report_count": 9,
+  "legacy_unchanged": true,
+  "integrity": "ok",
+  "foreign_key_violations": 0,
+  "provider_calls": 0,
+  "windows_production_changed": false
+}

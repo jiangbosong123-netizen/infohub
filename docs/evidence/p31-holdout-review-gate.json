@@ -1,0 +1,26 @@
+{
+  "recorded_date": "2026-09-21",
+  "module": "app.evaluation_holdout_review",
+  "environment": "Synthetic private workflow fixture only; Mac historical candidates and Windows were not altered",
+  "behavior": {
+    "pending_blind_holdout_blocks_relevance_review_intake": true,
+    "new_dataset_version_required": true,
+    "source_manifest_and_cases_hashes_bound": true,
+    "planned_source_and_time_fields_locked": true,
+    "six_explicit_human_checks_required": true,
+    "review_record_hash_revalidated": true,
+    "case_bytes_preserved": true,
+    "gold_created": false
+  },
+  "real_candidates": 600,
+  "real_holdout_human_reviews": 0,
+  "real_human_labels": 0,
+  "limitations": [
+    "Synthetic reviewer identities exercise code paths only; no person is claimed to have inspected real news.",
+    "The gate cannot prove reviewer identity, actual independence from model training, or unknown syndication relationships.",
+    "A human must inspect the private frozen source and sign the review record before any real candidate is labeled.",
+    "No NLP quality or production readiness claim follows from this gate."
+  ],
+  "live_database_modified": false,
+  "windows_touched": false
+}

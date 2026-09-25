@@ -13,7 +13,7 @@
   {% for t in group.topics %}
     <a class="topic-tile" href="/topics/{{ t.slug }}" aria-label="查看 {{ t.name }} 主题">
       <h3>{{ t.name }}</h3><p>{{ t.description }}</p>
-      <div class="tile-foot"><span>{{ t.selected }} 条精选 <span class="muted">· {{ t.total }} 条收录</span></span><span aria-hidden="true">→</span></div>
+      <div class="tile-foot"><span>{% if t.audited_statistics %}{{ t.total }} 篇已审核资料 <span class="muted">· {{ t.event_count }} 个稳定事件</span>{% else %}{{ t.selected }} 条精选 <span class="muted">· {{ t.total }} 条收录</span>{% endif %}</span><span aria-hidden="true">→</span></div>
     </a>
   {% endfor %}
   </div>

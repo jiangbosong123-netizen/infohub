@@ -1,0 +1,20 @@
+{
+  "captured_at": "2026-09-19T15:21:24Z",
+  "evidence_version": "p13g-search-build-rehearsal-v1",
+  "scope": "Mac database read-only consistent SQLite backup, migrated and indexed in an isolated temporary directory",
+  "migrated_schema_version": 17,
+  "source_items_in_copy": 31280,
+  "indexed_documents": 31280,
+  "batch_limit": 500,
+  "batches_to_ready": 64,
+  "build_elapsed_seconds": 1.84,
+  "final_status": "ready",
+  "final_dirty_remaining": 0,
+  "fts_integrity_check": "passed",
+  "provider_calls": 0,
+  "limitations": [
+    "Windows production was not migrated, indexed or queried",
+    "Rehearsal measures one Mac copy and does not guarantee production latency",
+    "Search endpoint still uses the previous index; query cutover and freshness fallback remain separate"
+  ]
+}

@@ -1,0 +1,28 @@
+{
+  "source": "Mac local database; isolated SQLite backup, not Windows production",
+  "date": "2026-09-14",
+  "snapshot_created": true,
+  "input_count": 120,
+  "manifest_count": 120,
+  "manifest_sha256": "5c117b127e3cf961ff834e87bb4ffb3c7af159dc675499d618891e5ad8633930",
+  "selection_version": "calendar-daily-selection-v2",
+  "coverage": {
+    "eligible_by_channel": {
+      "ai": 342,
+      "robot": 1,
+      "stock": 2596
+    },
+    "selected_by_channel": {
+      "ai": 20,
+      "robot": 1,
+      "stock": 99
+    },
+    "truncated_by_global_limit": true
+  },
+  "capture_seconds": 0.023,
+  "legacy_report_count_before": 9,
+  "legacy_report_count_after": 9,
+  "integrity": "ok",
+  "foreign_key_violations": 0,
+  "point_in_time_status": "legacy_mutable_unverified"
+}

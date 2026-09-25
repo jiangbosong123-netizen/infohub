@@ -1,0 +1,14 @@
+{
+  "environment": "Mac isolated 36,262-item copy; not Windows production",
+  "source_schema_version": 21,
+  "target_schema_version": 22,
+  "applied_versions": [
+    22
+  ],
+  "pre_migration_backup_verified": true,
+  "database_integrity": "ok",
+  "legacy_compare_status": "ok",
+  "legacy_tables_unchanged": 11,
+  "api_consumers_issued": 0,
+  "windows_export_verified": false
+}

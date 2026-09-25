@@ -1,0 +1,49 @@
+{
+  "source": "isolated real-data schema-33 database from p18q rehearsal",
+  "production_changed": false,
+  "catalog": {
+    "version_count_by_document": {
+      "1": 47266
+    },
+    "stale_or_invalid_current_pointers": 0
+  },
+  "read_rehearsal": {
+    "item_id": "document_242a837acd8e4846a5c0c236c71ef32d",
+    "returned_versions": 1,
+    "current_version_id": "document_version_31c247ab8c09420e91fc7b20ef8974c5",
+    "returned_current_markers": 1,
+    "next_cursor_present": false,
+    "elapsed_seconds": 0.000951,
+    "table_counts_before": {
+      "documents": 47266,
+      "document_versions": 47266,
+      "document_version_inputs": 47266
+    },
+    "table_counts_after": {
+      "documents": 47266,
+      "document_versions": 47266,
+      "document_version_inputs": 47266
+    },
+    "database_sha256_before": "5b6c34d77134309a97037b9d19a3497cdbaaa4ef60b275b76d24e70e3d83b878",
+    "database_sha256_after": "5b6c34d77134309a97037b9d19a3497cdbaaa4ef60b275b76d24e70e3d83b878"
+  },
+  "contract": {
+    "scope": "read:items",
+    "immutable_version_chain_verified": true,
+    "current_pointer_must_target_chain_tail": true,
+    "cursor_bound_to_item_and_authorization": true,
+    "historical_text_exposed": false,
+    "raw_evidence_exposed": false,
+    "point_in_time_snapshot_claimed": false
+  },
+  "limitations": [
+    "All rehearsed documents currently have one legacy-backfill version.",
+    "The endpoint is logical version history, not a point-in-time snapshot.",
+    "Historical normalized text and raw evidence require later contracts."
+  ],
+  "validation": {
+    "unit_tests": "453 passed",
+    "python_compile": "passed",
+    "git_diff_check": "passed"
+  }
+}

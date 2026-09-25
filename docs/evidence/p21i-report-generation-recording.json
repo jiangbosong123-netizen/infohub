@@ -1,0 +1,15 @@
+{
+  "source": "Mac data/app.db isolated SQLite backup",
+  "frozen_input_count": 120,
+  "generation_runs": 1,
+  "generation_attempts": 2,
+  "valid_status": "valid_draft",
+  "invalid_status": "invalid_draft",
+  "report_versions": 0,
+  "legacy_report_count": 9,
+  "legacy_unchanged": true,
+  "integrity": "ok",
+  "foreign_key_violations": 0,
+  "provider_calls": 0,
+  "windows_production_changed": false
+}

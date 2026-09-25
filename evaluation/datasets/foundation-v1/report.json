@@ -1,0 +1,28 @@
+{
+  "annotation_state_counts": {
+    "synthetic_fixture": 12
+  },
+  "cases": 12,
+  "dataset_version": "foundation-v1",
+  "documents": 12,
+  "event_groups": 7,
+  "impact_annotations": 0,
+  "publishable_gold": false,
+  "security_cases": 2,
+  "split_counts": {
+    "dev": 3,
+    "security": 2,
+    "test": 3,
+    "train": 4
+  },
+  "target_gaps": {
+    "documents": 588,
+    "event_groups": 143,
+    "impact_annotations": 300,
+    "security_cases": 48
+  },
+  "warnings": [
+    "dataset is not publishable gold; target size and/or adjudication is incomplete",
+    "synthetic fixtures validate tooling only and do not measure model quality"
+  ]
+}

@@ -1,0 +1,142 @@
+{
+  "source": {
+    "state": "legacy_unversioned",
+    "size_bytes": 78036992,
+    "file_sha256": "a82ecaeed39eae2b56b1ec113d8fe3f91249eac138d6eed8b19db17784efd54d"
+  },
+  "migration": {
+    "previous_state": "legacy_unversioned",
+    "current_version": 10,
+    "applied_versions": [
+      1,
+      2,
+      3,
+      4,
+      5,
+      6,
+      7,
+      8,
+      9,
+      10
+    ]
+  },
+  "projection_fixture": {
+    "story_referenced_documents": 16218,
+    "method": "preseeded version-pinned document/raw rows; P07 CAS safety is validated separately and not claimed by this rehearsal"
+  },
+  "catalog": {
+    "companies_seen": 23,
+    "company_entities_created": 23,
+    "entity_versions_created": 23,
+    "topics_seen": 56,
+    "topics_created": 56,
+    "topic_versions_created": 56,
+    "publishers_seen": 11,
+    "publishers_created": 11,
+    "publisher_versions_created": 11
+  },
+  "first_projection": {
+    "stories_seen": 20051,
+    "events_created": 19188,
+    "event_versions_created": 19188,
+    "mappings_created": 20051,
+    "decisions_created": 16218,
+    "links_created": 16218,
+    "evidence_created": 16218
+  },
+  "repeat_projection": {
+    "stories_seen": 20051,
+    "events_created": 0,
+    "event_versions_created": 0,
+    "mappings_created": 0,
+    "decisions_created": 0,
+    "links_created": 0,
+    "evidence_created": 0
+  },
+  "counts": {
+    "stories": 20051,
+    "mappings": 20051,
+    "events": 19188,
+    "event_versions": 19188,
+    "links": 16218,
+    "evidence": 16218,
+    "decisions": 16218
+  },
+  "unmapped_stories": 0,
+  "semantically_elevated_legacy_events": 0,
+  "invalid_evidence_links": 0,
+  "redirect_stories": 863,
+  "redirect_stories_mapped_to_canonical": 863,
+  "legacy_before": {
+    "companies": {
+      "rows": 23,
+      "sha256": "84a8b255408ee72d72b1360fec2b8796f767c920e62d4c639773596c163567fc"
+    },
+    "sources": {
+      "rows": 57,
+      "sha256": "9ef2f72b5e1c2d5d917f0c442d9e97392b8a98409974e58212d39fdc86b2bf29"
+    },
+    "items": {
+      "rows": 23296,
+      "sha256": "7627df2a086dc4184d701b01936b76c54fd575c477fd9336d30371c017eda823"
+    },
+    "item_discoveries": {
+      "rows": 24549,
+      "sha256": "f2e3593ea370d4d4a91e692007202c5ccaeff41f84ae929e9bee3c375e3faa71"
+    },
+    "item_companies": {
+      "rows": 13249,
+      "sha256": "5bdcce3bdcabadd1c63925484e5818a27e14fd93f3d7c144175413bd117b801e"
+    },
+    "daily_reports": {
+      "rows": 6,
+      "sha256": "a13a98bdb2e88956f90518f08e3ba476723a0a9ca83e245c7f3f1e3d06fb86f7"
+    },
+    "stories": {
+      "rows": 20051,
+      "sha256": "0fbf35f29179b67e781c5380bf0f69f18aa383ebad526e8ef5182847a27d3e47"
+    },
+    "story_items": {
+      "rows": 16218,
+      "sha256": "effe4c250a555bf241ea17921ed8b8d6f91facbc8caaa431bee8a22011a2f0b0"
+    }
+  },
+  "legacy_after": {
+    "companies": {
+      "rows": 23,
+      "sha256": "84a8b255408ee72d72b1360fec2b8796f767c920e62d4c639773596c163567fc"
+    },
+    "sources": {
+      "rows": 57,
+      "sha256": "9ef2f72b5e1c2d5d917f0c442d9e97392b8a98409974e58212d39fdc86b2bf29"
+    },
+    "items": {
+      "rows": 23296,
+      "sha256": "7627df2a086dc4184d701b01936b76c54fd575c477fd9336d30371c017eda823"
+    },
+    "item_discoveries": {
+      "rows": 24549,
+      "sha256": "f2e3593ea370d4d4a91e692007202c5ccaeff41f84ae929e9bee3c375e3faa71"
+    },
+    "item_companies": {
+      "rows": 13249,
+      "sha256": "5bdcce3bdcabadd1c63925484e5818a27e14fd93f3d7c144175413bd117b801e"
+    },
+    "daily_reports": {
+      "rows": 6,
+      "sha256": "a13a98bdb2e88956f90518f08e3ba476723a0a9ca83e245c7f3f1e3d06fb86f7"
+    },
+    "stories": {
+      "rows": 20051,
+      "sha256": "0fbf35f29179b67e781c5380bf0f69f18aa383ebad526e8ef5182847a27d3e47"
+    },
+    "story_items": {
+      "rows": 16218,
+      "sha256": "effe4c250a555bf241ea17921ed8b8d6f91facbc8caaa431bee8a22011a2f0b0"
+    }
+  },
+  "legacy_unchanged": true,
+  "integrity_check": "ok",
+  "foreign_key_violations": 0,
+  "scope": "consistent local development database copy; no production or Windows database was accessed"
+}

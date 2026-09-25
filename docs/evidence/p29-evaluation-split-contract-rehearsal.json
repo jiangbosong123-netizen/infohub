@@ -1,0 +1,35 @@
+{
+  "recorded_date": "2026-09-21",
+  "contract": "docs/spec/NLP_AND_EVALUATION.md section 8.2 in draft PR #2",
+  "discrepancy": "Existing admission v1/v2 used 70/15/15 although the formal SPEC states 60/20/20.",
+  "resolution": "Admission v3 uses a 60/20/20 target for both balanced and blind-holdout policies; prior private datasets remain immutable and cannot be silently relabeled.",
+  "environment": "Mac disposable private sampling plan from the p28 isolated historical database; Windows off",
+  "candidate_pool": 36262,
+  "sampled_candidates": 600,
+  "connected_components": 541,
+  "new_private_dataset_version": "mac-isolated-blind-v3",
+  "split_policy": "blind-holdout",
+  "split_counts": {"train": 360, "dev": 120, "test": 120, "security": 0},
+  "holdout": {
+    "status": "pending_human_review",
+    "latest_window_documents": 22,
+    "heldout_source_documents": 22,
+    "heldout_source_outside_test": 0,
+    "latest_window_outside_test": 0
+  },
+  "cross_split_leaks": {"event_group": 0, "origin_group": 0, "content_sha256": 0, "document_ref": 0},
+  "annotation_state": {"unlabeled": 600},
+  "human_labels": 0,
+  "impact_annotations": 0,
+  "security_cases": 0,
+  "publishable_gold": false,
+  "limitations": [
+    "The source identity and restricted content stay in a private local directory, not in this repository.",
+    "The 60/20/20 ratio is a target: connected evidence and bounded blind holdouts can cause deviations on other datasets.",
+    "Human reviewers still must inspect syndication, translation, revisions, source independence and model blindness.",
+    "This fixes the split contract only; it does not create gold labels or validate NLP quality.",
+    "No Mac live database or Windows production environment was modified."
+  ],
+  "live_database_modified": false,
+  "windows_touched": false
+}

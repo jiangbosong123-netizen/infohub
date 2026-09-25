@@ -1,0 +1,57 @@
+{
+  "abstained": 1,
+  "accuracy": 0.9166666666666666,
+  "accuracy_wilson_95": [
+    0.646120088858883,
+    0.9851349055950829
+  ],
+  "confusion": {
+    "relevant": {
+      "relevant": 10,
+      "unknown": 0
+    },
+    "unknown": {
+      "relevant": 1,
+      "unknown": 1
+    }
+  },
+  "correct": 11,
+  "coverage": 0.9166666666666666,
+  "covered": 11,
+  "dataset_version": "foundation-v1",
+  "labels": [
+    "relevant",
+    "unknown"
+  ],
+  "macro_f1": 0.8095238095238095,
+  "metrics_version": "classification-metrics-v1",
+  "missing_predictions": 0,
+  "per_class": [
+    {
+      "f1": 0.9523809523809523,
+      "label": "relevant",
+      "precision": 0.9090909090909091,
+      "predicted": 11,
+      "recall": 1.0,
+      "support": 10,
+      "true_positive": 10
+    },
+    {
+      "f1": 0.6666666666666666,
+      "label": "unknown",
+      "precision": 1.0,
+      "predicted": 1,
+      "recall": 0.5,
+      "support": 2,
+      "true_positive": 1
+    }
+  ],
+  "prediction_run_id": "relevance-rule-v0-on-foundation-v1",
+  "quality_claim_allowed": false,
+  "task": "relevance",
+  "total": 12,
+  "warnings": [
+    "dataset is not publishable gold; metrics validate the runner only",
+    "sample support is below 30; do not generalize point estimates"
+  ]
+}

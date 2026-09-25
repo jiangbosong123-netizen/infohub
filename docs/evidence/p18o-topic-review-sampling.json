@@ -1,0 +1,68 @@
+{
+  "source": "isolated real-data schema-30 database from p18n rehearsal",
+  "production_changed": false,
+  "migration": {
+    "before": 30,
+    "after": 31,
+    "applied": [
+      31
+    ],
+    "integrity": "ok",
+    "foreign_key_violations": 0,
+    "counts_before": {
+      "assignments": 46089,
+      "reviews": 2,
+      "queue_entries": 46089
+    },
+    "counts_after": {
+      "assignments": 46089,
+      "reviews": 2,
+      "queue_entries": 46089,
+      "review_order_entries": 2,
+      "sampling_batches": 1,
+      "sampling_members": 1092
+    },
+    "existing_counts_unchanged": true
+  },
+  "sample": {
+    "seed": "legacy-topic-review-v1",
+    "per_topic_limit": 20,
+    "assignment_cutoff_sequence": 46089,
+    "review_cutoff_sequence": 2,
+    "candidate_count": 46088,
+    "topic_count": 56,
+    "member_count": 1092,
+    "manifest_sha256": "8fc65ce090d1a4d51ddd63fd44ce875d0a84f7568d70c42309215eb134fb8a79",
+    "pending": 1092,
+    "accepted": 0,
+    "rejected": 0,
+    "decided_bps": 0,
+    "acceptance_bps": null
+  },
+  "interpretation": [
+    "The batch selected at most 20 unresolved candidates from each of 56 topics.",
+    "Some topics contained fewer than 20 candidates, so the batch has 1092 rather than 1120 members.",
+    "The existing rejected assignment was not eligible because its effective state at the frozen review cutoff was rejected.",
+    "No human decision was created by sampling, so every selected member remains pending and acceptance_bps is null.",
+    "The sample estimates candidate precision only after review; it does not measure recall or authorize publication."
+  ],
+  "immutability": {
+    "assignment_population_frozen_by_sequence": true,
+    "review_state_frozen_by_sequence": true,
+    "selection_is_seeded_and_reproducible": true,
+    "members_and_batches_are_append_only": true,
+    "strict_verification_recomputed_manifest": true
+  },
+  "limitations": [
+    "The rehearsal created a batch in an isolated Mac copy only.",
+    "Windows and production data were not changed.",
+    "The batch still requires individual evidence review through the append-only review ledger.",
+    "No automatic or bulk acceptance operation exists."
+  ],
+  "validation": {
+    "focused_tests": "15 passed",
+    "unit_tests": "418 passed",
+    "python_compile": "passed",
+    "git_diff_check": "passed"
+  }
+}

@@ -1,0 +1,58 @@
+{
+  "source": "Mac local database copied using SQLite backup API; not Windows production",
+  "source_note": "Mac source was unversioned; staged migrations 1-18 on copy before measuring 18-to-19",
+  "staged_versions": [
+    1,
+    2,
+    3,
+    4,
+    5,
+    6,
+    7,
+    8,
+    9,
+    10,
+    11,
+    12,
+    13,
+    14,
+    15,
+    16,
+    17,
+    18
+  ],
+  "previous_version": 18,
+  "applied_versions": [
+    19
+  ],
+  "rows_before": {
+    "items": {
+      "count": 31780,
+      "sha256": "bea9da8ba9ad64c9c0bd75b761d5a687ca30ac441ab76f22154209f4d48ad35e"
+    },
+    "daily_reports": {
+      "count": 8,
+      "sha256": "e16a22560ce6a65fc4cc9175c1db0534d3d4dc6a7d2b4b96a3e62a69682a277c"
+    }
+  },
+  "rows_after": {
+    "items": {
+      "count": 31780,
+      "sha256": "bea9da8ba9ad64c9c0bd75b761d5a687ca30ac441ab76f22154209f4d48ad35e"
+    },
+    "daily_reports": {
+      "count": 8,
+      "sha256": "e16a22560ce6a65fc4cc9175c1db0534d3d4dc6a7d2b4b96a3e62a69682a277c"
+    }
+  },
+  "unchanged": true,
+  "new_table_counts": {
+    "report_input_snapshots": 0,
+    "report_input_members": 0,
+    "report_versions": 0,
+    "report_publications": 0
+  },
+  "integrity": "ok",
+  "foreign_key_violations": 0,
+  "migration_seconds": 0.816
+}

@@ -1,0 +1,65 @@
+{
+  "checked_at": "2026-09-17",
+  "scope": "P11b analysis attempt audit migration rehearsal",
+  "source": {
+    "path_class": "local development database",
+    "access": "read-only consistent SQLite backup",
+    "size_bytes": 83525632,
+    "production_or_windows_accessed": false
+  },
+  "migration": {
+    "previous_state": "legacy_unversioned",
+    "result_schema_version": 15,
+    "legacy_core_unchanged": true,
+    "new_table_counts": {
+      "analysis_budget_policies": 0,
+      "analysis_attempt_authorizations": 0,
+      "analysis_attempts": 0
+    }
+  },
+  "legacy_core": {
+    "companies": {
+      "rows": 23,
+      "sha256": "84a8b255408ee72d72b1360fec2b8796f767c920e62d4c639773596c163567fc"
+    },
+    "sources": {
+      "rows": 57,
+      "sha256": "13515084a29a40fd6fbfc40d97d18d5c1262b89539966e8d8241a1309f2f9164"
+    },
+    "items": {
+      "rows": 25261,
+      "sha256": "87906b9c9839bc950726f6ee3f9b37ca817d589faee75cdffcba2285f31322e6"
+    },
+    "item_discoveries": {
+      "rows": 26555,
+      "sha256": "ed81dd7cb1501ecf02c41ba82018ba66f1a252f28e3e2114236ac69a08941309"
+    },
+    "item_companies": {
+      "rows": 14633,
+      "sha256": "7d11bb5e44dc341b5ef037ef752847f72b49a30e61916d019b427f54539ed0e2"
+    },
+    "daily_reports": {
+      "rows": 6,
+      "sha256": "a13a98bdb2e88956f90518f08e3ba476723a0a9ca83e245c7f3f1e3d06fb86f7"
+    },
+    "stories": {
+      "rows": 21734,
+      "sha256": "c30cd70606debc82552dec1fa4d2d38828f5fc22a3e0a240337230ce00f9d1fc"
+    },
+    "story_items": {
+      "rows": 17636,
+      "sha256": "5f4a9eef4c1f1cab823bec5874cbf96ee7cba8e3e58e40c5b75bab33a66c94af"
+    }
+  },
+  "verification": {
+    "integrity_before": "ok",
+    "integrity_after": "ok",
+    "foreign_key_violations": 0,
+    "source_written": false,
+    "temporary_copy_deleted": true
+  },
+  "limits": [
+    "This rehearsal used the local development database, not the Windows production database.",
+    "No provider or paid model was called; attempt behavior is covered with deterministic fixtures."
+  ]
+}

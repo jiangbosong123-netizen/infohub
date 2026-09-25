@@ -1,0 +1,14 @@
+{
+  "module": "p21n-evidence-backup-bundle",
+  "source": "isolated Mac SQLite copy",
+  "migrated_to_schema": 21,
+  "before_items": 34088,
+  "restored_items": 34088,
+  "before_legacy_reports": 9,
+  "restored_legacy_reports": 9,
+  "bundle_status": "ok",
+  "database_sha256_equal_after_copy": true,
+  "unique_blobs": 0,
+  "windows_touched": false,
+  "provider_calls": 0
+}

@@ -3,6 +3,9 @@
 {% block content %}
 <div class="report">
   <h1 class="pagetitle">行业日报 · {{ date }}</h1>
+  <p class="src">{{ source_label }}{% if report %} · 素材截点 {{ report.as_of }} · {{ report.citation_count }} 条引用{% endif %}</p>
+  {% if report and report.coverage.point_in_time_status == 'legacy_mutable_unverified' %}<p class="src">旧数据的历史可见时点未核实。</p>{% endif %}
+  {% if notice %}<p class="src">{{ notice }}</p>{% endif %}
   <div class="md">{{ html | safe }}</div>
   <p class="backlink"><a href="/daily">← 全部日报</a></p>
 </div>

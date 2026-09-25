@@ -2,6 +2,8 @@
 __pycache__/
 *.pyc
 data/
+.runtime/
 .env
 .DS_Store
+evaluation/private/
 .zcode/

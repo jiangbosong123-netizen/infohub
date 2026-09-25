@@ -1,0 +1,24 @@
+{
+  "source": "Mac data/app.db isolated SQLite backup",
+  "migration_from": 20,
+  "migration_applied": [
+    21
+  ],
+  "before": {
+    "items": 34061,
+    "daily_reports": 9,
+    "daily_digest": "a9820c1a51e76f9e04d5bd36e7a45c37934fea9a00a40972093eb83755563fcd",
+    "report_versions": 0
+  },
+  "after": {
+    "items": 34061,
+    "daily_reports": 9,
+    "daily_digest": "a9820c1a51e76f9e04d5bd36e7a45c37934fea9a00a40972093eb83755563fcd",
+    "report_versions": 0
+  },
+  "legacy_unchanged": true,
+  "reviews": 0,
+  "integrity": "ok",
+  "foreign_key_violations": 0,
+  "windows_production_changed": false
+}

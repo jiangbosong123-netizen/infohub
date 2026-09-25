@@ -1,0 +1,31 @@
+{
+  "module": "P18c exact entity identifier lookup",
+  "environment": "isolated Mac database copy; production Windows powered off",
+  "endpoint": "GET /api/v1/entities",
+  "required_scope": "read:catalog",
+  "feature_flag": "INFOHUB_API_CATALOG_ENABLED",
+  "feature_flag_default": false,
+  "automated_tests_passed": 381,
+  "supported_filters": [
+    "identifier_namespace + identifier_value",
+    "exchange_ticker + exchange"
+  ],
+  "candidate_resolution": "returns every verified candidate in stable entity-id order",
+  "unverified_identifiers_public": false,
+  "identifier_history_supported": false,
+  "mac_copy_rehearsal": {
+    "source_schema_version": 0,
+    "migrated_schema_version": 25,
+    "legacy_items": 47165,
+    "entities": 23,
+    "identifiers_total": 65,
+    "identifiers_verified": 0,
+    "identifiers_legacy_unverified": 65,
+    "verified_exchange_tickers": 0,
+    "lookup_index": "idx_entity_identifiers_lookup(namespace,value,verification_status)",
+    "source_database_modified": false,
+    "temporary_copy_retained": false
+  },
+  "windows_release_verified": false,
+  "production_status": "disabled pending data-contract and runtime acceptance"
+}

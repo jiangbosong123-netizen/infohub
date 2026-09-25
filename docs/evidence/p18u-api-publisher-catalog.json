@@ -1,0 +1,54 @@
+{
+  "source": "isolated real-data schema-33 database from p18q rehearsal",
+  "production_changed": false,
+  "catalog": {
+    "publishers_returned": 11,
+    "publisher_statuses": {
+      "active": 11
+    },
+    "active_name_assertions": 22,
+    "domain_verification_statuses": {
+      "legacy_unverified": 11
+    },
+    "verified_domains_returned": 0,
+    "organization_entity_links_returned": 0
+  },
+  "read_rehearsal": {
+    "list_and_detail_elapsed_seconds": 0.000928,
+    "first_detail_id": "publisher_064b92ee91c64aed8220faf01d9507fb",
+    "table_counts_before": {
+      "publishers": 11,
+      "publisher_versions": 11,
+      "publisher_names": 22,
+      "publisher_domains": 11
+    },
+    "table_counts_after": {
+      "publishers": 11,
+      "publisher_versions": 11,
+      "publisher_names": 22,
+      "publisher_domains": 11
+    },
+    "database_sha256_before": "5b6c34d77134309a97037b9d19a3497cdbaaa4ef60b275b76d24e70e3d83b878",
+    "database_sha256_after": "5b6c34d77134309a97037b9d19a3497cdbaaa4ef60b275b76d24e70e3d83b878"
+  },
+  "contract": {
+    "scope": "read:catalog",
+    "publisher_means_content_publisher": true,
+    "source_identity_inferred": false,
+    "legacy_unverified_domains_exposed": false,
+    "version_and_assertion_hashes_recomputed": true,
+    "invalid_catalog_fails_closed": true,
+    "detail_etag": true,
+    "cursor_bound_to_filters_and_authorization": true
+  },
+  "limitations": [
+    "The current real-data catalog has no verified publisher domains, so public domain arrays are empty.",
+    "Publisher organization entity links have not yet been curated in the real-data catalog.",
+    "Publisher history and merged canonical projections remain outside this current-only v1 contract."
+  ],
+  "validation": {
+    "unit_tests": "443 passed",
+    "python_compile": "passed",
+    "git_diff_check": "passed"
+  }
+}

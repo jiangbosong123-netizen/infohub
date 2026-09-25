@@ -1,0 +1,85 @@
+{
+  "source": {
+    "state": "legacy_unversioned",
+    "schema_version": 0,
+    "size_bytes": 75231232,
+    "file_sha256": "dbdb6c072b9975c0c163fe8da592e57b9d45446478e84d91631c4ee96b22870d"
+  },
+  "migration": {
+    "previous_state": "legacy_unversioned",
+    "previous_version": 0,
+    "current_version": 9,
+    "applied_versions": [
+      1,
+      2,
+      3,
+      4,
+      5,
+      6,
+      7,
+      8,
+      9
+    ]
+  },
+  "legacy_before": {
+    "companies": {
+      "rows": 23,
+      "sha256": "84a8b255408ee72d72b1360fec2b8796f767c920e62d4c639773596c163567fc"
+    },
+    "sources": {
+      "rows": 57,
+      "sha256": "1582edc421b4b1c9218520239c9bad7b66b49a141f007517378595037223fe3e"
+    },
+    "items": {
+      "rows": 22902,
+      "sha256": "e39094fb3a6c90b0bec6dd4d3d507906a8fb1a191a5402d0daaff421b2d0f04e"
+    },
+    "item_discoveries": {
+      "rows": 24153,
+      "sha256": "730d627df819ff1f3580fc488b2d30ba68b5aaa8711bd0c593f867b617dabb75"
+    },
+    "item_companies": {
+      "rows": 13120,
+      "sha256": "c11975a374979fb79de6706babce2b838157acfc875104424f1d8ea3b7c60d06"
+    },
+    "daily_reports": {
+      "rows": 6,
+      "sha256": "a13a98bdb2e88956f90518f08e3ba476723a0a9ca83e245c7f3f1e3d06fb86f7"
+    }
+  },
+  "legacy_after": {
+    "companies": {
+      "rows": 23,
+      "sha256": "84a8b255408ee72d72b1360fec2b8796f767c920e62d4c639773596c163567fc"
+    },
+    "sources": {
+      "rows": 57,
+      "sha256": "1582edc421b4b1c9218520239c9bad7b66b49a141f007517378595037223fe3e"
+    },
+    "items": {
+      "rows": 22902,
+      "sha256": "e39094fb3a6c90b0bec6dd4d3d507906a8fb1a191a5402d0daaff421b2d0f04e"
+    },
+    "item_discoveries": {
+      "rows": 24153,
+      "sha256": "730d627df819ff1f3580fc488b2d30ba68b5aaa8711bd0c593f867b617dabb75"
+    },
+    "item_companies": {
+      "rows": 13120,
+      "sha256": "c11975a374979fb79de6706babce2b838157acfc875104424f1d8ea3b7c60d06"
+    },
+    "daily_reports": {
+      "rows": 6,
+      "sha256": "a13a98bdb2e88956f90518f08e3ba476723a0a9ca83e245c7f3f1e3d06fb86f7"
+    }
+  },
+  "legacy_unchanged": true,
+  "sec_projection_counts": {
+    "sec_security_keys": 0,
+    "sec_filings": 0,
+    "sec_filing_versions": 0
+  },
+  "integrity_check": "ok",
+  "foreign_key_violations": 0,
+  "scope": "consistent local development database copy; no production or Windows database was accessed"
+}

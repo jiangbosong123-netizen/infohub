@@ -1,0 +1,19 @@
+{
+  "module": "p21o-isolated-bundle-restore",
+  "source": "isolated Mac SQLite copy",
+  "migrated_to_schema": 21,
+  "before_counts": {
+    "items": 34122,
+    "daily_reports": 9
+  },
+  "restored_counts": {
+    "items": 34122,
+    "daily_reports": 9
+  },
+  "database_sha256_equal": true,
+  "bundle_status": "ok",
+  "unique_blobs": 0,
+  "live_database_modified": false,
+  "windows_touched": false,
+  "provider_calls": 0
+}

@@ -9,9 +9,10 @@ import re
 import time
 from datetime import datetime, timedelta, timezone
 from urllib.parse import quote
+from zoneinfo import ZoneInfo
 
-from ..config import APP_TZ
 from ..database import get_db
+from ..source_time import parse_source_time
 from . import http
 from .sources import HKEX_BASE
 
@@ -22,6 +23,7 @@ _TITLE_RULES = [
     (r"辭任|辞任|委任|董事变动|退任", "personnel"),
     (r"月報表|月报表", ""),  # 每月证券变动例行报表，噪音，跳过
 ]
+HKEX_TZ = ZoneInfo("Asia/Hong_Kong")
 
 
 def _resp_json(resp) -> object:
@@ -65,7 +67,9 @@ def _fetch_company(companies_row, from_date: str, to_date: str) -> list[dict]:
            f"&category=0&market=SEHK&stockId={stock_id}&documentType=-1"
            f"&fromDate={from_date}&toDate={to_date}&title=&searchType=1"
            f"&t1code=-2&t2Gcode=-2&t2code=-2&rowRange=100&lang=zh")
-    data = _resp_json(http.fetch(url, headers={"Referer": f"{HKEX_BASE}/search/titlesearch.xhtml"}))
+    response = http.fetch(url, headers={"Referer": f"{HKEX_BASE}/search/titlesearch.xhtml"})
+    response_observed_at = datetime.now(timezone.utc)
+    data = _resp_json(response)
     result = data.get("result") if isinstance(data, dict) else None
     if isinstance(result, str):  # 接口把数组二次编码成 JSON 字符串
         result = json.loads(result)
@@ -82,11 +86,13 @@ def _fetch_company(companies_row, from_date: str, to_date: str) -> list[dict]:
         etype = _classify(title)
         if not etype:  # 例行月报表等噪音
             continue
-        try:
-            published = datetime.strptime(rec["DATE_TIME"], "%d/%m/%Y %H:%M").replace(tzinfo=APP_TZ)
-            published_at = published.astimezone(timezone.utc).isoformat()  # 统一存 UTC，保证全局排序正确
-        except Exception:
-            published_at = datetime.now(timezone.utc).isoformat()
+        source_time = parse_source_time(
+            rec.get("DATE_TIME"), field_path="result.DATE_TIME", role="published",
+            timezone_name="Asia/Hong_Kong", pattern="%d/%m/%Y %H:%M",
+            interpretation="HKEX announcement publication time",
+            observed_at=response_observed_at,
+        )
+        published_at = source_time.utc if source_time.status == "valid" else None
         out.append(dict(
             url=f"{HKEX_BASE}{link}" if link.startswith("/") else link,
             title=f"{zh} · 港交所公告：{title}",
@@ -94,6 +100,9 @@ def _fetch_company(companies_row, from_date: str, to_date: str) -> list[dict]:
             published_at=published_at,
             event_type=etype, official=1, companies=[companies_row["slug"]],
             extra=dict(code=companies_row["code"]),
+            source_time_values=[source_time.to_dict()],
+            observed_at=response_observed_at.isoformat(),
+            source_record=rec, payload_kind="api_record",
         ))
     return out
 
@@ -103,7 +112,7 @@ def fetch_hkex(source: dict) -> list[dict]:
         rows = db.execute(
             "SELECT slug, name, name_zh, code, hkex_stock_id FROM companies WHERE market='HK'"
         ).fetchall()
-    today = datetime.now(APP_TZ).date()
+    today = datetime.now(HKEX_TZ).date()
     from_date = (today - timedelta(days=2)).strftime("%Y%m%d")  # 抓最近 3 天，防漏
     to_date = today.strftime("%Y%m%d")
     out = []

@@ -1,0 +1,59 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>InfoHub 主题抽样审核</title>
+  <style>
+    :root { color-scheme: light; font-family: system-ui, sans-serif; background:#f5f6f8; color:#172033; }
+    body { margin:0; } main { max-width:920px; margin:0 auto; padding:32px 20px 64px; }
+    header,.card { background:#fff; border:1px solid #dfe3ea; border-radius:14px; padding:22px; margin-bottom:18px; }
+    h1 { margin:0 0 8px; font-size:24px; } h2 { margin:0 0 14px; line-height:1.35; }
+    .muted { color:#667085; } .metrics { display:flex; gap:20px; flex-wrap:wrap; margin-top:16px; }
+    .metric strong { display:block; font-size:20px; } dl { display:grid; grid-template-columns:150px 1fr; gap:8px 16px; }
+    dt { color:#667085; } dd { margin:0; overflow-wrap:anywhere; } .evidence { white-space:pre-wrap; background:#f7f8fa; padding:14px; border-radius:8px; }
+    textarea { box-sizing:border-box; width:100%; min-height:100px; padding:10px; margin:8px 0 14px; }
+    .actions { display:flex; gap:12px; } button { border:0; border-radius:8px; padding:11px 18px; color:#fff; font-weight:650; cursor:pointer; }
+    .accept { background:#087443; } .reject { background:#b42318; } a { color:#175cd3; }
+    .done { text-align:center; padding:48px 22px; }
+  </style>
+</head>
+<body><main>
+  <header>
+    <h1>主题抽样人工审核</h1>
+    <div class="muted">批次 {{ batch.batch_id }} · 审核人 {{ reviewer_id }}</div>
+    <div class="metrics">
+      <div class="metric"><strong>{{ report.batch.member_count }}</strong><span>样本总数</span></div>
+      <div class="metric"><strong>{{ report.accepted }}</strong><span>已接受</span></div>
+      <div class="metric"><strong>{{ report.rejected }}</strong><span>已拒绝</span></div>
+      <div class="metric"><strong>{{ report.pending }}</strong><span>待审核</span></div>
+    </div>
+  </header>
+  {% if item %}
+  <section class="card">
+    <div class="muted">样本序号 {{ item.ordinal + 1 }} · {{ item.topic_name }}（{{ item.topic_slug }}）</div>
+    <h2>{{ item.title }}</h2>
+    <dl>
+      <dt>发布时间</dt><dd>{{ item.published_at or "未知" }}</dd>
+      <dt>归类方法</dt><dd>{{ item.method }} / {{ item.method_version }}</dd>
+      <dt>原始状态</dt><dd>{{ item.original_status }}</dd>
+      <dt>断言 ID</dt><dd>{{ item.assignment_id }}</dd>
+      <dt>证据 ID</dt><dd>{{ item.evidence_ids | join(", ") if item.evidence_ids else "无结构化证据 ID" }}</dd>
+    </dl>
+    {% if item.legacy_evidence %}<h3>旧系统证据</h3><div class="evidence">{{ item.legacy_evidence }}</div>{% endif %}
+    {% if source_url %}<p><a href="{{ source_url }}" target="_blank" rel="noopener noreferrer">打开原始来源</a></p>{% endif %}
+  </section>
+  <form class="card" method="post" action="/review/{{ item.assignment_id }}">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+    <input type="hidden" name="expected_previous_review_id" value="{{ item.current_review_id or '' }}">
+    <label for="reason"><strong>判断依据</strong></label>
+    <textarea id="reason" name="reason" maxlength="1000" required placeholder="说明检查了什么，以及为何接受或拒绝。"></textarea>
+    <div class="actions">
+      <button class="accept" type="submit" name="decision" value="accepted">接受这条归类</button>
+      <button class="reject" type="submit" name="decision" value="rejected">拒绝这条归类</button>
+    </div>
+  </form>
+  {% else %}
+  <section class="card done"><h2>这个批次已经没有待审核样本</h2><p>请返回维护命令生成并审批抽样质量报告。</p></section>
+  {% endif %}
+</main></body></html>

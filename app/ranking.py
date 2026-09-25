@@ -20,14 +20,14 @@ def _decay(published_at: str, now: datetime, half_life_h: float = 18.0) -> float
         return 0.5
 
 
-def item_heat(row) -> float:
+def item_heat(row, now: datetime | None = None) -> float:
     if row["score"] is not None and row["score"] >= 0:
         base = row["score"] / 100
     else:
         # 无 AI 评分时的默认基础分：例行文件压低，普通资讯居中
         base = 0.35 if (row["event_type"] or "") in ("insider", "other") else 0.5
     bonus = 1.25 if row["official"] else 1.0
-    return round(base * bonus * _decay(row["published_at"], datetime.now(timezone.utc)), 4)
+    return round(base * bonus * _decay(row["published_at"], now or datetime.now(timezone.utc)), 4)
 
 
 AI_CAT_NAMES = {"model": "模型", "product": "产品", "industry": "行业",

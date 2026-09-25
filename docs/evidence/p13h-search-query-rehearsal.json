@@ -1,0 +1,18 @@
+{
+  "captured_at": "2026-09-19T20:58:32Z",
+  "evidence_version": "p13h-search-query-rehearsal-v1",
+  "scope": "Isolated Mac SQLite backup migrated to schema 17, indexed completely, then queried locally",
+  "source_items_in_copy": 31280,
+  "index_usable": true,
+  "sample_queries": [
+    {"term_class": "english_6_characters", "first_page_rows": 31, "elapsed_ms": 4.55},
+    {"term_class": "short_2_characters", "first_page_rows": 31, "elapsed_ms": 0.5},
+    {"term_class": "unmatched_cjk", "first_page_rows": 0, "elapsed_ms": 13.93}
+  ],
+  "provider_calls": 0,
+  "limitations": [
+    "Single-run timings on a Mac copy are not a production latency guarantee",
+    "No Windows deployment or production database change occurred",
+    "Automated dirty-queue refresh and other legacy derived values remain future work"
+  ]
+}

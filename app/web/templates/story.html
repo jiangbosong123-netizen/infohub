@@ -11,7 +11,7 @@
 <div class="story-timeline">
 {% for r in reports %}
 <article class="story-report">
-  <div class="story-report-time"><time>{{ r.published_label }}</time><span>{{ r.publisher }}</span>{% if r.official %}<span class="badge official">官方一手</span>{% endif %}</div>
+  <div class="story-report-time"><time>{{ r.published_label }}</time><span>{{ r.publisher }}</span>{% if r.official %}<span class="badge official">官方一手</span>{% endif %}{% if r.curation_needs_review %}<span class="badge">AI 待复核</span>{% endif %}</div>
   <h2><a href="{{ r.url }}" target="_blank" rel="noopener noreferrer">{{ r.title_display }} ↗</a></h2>
   {% if r.summary %}<p>{{ r.summary }}</p>{% endif %}
   {% if r.reason %}<div class="t-reason"><b>推荐理由</b>：{{ r.reason }}</div>{% endif %}

@@ -1,0 +1,40 @@
+{
+  "checked_at": "2026-09-17",
+  "scope": "P10a event relation and merge schema rehearsal",
+  "source": {
+    "path_class": "local development database",
+    "access": "read-only consistent SQLite backup",
+    "size_bytes": 81547264,
+    "production_or_windows_accessed": false
+  },
+  "migration": {
+    "previous_state": "legacy_unversioned",
+    "result_schema_version": 11,
+    "legacy_core_unchanged": true,
+    "new_table_counts": {
+      "event_relations": 0,
+      "event_merges": 0
+    }
+  },
+  "legacy_core": {
+    "companies": {"rows": 23, "sha256": "84a8b255408ee72d72b1360fec2b8796f767c920e62d4c639773596c163567fc"},
+    "sources": {"rows": 57, "sha256": "0cb430da5f27d3219eb1babf9b5535d2bfc5ba288929392d579b0be59e2c71dd"},
+    "items": {"rows": 25090, "sha256": "6ca773fba57db8d0f565becf0510bc68953474e72365c9cbc47c24c4a229e323"},
+    "item_discoveries": {"rows": 26381, "sha256": "2de237393031fcdedf8faac35ca146473bf4a16d3412202a28924b7001374670"},
+    "item_companies": {"rows": 14513, "sha256": "92b2bedc0fde264c5f202a68dff961f788216ba1495fc2bcaf6f3ac83cb8cf88"},
+    "daily_reports": {"rows": 6, "sha256": "a13a98bdb2e88956f90518f08e3ba476723a0a9ca83e245c7f3f1e3d06fb86f7"},
+    "stories": {"rows": 21594, "sha256": "fffc608aa28b364066d4471f0814c8c0ef05579140acd84a85c8dad28812e95a"},
+    "story_items": {"rows": 17776, "sha256": "6168323ef84b768f77d791c22ce0464ba662e5e4a2f0393911d34299104284ad"}
+  },
+  "verification": {
+    "integrity_before": "ok",
+    "integrity_after": "ok",
+    "foreign_key_violations": 0,
+    "source_written": false,
+    "temporary_copy_deleted": true
+  },
+  "limits": [
+    "This rehearsal used the local development database, not the Windows production database.",
+    "The schema migration intentionally creates empty relation and merge tables; domain writes are covered by atomic publication tests."
+  ]
+}

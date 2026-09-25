@@ -1,0 +1,38 @@
+{
+  "source": "isolated real-data schema-33 database from p18q rehearsal",
+  "production_changed": false,
+  "sample_batch": {
+    "id": "topic_sample_c6d3dcd9a1914758b0e89cd71f80721c",
+    "members": 1092,
+    "review_cutoff_sequence": 2
+  },
+  "export_rehearsal": {
+    "status": "ok",
+    "bytes": 1508295,
+    "elapsed_seconds": 0.539,
+    "file_mode": "0600",
+    "payload_sha256": "db34d47a53c12826f7fe987bb948bc1e5d2378cee1d0ec62f2c6839aea4d97f7",
+    "review_rows_before": 2,
+    "review_rows_after": 2,
+    "temporary_export_removed": true,
+    "manifest_sha256": "8fc65ce090d1a4d51ddd63fd44ce875d0a84f7568d70c42309215eb134fb8a79"
+  },
+  "contract": {
+    "deterministic_for_same_batch_and_cutoff": true,
+    "future_cutoff_rejected": true,
+    "existing_destination_rejected": true,
+    "tampered_payload_rejected": true,
+    "database_write": false,
+    "selection_manifest_reconstructed_offline": true
+  },
+  "limitations": [
+    "The export contains reviewer identity, reasons, titles and URLs and is therefore a restricted artifact.",
+    "The export digest proves file consistency, while database strict verification remains responsible for reconstructing the original sample selection.",
+    "Windows and production data were not changed."
+  ],
+  "validation": {
+    "unit_tests": "431 passed",
+    "python_compile": "passed",
+    "git_diff_check": "passed"
+  }
+}

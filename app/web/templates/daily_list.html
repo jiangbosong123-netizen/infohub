@@ -1,13 +1,13 @@
 {% extends "base.html" %}
 {% block title %}行业日报 — 行业情报站{% endblock %}
 {% block content %}
-<h1 class="pagetitle">AI 日报 <small>每天 08:00 自动生成前一日的重点</small></h1>
+<h1 class="pagetitle">行业日报 <small>每日重点与来源</small></h1>
 {% if not reports %}
 <p class="empty">还没有日报。配置 LLM Key 后，每天早上自动生成；也可以执行 <code>python cli.py report</code> 立即生成。</p>
 {% endif %}
 <ul class="dailies">
   {% for r in reports %}
-  <li><a href="/daily/{{ r.date }}">{{ r.date }}</a><span class="src">{{ r.created_rel }} 生成</span></li>
+  <li><a href="/daily/{{ r.date }}">{{ r.date }}</a><span class="src">{{ r.source_label }} · {{ r.created_rel }} 生成</span></li>
   {% endfor %}
 </ul>
 {% endblock %}
