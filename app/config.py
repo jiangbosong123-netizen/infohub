@@ -85,6 +85,7 @@ class RuntimeSettings:
     report_read_enabled: bool
     report_write_enabled: bool
     api_catalog_enabled: bool
+    api_items_enabled: bool
     api_key_rate_per_minute: int
     api_consumer_concurrency: int
     api_request_lease_seconds: int
@@ -228,6 +229,7 @@ def load_runtime_settings(
             "INFOHUB_REPORT_WRITE_ENABLED=true requires INFOHUB_REPORT_READ_ENABLED=true"
         )
     api_catalog_enabled = _boolean(values, "INFOHUB_API_CATALOG_ENABLED", False)
+    api_items_enabled = _boolean(values, "INFOHUB_API_ITEMS_ENABLED", False)
     api_key_rate_per_minute = _integer(
         values, "INFOHUB_API_KEY_RATE_PER_MINUTE", 60, 1, 10_000
     )
@@ -303,6 +305,7 @@ def load_runtime_settings(
         report_read_enabled=report_read_enabled,
         report_write_enabled=report_write_enabled,
         api_catalog_enabled=api_catalog_enabled,
+        api_items_enabled=api_items_enabled,
         api_key_rate_per_minute=api_key_rate_per_minute,
         api_consumer_concurrency=api_consumer_concurrency,
         api_request_lease_seconds=api_request_lease_seconds,
@@ -331,6 +334,7 @@ TOPIC_READ_ENABLED = RUNTIME.topic_read_enabled
 REPORT_READ_ENABLED = RUNTIME.report_read_enabled
 REPORT_WRITE_ENABLED = RUNTIME.report_write_enabled
 API_CATALOG_ENABLED = RUNTIME.api_catalog_enabled
+API_ITEMS_ENABLED = RUNTIME.api_items_enabled
 API_KEY_RATE_PER_MINUTE = RUNTIME.api_key_rate_per_minute
 API_CONSUMER_CONCURRENCY = RUNTIME.api_consumer_concurrency
 API_REQUEST_LEASE_SECONDS = RUNTIME.api_request_lease_seconds

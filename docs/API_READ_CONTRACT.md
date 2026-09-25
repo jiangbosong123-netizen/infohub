@@ -83,6 +83,35 @@ DTO 返回稳定 publisher/version ID、正式名称、active aliases、状态�
 只读演练前后相关表计数不变。机器可读结果见
 [`p18u-api-publisher-catalog.json`](evidence/p18u-api-publisher-catalog.json)。Windows 与生产未修改。
 
+## P18m：当前 Item / 稳定文档读取
+
+`GET /api/v1/items` 和 `GET /api/v1/items/{id}` 使用 `read:items` scope，并受独立的
+`INFOHUB_API_ITEMS_ENABLED` 开关控制；开关默认 false。这里的 item 是 `documents` 中的稳定文档身份，
+不是可变 legacy `items` 行。响应固定到 `current_version_id` 指向的不可变 document version，并在读取时
+复核 document/version 归属、内容 SHA-256、版本 SHA-256、采集 source key 和可选 publisher 身份。
+
+列表只返回 active 文档，按 `first_seen_at DESC, document.id ASC` 固定排序；复合位置封装在短期、
+权限绑定的 live cursor 中。参数限于 `limit`、`cursor`、标题查询 `q`、正式 `kind`、`language`、
+稳定 source key `source_id` 和 `publisher_id`。筛选条件全部进入游标签名。withdrawn 文档不进入列表，
+但可按稳定 ID 读取并明确返回 withdrawn；restricted 详情返回 403；`duplicate_alias` 在 canonical 文档
+关系建模完成前返回 503，不能猜测跳转目标。详情提供权限感知的 ETag。
+
+列表返回原始标题、语言、`text_length`、content/version hash、公开 URL、source/publisher 引用、
+规范化与可用时间，以及完整的时间和内容质量字段；为控制响应上限，列表不重复携带正文。详情另外
+返回规范化 `text`。该 `text` 是规范化投影，不是 raw CAS payload；
+`read:evidence` 将由后续独立契约控制原始证据。URL 输出会移除 userinfo、fragment 和常见敏感查询参数。
+调用方必须依据 `content_origin`、`content_extent`、`truncated` 和 `extraction_status` 判断内容范围，不能把
+feed excerpt、generated metadata 或 legacy unknown 内容标成发布方全文。
+
+`published_at` 只在规范化版本拥有有效 source-published 时间时出现，并返回对应的
+`source_time_value_id`。读取会验证该时间证据属于当前版本的 raw input，且 role、状态、UTC、精度、
+规则版本和 tzdb 版本一致。`first_seen_at`、`normalized_at` 和
+`available_at` 不能替代发布时间；`point_in_time_eligible=false` 必须原样传播。2026-09-25 的隔离真实
+数据副本中 47,266 个稳定文档均为历史回填：全部 active，当前版本均为 `legacy_unknown`、
+`legacy_unverified`、`point_in_time_eligible=false`，且没有可信 publisher 或 published_at。API 演练
+保留这些 null/质量标记，没有提升旧门户时间。机器可读结果见
+[`p18v-api-item-read.json`](evidence/p18v-api-item-read.json)。Windows 与生产未修改。
+
 ## P18j：主题目录与可审计统计
 
 `GET /api/v1/topics` 和 `GET /api/v1/topics/{id}` 使用 `read:catalog` scope，并继续受

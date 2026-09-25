@@ -46,6 +46,18 @@ from ..api_publishers import (
     list_publishers,
     publisher_etag,
 )
+from ..api_items import (
+    DOCUMENT_KINDS,
+    DuplicateItemAlias,
+    ItemCatalogUnavailable,
+    ItemListResponse,
+    ItemNotFound,
+    ItemResponse,
+    RestrictedItem,
+    get_item,
+    item_etag,
+    list_items,
+)
 from ..api_topics import (
     RestrictedTopic,
     TOPIC_GROUPS,
@@ -189,6 +201,32 @@ _PUBLISHER_LIST_OPENAPI = {
 }
 _PUBLISHER_DETAIL_OPENAPI = {
     "x-required-scopes": ["read:catalog"],
+    "parameters": [
+        {"name": "If-None-Match", "in": "header", "required": False,
+         "schema": {"type": "string", "maxLength": 512}},
+    ],
+}
+_ITEM_LIST_OPENAPI = {
+    "x-required-scopes": ["read:items"],
+    "parameters": [
+        {"name": "limit", "in": "query", "required": False,
+         "schema": {"type": "integer", "minimum": 1, "maximum": 100, "default": 50}},
+        {"name": "cursor", "in": "query", "required": False,
+         "schema": {"type": "string", "minLength": 1}},
+        {"name": "q", "in": "query", "required": False,
+         "schema": {"type": "string", "maxLength": 200}},
+        {"name": "kind", "in": "query", "required": False,
+         "schema": {"type": "string", "enum": sorted(DOCUMENT_KINDS)}},
+        {"name": "language", "in": "query", "required": False,
+         "schema": {"type": "string", "maxLength": 32}},
+        {"name": "source_id", "in": "query", "required": False,
+         "schema": {"type": "string", "maxLength": 128}},
+        {"name": "publisher_id", "in": "query", "required": False,
+         "schema": {"type": "string", "maxLength": 128}},
+    ],
+}
+_ITEM_DETAIL_OPENAPI = {
+    "x-required-scopes": ["read:items"],
     "parameters": [
         {"name": "If-None-Match", "in": "header", "required": False,
          "schema": {"type": "string", "maxLength": 512}},
@@ -340,6 +378,7 @@ def _system_snapshot() -> dict:
             "durable_jobs_enabled": DURABLE_JOBS_ENABLED,
             "curated_feed_enabled": CURATED_FEED_ENABLED,
             "api_catalog_enabled": config.API_CATALOG_ENABLED,
+            "api_items_enabled": config.API_ITEMS_ENABLED,
             "topic_read_enabled": TOPIC_READ_ENABLED,
         },
         "readiness": {
@@ -1141,6 +1180,109 @@ def api_v1_publisher(id: str, request: Request, response: Response):
     return result
 
 
+@app.get(
+    "/api/v1/items", response_model=ItemListResponse,
+    openapi_extra=_ITEM_LIST_OPENAPI,
+)
+def api_v1_items(request: Request):
+    request_id = request.state.request_id
+    if not config.API_ITEMS_ENABLED:
+        return v1_error(503, "not_ready", request_id)
+    allowed = {
+        "limit", "cursor", "q", "kind", "language", "source_id", "publisher_id",
+    }
+    if set(request.query_params) - allowed or any(
+        len(request.query_params.getlist(name)) != 1 for name in request.query_params
+    ):
+        return v1_error(422, "invalid_parameter", request_id)
+    raw_limit = request.query_params.get("limit", "50")
+    try:
+        limit = int(raw_limit)
+    except ValueError:
+        return v1_error(422, "invalid_parameter", request_id)
+    query = request.query_params.get("q")
+    query = query.strip() if query is not None else None
+    if query == "":
+        query = None
+    kind = request.query_params.get("kind")
+    language = request.query_params.get("language")
+    source_id = request.query_params.get("source_id")
+    publisher_id = request.query_params.get("publisher_id")
+    if any(value == "" for value in (language, source_id, publisher_id) if value is not None):
+        return v1_error(422, "invalid_parameter", request_id)
+    if (str(limit) != raw_limit or not 1 <= limit <= 100
+            or (query is not None and len(query) > 200)
+            or (kind is not None and kind not in DOCUMENT_KINDS)
+            or (language is not None and len(language) > 32)
+            or (source_id is not None and len(source_id) > 128)
+            or (publisher_id is not None and len(publisher_id) > 128)):
+        return v1_error(422, "invalid_parameter", request_id)
+    try:
+        with get_db() as db:
+            db.execute("BEGIN")
+            return list_items(
+                db, request.state.api_principal, request_id=request_id,
+                limit=limit, cursor=request.query_params.get("cursor"), query=query,
+                kind=kind, language=language, source_id=source_id,
+                publisher_id=publisher_id,
+            )
+    except CursorExpired:
+        return v1_error(410, "cursor_expired", request_id)
+    except CursorFilterMismatch:
+        return v1_error(400, "filter_mismatch", request_id)
+    except CursorEpochChanged:
+        return v1_error(409, "epoch_changed", request_id)
+    except CursorError:
+        return v1_error(400, "invalid_cursor", request_id)
+    except (
+        ItemCatalogUnavailable, RestrictedItem, DuplicateItemAlias,
+        sqlite3.Error, OSError, KeyError, TypeError, ValueError,
+    ):
+        return v1_error(503, "not_ready", request_id)
+
+
+@app.get(
+    "/api/v1/items/{id}", response_model=ItemResponse,
+    openapi_extra=_ITEM_DETAIL_OPENAPI,
+)
+def api_v1_item(id: str, request: Request, response: Response):
+    request_id = request.state.request_id
+    if not config.API_ITEMS_ENABLED:
+        return v1_error(503, "not_ready", request_id)
+    if request.query_params or not id or len(id) > 96:
+        return v1_error(422, "invalid_parameter", request_id)
+    conditional = [
+        value for key, value in request.scope["headers"]
+        if key.lower() == b"if-none-match"
+    ]
+    if len(conditional) > 1 or (conditional and len(conditional[0]) > 512):
+        return v1_error(422, "invalid_parameter", request_id)
+    try:
+        with get_db() as db:
+            db.execute("BEGIN")
+            result = get_item(db, request_id=request_id, item_id=id)
+            etag = item_etag(result, request.state.api_principal)
+    except ItemNotFound:
+        return v1_error(404, "resource_not_found", request_id)
+    except RestrictedItem:
+        return v1_error(403, "restricted_content", request_id)
+    except (DuplicateItemAlias, ItemCatalogUnavailable, sqlite3.Error, OSError,
+            KeyError, TypeError, ValueError):
+        return v1_error(503, "not_ready", request_id)
+    if conditional:
+        try:
+            validators = [value.strip() for value in conditional[0].decode("ascii").split(",")]
+        except UnicodeDecodeError:
+            return v1_error(422, "invalid_parameter", request_id)
+        if "*" in validators or any(
+            validator == etag or (validator.startswith("W/") and validator[2:] == etag)
+            for validator in validators
+        ):
+            return Response(status_code=304, headers={"ETag": etag})
+    response.headers["ETag"] = etag
+    return result
+
+
 def _unready_snapshot(exc: Exception) -> dict:
     return {
         "status": "unavailable",
@@ -1153,6 +1295,7 @@ def _unready_snapshot(exc: Exception) -> dict:
             "durable_jobs_enabled": DURABLE_JOBS_ENABLED,
             "curated_feed_enabled": CURATED_FEED_ENABLED,
             "api_catalog_enabled": config.API_CATALOG_ENABLED,
+            "api_items_enabled": config.API_ITEMS_ENABLED,
         },
         "readiness": {
             "status": "not_ready",
