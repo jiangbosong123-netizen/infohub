@@ -9,6 +9,10 @@ from __future__ import annotations
   python cli.py ai          # 对未处理条目跑一轮 AI（摘要/评分）
   python cli.py report [YYYY-MM-DD]  # 生成某日日报（默认昨天）
   python cli.py reindex     # 更新主题索引与持久事件（不调用模型）
+  python cli.py db-status [PATH]       # 只读检查数据库版本与完整性
+  python cli.py db-backup [DEST]       # 创建并校验一致性备份
+  python cli.py db-migrate             # 仅执行安全迁移（旧库会先备份）
+  python cli.py db-verify [PATH]       # 严格验证当前版本数据库
   python cli.py serve       # 启动网站 + 定时任务
 """
 import json
@@ -48,6 +52,26 @@ def cmd_init_db() -> None:
     from app.stories import refresh_derived
     refresh_derived()
     print(f"数据库初始化完成：{n} 家公司，源注册表已同步。")
+
+
+def cmd_db_status(path: str | None = None) -> None:
+    from app.db_admin import report_json, verify_database
+    print(report_json(verify_database(path or config.DB_PATH)))
+
+
+def cmd_db_backup(destination: str | None = None) -> None:
+    from app.db_admin import backup_database, report_json
+    print(report_json(backup_database(destination=destination)))
+
+
+def cmd_db_migrate() -> None:
+    from app.db_admin import migrate_database, report_json
+    print(report_json(migrate_database()))
+
+
+def cmd_db_verify(path: str | None = None) -> None:
+    from app.db_admin import report_json, verify_database
+    print(report_json(verify_database(path or config.DB_PATH, require_current=True)))
 
 
 def cmd_crawl() -> None:
@@ -172,6 +196,14 @@ def main() -> None:
         from app.stories import refresh_derived
         init_schema()
         print(refresh_derived())
+    elif cmd == "db-status":
+        cmd_db_status(sys.argv[2] if len(sys.argv) > 2 else None)
+    elif cmd == "db-backup":
+        cmd_db_backup(sys.argv[2] if len(sys.argv) > 2 else None)
+    elif cmd == "db-migrate":
+        cmd_db_migrate()
+    elif cmd == "db-verify":
+        cmd_db_verify(sys.argv[2] if len(sys.argv) > 2 else None)
     elif cmd == "serve":
         cmd_serve()
     else:

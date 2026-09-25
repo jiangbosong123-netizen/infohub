@@ -131,9 +131,10 @@ class ManagedConnection(sqlite3.Connection):
             self.close()
 
 
-def get_db() -> sqlite3.Connection:
-    DB_PATH.parent.mkdir(parents=True, exist_ok=True)
-    conn = sqlite3.connect(DB_PATH, timeout=30, factory=ManagedConnection)
+def get_db(path: Path | None = None) -> sqlite3.Connection:
+    target = Path(path or DB_PATH)
+    target.parent.mkdir(parents=True, exist_ok=True)
+    conn = sqlite3.connect(target, timeout=30, factory=ManagedConnection)
     conn.row_factory = sqlite3.Row
     conn.execute("PRAGMA journal_mode=WAL")
     conn.execute("PRAGMA busy_timeout=30000")
@@ -142,61 +143,11 @@ def get_db() -> sqlite3.Connection:
 
 
 def init_schema() -> None:
-    with get_db() as db:
-        db.executescript(SCHEMA)
-        # 老库迁移：补 title_zh 列（CREATE TABLE IF NOT EXISTS 不会改已有表）
-        cols = {r["name"] for r in db.execute("PRAGMA table_info(items)")}
-        if "title_zh" not in cols:
-            db.execute("ALTER TABLE items ADD COLUMN title_zh TEXT DEFAULT ''")
-        for col, ddl in (("tmt", "INTEGER"), ("reason", "TEXT DEFAULT ''"),
-                         ("ai_cat", "TEXT DEFAULT ''")):
-            if col not in cols:
-                db.execute(f"ALTER TABLE items ADD COLUMN {col} {ddl}")
-
-        # v2 search index: migrate once, including historical translated titles.
-        fts_cols = {r["name"] for r in db.execute("PRAGMA table_info(items_fts)")}
-        if "title_zh" not in fts_cols:
-            db.executescript("""
-                BEGIN IMMEDIATE;
-                DROP TRIGGER IF EXISTS items_ai;
-                DROP TRIGGER IF EXISTS items_ad;
-                DROP TRIGGER IF EXISTS items_au;
-                DROP TABLE items_fts;
-                CREATE VIRTUAL TABLE items_fts USING fts5(
-                    title, title_zh, summary, content='items', content_rowid='id', tokenize='trigram');
-                CREATE TRIGGER items_ai AFTER INSERT ON items BEGIN
-                    INSERT INTO items_fts(rowid,title,title_zh,summary)
-                    VALUES(new.id,new.title,new.title_zh,new.summary);
-                END;
-                CREATE TRIGGER items_ad AFTER DELETE ON items BEGIN
-                    INSERT INTO items_fts(items_fts,rowid,title,title_zh,summary)
-                    VALUES('delete',old.id,old.title,old.title_zh,old.summary);
-                END;
-                CREATE TRIGGER items_au AFTER UPDATE OF title,title_zh,summary ON items BEGIN
-                    INSERT INTO items_fts(items_fts,rowid,title,title_zh,summary)
-                    VALUES('delete',old.id,old.title,old.title_zh,old.summary);
-                    INSERT INTO items_fts(rowid,title,title_zh,summary)
-                    VALUES(new.id,new.title,new.title_zh,new.summary);
-                END;
-                INSERT INTO items_fts(items_fts) VALUES('rebuild');
-                COMMIT;
-            """)
-
-        if 'raw_summary' not in cols:
-            # Historical summaries may already be AI-generated; leave them NULL.
-            db.execute('ALTER TABLE items ADD COLUMN raw_summary TEXT')
-        db.executescript(DERIVED_SCHEMA)
-        # Keep the trigger definition current on existing databases. Channel
-        # changes also affect event membership and must enter the derived queue.
-        db.executescript("""
-            DROP TRIGGER IF EXISTS items_derived_update;
-            CREATE TRIGGER items_derived_update
-            AFTER UPDATE OF title,title_zh,summary,raw_summary,companies,score,tmt,event_type,
-                            ai_cat,official,extra,published_at,channel ON items BEGIN
-                INSERT OR IGNORE INTO derived_dirty(item_id) VALUES(new.id);
-            END;
-        """)
-        db.execute("INSERT OR IGNORE INTO derived_dirty(item_id) SELECT id FROM items WHERE id NOT IN (SELECT item_id FROM indexed_items)")
+    """Bring the configured database to the latest supported schema safely."""
+    # Delayed import avoids a module cycle: db_admin consumes the immutable
+    # legacy schema strings below as migration 1.
+    from .db_admin import migrate_database
+    migrate_database(DB_PATH)
 
 
 DERIVED_SCHEMA = """
