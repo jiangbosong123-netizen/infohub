@@ -112,6 +112,25 @@ feed excerpt、generated metadata 或 legacy unknown 内容标成发布方全文
 保留这些 null/质量标记，没有提升旧门户时间。机器可读结果见
 [`p18v-api-item-read.json`](evidence/p18v-api-item-read.json)。Windows 与生产未修改。
 
+## P18n：Item 不可变版本历史
+
+`GET /api/v1/items/{id}/versions` 延用 `read:items` scope 和
+`INFOHUB_API_ITEMS_ENABLED` 开关，按 `version DESC` 返回一个稳定文档的不可变版本链。列表项明确包含
+`previous_version_id`、`is_current` 和版本摘要；摘要保留 hash、来源、发布方、时间/内容质量、修正类型与
+可用时间，但不重复传输正文。需要正文的调用方只能通过当前 Item 详情读取当前规范化文本；历史原文和
+raw payload 继续等待独立、权限更严格的 evidence 契约。
+
+读取前会验证版本从 1 连续编号，每个 predecessor 必须属于同一文档且恰好是前一版本，document 的
+`current_version_id` 必须指向链尾。任何缺口、跨文档 predecessor、陈旧 current 指针、内容/version hash
+错误、来源/发布方错误或发布时间证据断链都会 fail closed。restricted 返回 403，withdrawn 历史仍可按
+稳定 ID 读取，`duplicate_alias` 在 canonical 跳转契约完成前返回 503。
+
+分页上限 100，签名 live cursor 绑定 API key、consumer、权限版本、dataset epoch 和 item ID；把一个
+文档的游标用于另一文档会返回 `400 filter_mismatch`。当前契约只描述逻辑版本历史，不声称提供 P19
+point-in-time 快照或增量同步。2026-09-25 的隔离真实数据副本包含 47,266 个文档和 47,266 个版本，
+全部只有版本 1；历史 API 返回的版本数与 current 指针一致，演练前后表计数和数据库 SHA-256 不变。
+机器可读结果见 [`p18w-api-item-history.json`](evidence/p18w-api-item-history.json)。Windows 与生产未修改。
+
 ## P18j：主题目录与可审计统计
 
 `GET /api/v1/topics` 和 `GET /api/v1/topics/{id}` 使用 `read:catalog` scope，并继续受

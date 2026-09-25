@@ -220,6 +220,43 @@ class ApiItemTests(unittest.TestCase):
     def headers(self, key=None):
         return {"Authorization": f"Bearer {(key or self.key).token}"}
 
+    def _append_version(self, db, document_id, version, previous_id, title, *, current=True):
+        version_id = f"{document_id}-v{version}"
+        text = f"{title} body"
+        value = {
+            "normalizer_version": "normalizer-test-v1", "title_original": title,
+            "language": "en", "text": text,
+            "canonical_url": f"https://alpha.example/story?v={version}",
+            "source_id": 1, "publisher_id": None, "published_at": None,
+            "published_precision": "unknown", "time_status": "missing",
+            "time_rule_version": "time-test-v1", "tzdb_version": "test",
+            "content_origin": "feed_excerpt", "content_extent": "excerpt",
+            "truncated": 0, "extraction_status": "partial",
+        }
+        db.execute(
+            """INSERT INTO document_versions(
+                   id,document_id,version,previous_version_id,normalizer_version,
+                   normalized_at,title_original,language,text,content_sha256,
+                   version_sha256,canonical_url,source_id,published_precision,
+                   time_status,time_rule_version,tzdb_version,content_origin,
+                   content_extent,truncated,extraction_status,correction_kind,
+                   available_at,availability_basis,point_in_time_eligible)
+               VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,'content_change',
+                      ?,'transaction_recorded',0)""",
+            (
+                version_id, document_id, version, previous_id, "normalizer-test-v1",
+                T2, title, "en", text, sha(text), object_sha(value),
+                f"https://alpha.example/story?v={version}", 1, "unknown", "missing",
+                "time-test-v1", "test", "feed_excerpt", "excerpt", 0, "partial", T2,
+            ),
+        )
+        if current:
+            db.execute(
+                "UPDATE documents SET current_version_id=? WHERE id=?",
+                (version_id, document_id),
+            )
+        return version_id
+
     def test_list_orders_by_seen_time_then_id_and_sanitizes_url(self):
         first = self.client.get("/api/v1/items?limit=1", headers=self.headers())
         self.assertEqual(first.status_code, 200)
@@ -353,15 +390,82 @@ class ApiItemTests(unittest.TestCase):
         self.assertEqual(response.status_code, 503)
         self.assertEqual(response.json()["error"]["code"], "not_ready")
 
+    def test_version_history_is_bounded_ordered_and_cursor_bound(self):
+        with database.get_db(self.path) as db:
+            second = self._append_version(db, "doc-a", 2, "doc-a-v1", "Alpha revised")
+            third = self._append_version(db, "doc-a", 3, second, "Alpha corrected")
+        first = self.client.get(
+            "/api/v1/items/doc-a/versions?limit=1", headers=self.headers()
+        )
+        self.assertEqual(first.status_code, 200)
+        body = first.json()
+        self.assertEqual(body["data"]["current_version_id"], third)
+        self.assertEqual(body["pagination"]["order"], "version_desc")
+        entry = body["data"]["versions"][0]
+        self.assertTrue(entry["is_current"])
+        self.assertEqual(entry["previous_version_id"], second)
+        self.assertEqual(entry["version"]["version"], 3)
+        self.assertNotIn("text", entry["version"])
+        second_page = self.client.get(
+            "/api/v1/items/doc-a/versions",
+            params={"limit": 1, "cursor": body["pagination"]["next_cursor"]},
+            headers=self.headers(),
+        )
+        self.assertEqual(second_page.status_code, 200)
+        self.assertEqual(
+            second_page.json()["data"]["versions"][0]["version"]["version"], 2
+        )
+        mismatch = self.client.get(
+            "/api/v1/items/doc-b/versions",
+            params={"limit": 1, "cursor": body["pagination"]["next_cursor"]},
+            headers=self.headers(),
+        )
+        self.assertEqual(mismatch.status_code, 400)
+        self.assertEqual(mismatch.json()["error"]["code"], "filter_mismatch")
+
+    def test_version_history_boundaries_and_current_pointer_fail_closed(self):
+        self.assertEqual(
+            self.client.get("/api/v1/items/missing/versions", headers=self.headers()).status_code,
+            404,
+        )
+        self.assertEqual(
+            self.client.get("/api/v1/items/doc-r/versions", headers=self.headers()).status_code,
+            403,
+        )
+        self.assertEqual(
+            self.client.get("/api/v1/items/doc-d/versions", headers=self.headers()).status_code,
+            503,
+        )
+        for path in (
+            "/api/v1/items/doc-a/versions?unknown=1",
+            "/api/v1/items/doc-a/versions?limit=01",
+            "/api/v1/items/doc-a/versions?limit=1&limit=2",
+        ):
+            with self.subTest(path=path):
+                self.assertEqual(self.client.get(path, headers=self.headers()).status_code, 422)
+        with database.get_db(self.path) as db:
+            self._append_version(
+                db, "doc-a", 2, "doc-a-v1", "Unpublished current", current=False
+            )
+        stale = self.client.get("/api/v1/items/doc-a/versions", headers=self.headers())
+        self.assertEqual(stale.status_code, 503)
+        self.assertEqual(stale.json()["error"]["code"], "not_ready")
+
     def test_openapi_declares_item_contract(self):
         schema = self.client.get("/openapi.json").json()
         listing = schema["paths"]["/api/v1/items"]["get"]
         detail = schema["paths"]["/api/v1/items/{id}"]["get"]
+        versions = schema["paths"]["/api/v1/items/{id}/versions"]["get"]
         self.assertEqual(listing["x-required-scopes"], ["read:items"])
         self.assertEqual(detail["x-required-scopes"], ["read:items"])
+        self.assertEqual(versions["x-required-scopes"], ["read:items"])
         self.assertEqual(
             {parameter["name"] for parameter in listing["parameters"]},
             {"limit", "cursor", "q", "kind", "language", "source_id", "publisher_id"},
+        )
+        self.assertEqual(
+            {parameter["name"] for parameter in versions["parameters"]},
+            {"id", "limit", "cursor"},
         )
 
 

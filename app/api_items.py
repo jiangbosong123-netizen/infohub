@@ -129,6 +129,43 @@ class ItemResponse(_StrictModel):
     data: ItemView
 
 
+class ItemVersionHistoryEntry(_StrictModel):
+    previous_version_id: str | None = Field(default=None, max_length=128)
+    is_current: bool
+    version: ItemVersionSummary
+
+
+class ItemVersionHistoryData(_StrictModel):
+    id: str = Field(min_length=1, max_length=96)
+    kind: Literal[
+        "article", "flash", "filing", "policy_release", "research",
+        "commentary", "transcript", "other",
+    ]
+    status: Literal["active", "withdrawn"]
+    first_seen_at: str
+    current_version_id: str = Field(min_length=1, max_length=128)
+    versions: list[ItemVersionHistoryEntry]
+
+
+class ItemVersionPagination(_StrictModel):
+    limit: int = Field(ge=1, le=100)
+    next_cursor: str | None
+    consistency: Literal["live"] = "live"
+    order: Literal["version_desc"] = "version_desc"
+
+
+class ItemVersionHistoryResponse(_StrictModel):
+    api_version: Literal["v1"] = "v1"
+    schema_version: Literal["1.0.0"] = "1.0.0"
+    dataset_id: str
+    dataset_epoch: str
+    request_id: str
+    generated_at: str
+    knowledge_cutoff: None = None
+    data: ItemVersionHistoryData
+    pagination: ItemVersionPagination
+
+
 class ItemCatalogUnavailable(RuntimeError):
     pass
 
@@ -309,6 +346,7 @@ def _item_summary(item: ItemView) -> ItemListView:
 _SELECT = """document.id,document.dataset_id,document.kind,document.status,
     document.first_seen_at,state.dataset_id AS current_dataset_id,
     version.id AS version_id,version.document_id AS version_document_id,version.version,
+    version.previous_version_id,
     version.normalizer_version,version.normalized_at,version.title_original,version.language,
     version.text,version.content_sha256,version.version_sha256,version.canonical_url,
     version.source_id AS source_numeric_id,source.key AS source_key,version.publisher_id,
@@ -321,6 +359,10 @@ _SELECT = """document.id,document.dataset_id,document.kind,document.status,
 _FROM = """FROM documents document
     JOIN dataset_state state ON state.singleton=1
     LEFT JOIN document_versions version ON version.id=document.current_version_id
+    LEFT JOIN sources source ON source.id=version.source_id"""
+_HISTORY_FROM = """FROM documents document
+    JOIN dataset_state state ON state.singleton=1
+    JOIN document_versions version ON version.document_id=document.id
     LEFT JOIN sources source ON source.id=version.source_id"""
 
 
@@ -434,6 +476,108 @@ def get_item(db: sqlite3.Connection, *, request_id: str, item_id: str) -> ItemRe
     return ItemResponse(
         dataset_id=identity["dataset_id"], dataset_epoch=identity["current_epoch"],
         request_id=request_id, generated_at=utc_now(), data=_item_view(db, row),
+    )
+
+
+def list_item_versions(
+    db: sqlite3.Connection,
+    principal: ApiPrincipal,
+    *,
+    request_id: str,
+    item_id: str,
+    limit: int,
+    cursor: str | None,
+) -> ItemVersionHistoryResponse:
+    identity = _identity(db)
+    document = db.execute(
+        """SELECT id,kind,status,first_seen_at,current_version_id
+           FROM documents WHERE id=? AND dataset_id=?""",
+        (item_id, identity["dataset_id"]),
+    ).fetchone()
+    if document is None:
+        raise ItemNotFound("document does not exist")
+    if document["status"] == "restricted":
+        raise RestrictedItem("document is restricted")
+    if document["status"] == "duplicate_alias":
+        raise DuplicateItemAlias("duplicate document canonical projection is unavailable")
+    if document["status"] not in {"active", "withdrawn"}:
+        raise ItemCatalogUnavailable("document status is unsupported")
+    chain = db.execute(
+        """SELECT COUNT(*) AS count,MIN(version) AS first_version,
+                  MAX(version) AS last_version,
+                  SUM(CASE
+                      WHEN version=1 AND previous_version_id IS NULL THEN 0
+                      WHEN version>1 AND EXISTS(
+                          SELECT 1 FROM document_versions predecessor
+                          WHERE predecessor.id=document_versions.previous_version_id
+                            AND predecessor.document_id=document_versions.document_id
+                            AND predecessor.version=document_versions.version-1
+                      ) THEN 0 ELSE 1 END) AS invalid_links
+           FROM document_versions WHERE document_id=?""",
+        (item_id,),
+    ).fetchone()
+    if (chain is None or chain["count"] < 1 or chain["first_version"] != 1
+            or chain["last_version"] != chain["count"] or chain["invalid_links"] != 0):
+        raise ItemCatalogUnavailable("document version chain is invalid")
+    current = db.execute(
+        """SELECT version FROM document_versions
+           WHERE id=? AND document_id=?""",
+        (document["current_version_id"], item_id),
+    ).fetchone()
+    if current is None or current["version"] != chain["last_version"]:
+        raise ItemCatalogUnavailable("document current version is not the latest version")
+    last_version = None
+    if cursor:
+        position = decode_cursor(
+            db, principal, token=cursor, resource="item_versions",
+            filters={"item_id": item_id}, dataset_epoch=identity["current_epoch"],
+        )
+        try:
+            last_version = int(position.last_id)
+        except ValueError as exc:
+            raise CursorError("item version cursor position is invalid") from exc
+        if str(last_version) != position.last_id or last_version < 1:
+            raise CursorError("item version cursor position is invalid")
+    clauses = ["document.id=?", "document.dataset_id=?"]
+    values: list[object] = [item_id, identity["dataset_id"]]
+    if last_version is not None:
+        clauses.append("version.version<?")
+        values.append(last_version)
+    values.append(limit + 1)
+    rows = db.execute(
+        f"""SELECT {_SELECT} {_HISTORY_FROM}
+            WHERE {' AND '.join(clauses)}
+            ORDER BY version.version DESC LIMIT ?""",
+        values,
+    ).fetchall()
+    page = rows[:limit]
+    entries = [
+        ItemVersionHistoryEntry(
+            previous_version_id=row["previous_version_id"],
+            is_current=row["version_id"] == document["current_version_id"],
+            version=_item_summary(_item_view(db, row)).current_version,
+        )
+        for row in page
+    ]
+    next_cursor = None
+    if len(rows) > limit:
+        next_cursor = encode_cursor(
+            db, principal, resource="item_versions", filters={"item_id": item_id},
+            last_id=str(page[-1]["version"]), dataset_epoch=identity["current_epoch"],
+        )
+    try:
+        first_seen_at = format_utc(parse_utc(document["first_seen_at"]))
+    except (ValueError, TypeError, OverflowError) as exc:
+        raise ItemCatalogUnavailable("document timestamp is invalid") from exc
+    return ItemVersionHistoryResponse(
+        dataset_id=identity["dataset_id"], dataset_epoch=identity["current_epoch"],
+        request_id=request_id, generated_at=utc_now(),
+        data=ItemVersionHistoryData(
+            id=document["id"], kind=document["kind"], status=document["status"],
+            first_seen_at=first_seen_at,
+            current_version_id=document["current_version_id"], versions=entries,
+        ),
+        pagination=ItemVersionPagination(limit=limit, next_cursor=next_cursor),
     )
 
 

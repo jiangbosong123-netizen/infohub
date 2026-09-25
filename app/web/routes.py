@@ -53,9 +53,11 @@ from ..api_items import (
     ItemListResponse,
     ItemNotFound,
     ItemResponse,
+    ItemVersionHistoryResponse,
     RestrictedItem,
     get_item,
     item_etag,
+    list_item_versions,
     list_items,
 )
 from ..api_topics import (
@@ -230,6 +232,15 @@ _ITEM_DETAIL_OPENAPI = {
     "parameters": [
         {"name": "If-None-Match", "in": "header", "required": False,
          "schema": {"type": "string", "maxLength": 512}},
+    ],
+}
+_ITEM_VERSION_LIST_OPENAPI = {
+    "x-required-scopes": ["read:items"],
+    "parameters": [
+        {"name": "limit", "in": "query", "required": False,
+         "schema": {"type": "integer", "minimum": 1, "maximum": 100, "default": 50}},
+        {"name": "cursor", "in": "query", "required": False,
+         "schema": {"type": "string", "minLength": 1}},
     ],
 }
 
@@ -1281,6 +1292,50 @@ def api_v1_item(id: str, request: Request, response: Response):
             return Response(status_code=304, headers={"ETag": etag})
     response.headers["ETag"] = etag
     return result
+
+
+@app.get(
+    "/api/v1/items/{id}/versions", response_model=ItemVersionHistoryResponse,
+    openapi_extra=_ITEM_VERSION_LIST_OPENAPI,
+)
+def api_v1_item_versions(id: str, request: Request):
+    request_id = request.state.request_id
+    if not config.API_ITEMS_ENABLED:
+        return v1_error(503, "not_ready", request_id)
+    allowed = {"limit", "cursor"}
+    if (not id or len(id) > 96 or set(request.query_params) - allowed
+            or any(len(request.query_params.getlist(name)) != 1
+                   for name in request.query_params)):
+        return v1_error(422, "invalid_parameter", request_id)
+    raw_limit = request.query_params.get("limit", "50")
+    try:
+        limit = int(raw_limit)
+    except ValueError:
+        return v1_error(422, "invalid_parameter", request_id)
+    if str(limit) != raw_limit or not 1 <= limit <= 100:
+        return v1_error(422, "invalid_parameter", request_id)
+    try:
+        with get_db() as db:
+            db.execute("BEGIN")
+            return list_item_versions(
+                db, request.state.api_principal, request_id=request_id,
+                item_id=id, limit=limit, cursor=request.query_params.get("cursor"),
+            )
+    except ItemNotFound:
+        return v1_error(404, "resource_not_found", request_id)
+    except RestrictedItem:
+        return v1_error(403, "restricted_content", request_id)
+    except CursorExpired:
+        return v1_error(410, "cursor_expired", request_id)
+    except CursorFilterMismatch:
+        return v1_error(400, "filter_mismatch", request_id)
+    except CursorEpochChanged:
+        return v1_error(409, "epoch_changed", request_id)
+    except CursorError:
+        return v1_error(400, "invalid_cursor", request_id)
+    except (DuplicateItemAlias, ItemCatalogUnavailable, sqlite3.Error, OSError,
+            KeyError, TypeError, ValueError):
+        return v1_error(503, "not_ready", request_id)
 
 
 def _unready_snapshot(exc: Exception) -> dict:
