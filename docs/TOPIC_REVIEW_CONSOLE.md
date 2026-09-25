@@ -46,6 +46,8 @@ workflow described in [Topic statistics admission](TOPIC_STATISTICS_ADMISSION.md
 - Restarting the command creates a new CSRF token and resumes the same batch.
 - Review history remains inspectable through `topic-review-preview` and the
   immutable database ledger.
+- A fixed-cutoff [audit export](TOPIC_REVIEW_EXPORT.md) can package the completed
+  sample for an independent reviewer without opening a write service.
 - The console intentionally has no remote-access mode. A future shared reviewer
   service would require explicit identity, authentication, authorization and
   audit design rather than widening this local tool.

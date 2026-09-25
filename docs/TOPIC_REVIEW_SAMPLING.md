@@ -44,6 +44,9 @@ statistics publication still needs its separate admission review.
 For a one-item-at-a-time browser interface, use the maintenance-only
 [local topic review console](TOPIC_REVIEW_CONSOLE.md). It operates on one fixed
 sample batch over loopback and preserves the same ledger and concurrency rules.
+Use the [topic review audit export](TOPIC_REVIEW_EXPORT.md) when an independent
+reviewer needs a deterministic point-in-time package; exports can contain
+private reviewer and source details and must stay outside the public repository.
 
 After a batch has been reviewed, use the
 [sample evaluation gate](TOPIC_REVIEW_SAMPLE_GATE.md) to freeze the measured

@@ -38,6 +38,7 @@ class TopicReviewSampleBatch:
 class TopicReviewSampleItem:
     ordinal: int
     queue_sequence: int
+    selection_sha256: str
     assignment_id: str
     document_id: str
     document_version_id: str
@@ -308,22 +309,35 @@ def sample_queue(
     after_ordinal: int = -1,
     limit: int = 50,
     pending_only: bool = True,
+    review_cutoff_sequence: int | None = None,
 ) -> tuple[TopicReviewSampleItem, ...]:
     get_sample_batch(db, batch_id)
     if not isinstance(after_ordinal, int) or after_ordinal < -1:
         raise ValueError("after_ordinal must be at least -1")
     if not isinstance(limit, int) or not 1 <= limit <= 250:
         raise ValueError("limit must be between 1 and 250")
+    if review_cutoff_sequence is None:
+        review_cutoff_sequence = db.execute(
+            "SELECT COALESCE(MAX(sequence),0) FROM topic_assignment_review_order"
+        ).fetchone()[0]
+    if not isinstance(review_cutoff_sequence, int) or review_cutoff_sequence < 0:
+        raise ValueError("review_cutoff_sequence must be a non-negative integer")
     rows = db.execute(
-        """WITH latest_review AS (
+        """WITH snapshot_reviews AS (
                SELECT review.* FROM topic_assignment_reviews AS review
+               JOIN topic_assignment_review_order AS review_order
+                 ON review_order.review_id=review.id
+               WHERE review_order.sequence<=?
+           ), latest_review AS (
+               SELECT review.* FROM snapshot_reviews AS review
                WHERE NOT EXISTS(
-                   SELECT 1 FROM topic_assignment_reviews AS later
+                   SELECT 1 FROM snapshot_reviews AS later
                    WHERE later.assignment_id=review.assignment_id
                      AND later.version>review.version
                )
            )
-           SELECT member.ordinal,member.queue_sequence,assignment.id AS assignment_id,
+           SELECT member.ordinal,member.queue_sequence,member.selection_sha256,
+                  assignment.id AS assignment_id,
                   document.id AS document_id,version.id AS document_version_id,
                   version.title_original,version.canonical_url,item.published_at,
                   topic.id AS topic_id,topic_version.id AS topic_version_id,
@@ -347,10 +361,11 @@ def sample_queue(
            WHERE member.batch_id=? AND member.ordinal>?
              AND (?=0 OR COALESCE(review.decision,assignment.status)='candidate')
            ORDER BY member.ordinal LIMIT ?""",
-        (batch_id, after_ordinal, int(pending_only), limit),
+        (review_cutoff_sequence, batch_id, after_ordinal, int(pending_only), limit),
     ).fetchall()
     return tuple(TopicReviewSampleItem(
         ordinal=row["ordinal"], queue_sequence=row["queue_sequence"],
+        selection_sha256=row["selection_sha256"],
         assignment_id=row["assignment_id"], document_id=row["document_id"],
         document_version_id=row["document_version_id"], title=row["title_original"],
         canonical_url=row["canonical_url"], published_at=row["published_at"],

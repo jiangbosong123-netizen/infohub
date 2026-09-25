@@ -42,6 +42,8 @@ from __future__ import annotations
   python cli.py topic-review-sample-report BATCH_ID
   python cli.py topic-review-sample-queue BATCH_ID [AFTER_ORDINAL|none] [LIMIT] [pending|all]
   python cli.py topic-review-console BATCH_ID [PORT]  # 仅本机的逐条抽样审核页面
+  python cli.py topic-review-sample-export BATCH_ID DEST [REVIEW_CUTOFF|current]
+  python cli.py topic-review-sample-export-verify PATH
   python cli.py topic-sample-gate-preview BATCH_ID
   python cli.py topic-sample-gate-review BATCH_ID approved|rejected EXPECTED|none OVERALL_DECIDED_BPS TOPIC_DECIDED_BPS OVERALL_ACCEPTANCE_BPS TOPIC_ACCEPTANCE_BPS REASON
   python cli.py topic-statistics-advance [N]  # 推进至多 N 个主题统计（maintenance only，可续跑）
@@ -481,6 +483,31 @@ def cmd_topic_review_console(batch_id: str, port: int) -> None:
     uvicorn.run(review_app, host="127.0.0.1", port=port, log_level="info")
 
 
+def cmd_topic_review_sample_export(
+    batch_id: str, destination: str, review_cutoff: str
+) -> None:
+    if config.PROCESS_ROLE != "maintenance":
+        raise config.RuntimeConfigurationError(
+            "topic-review-sample-export requires maintenance role"
+        )
+    from app.db_admin import verify_database
+    from app.topic_review_export import export_topic_review_sample
+    verify_database(config.DB_PATH, require_current=True)
+    with get_db() as db:
+        result = export_topic_review_sample(
+            db, batch_id, destination,
+            review_cutoff_sequence=(
+                None if review_cutoff == "current" else int(review_cutoff)
+            ),
+        )
+    print(json.dumps(result, ensure_ascii=False, indent=2))
+
+
+def cmd_topic_review_sample_export_verify(path: str) -> None:
+    from app.topic_review_export import verify_topic_review_export
+    print(json.dumps(verify_topic_review_export(path), ensure_ascii=False, indent=2))
+
+
 def cmd_topic_sample_gate_preview(batch_id: str) -> None:
     if config.PROCESS_ROLE != "maintenance":
         raise config.RuntimeConfigurationError(
@@ -784,6 +811,12 @@ def main() -> None:
         cmd_topic_review_console(
             sys.argv[2], int(sys.argv[3]) if len(sys.argv) > 3 else 8011,
         )
+    elif cmd == "topic-review-sample-export" and len(sys.argv) >= 4:
+        cmd_topic_review_sample_export(
+            sys.argv[2], sys.argv[3], sys.argv[4] if len(sys.argv) > 4 else "current",
+        )
+    elif cmd == "topic-review-sample-export-verify" and len(sys.argv) == 3:
+        cmd_topic_review_sample_export_verify(sys.argv[2])
     elif cmd == "topic-sample-gate-preview" and len(sys.argv) == 3:
         cmd_topic_sample_gate_preview(sys.argv[2])
     elif cmd == "topic-sample-gate-review" and len(sys.argv) >= 10:

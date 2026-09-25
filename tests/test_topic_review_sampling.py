@@ -1,3 +1,5 @@
+import json
+import os
 import tempfile
 import unittest
 from pathlib import Path
@@ -5,6 +7,12 @@ from unittest.mock import patch
 
 from app import config, database, db_admin
 from app.topic_assignment_reviews import record_topic_assignment_review
+from app.topic_review_export import (
+    TopicReviewExportError,
+    build_topic_review_export,
+    export_topic_review_sample,
+    verify_topic_review_export,
+)
 from app.topic_review_sampling import (
     create_sample_batch,
     sample_queue,
@@ -146,6 +154,73 @@ class TopicReviewSamplingTests(unittest.TestCase):
                 )
             with self.assertRaisesRegex(Exception, "immutable"):
                 db.execute("UPDATE topic_assignment_review_order SET sequence=99")
+
+    def test_point_in_time_export_is_deterministic_and_contains_review_provenance(self):
+        first_path = self.path.parent / "review-one.json"
+        second_path = self.path.parent / "review-two.json"
+        with database.get_db() as db:
+            batch = create_sample_batch(
+                db, seed="export", per_topic_limit=1,
+                created_by="review-lead", now=NOW,
+            )
+            item = sample_queue(db, batch.batch_id, limit=1)[0]
+            before = build_topic_review_export(
+                db, batch.batch_id,
+                review_cutoff_sequence=batch.review_cutoff_sequence,
+            )
+            self.assertIsNone(before["payload"]["members"][0]["review"])
+            review = record_topic_assignment_review(
+                db, assignment_id=item.assignment_id, decision="accepted",
+                expected_previous_review_id=None, reviewer_id="human",
+                reason="Evidence and source checked.", now=LATER,
+            )
+            cutoff = db.execute(
+                "SELECT sequence FROM topic_assignment_review_order WHERE review_id=?",
+                (review.current_review_id,),
+            ).fetchone()[0]
+            current = build_topic_review_export(
+                db, batch.batch_id, review_cutoff_sequence=cutoff,
+            )
+            exported = current["payload"]["members"][0]["review"]
+            self.assertEqual(exported["id"], review.current_review_id)
+            self.assertEqual(exported["review_sequence"], cutoff)
+            self.assertEqual(exported["reviewer_id"], "human")
+            first = export_topic_review_sample(
+                db, batch.batch_id, first_path,
+                review_cutoff_sequence=cutoff, exported_at=NOW,
+            )
+            second = export_topic_review_sample(
+                db, batch.batch_id, second_path,
+                review_cutoff_sequence=cutoff, exported_at=LATER,
+            )
+        self.assertEqual(first["payload_sha256"], second["payload_sha256"])
+        self.assertEqual(verify_topic_review_export(first_path), first)
+        if os.name != "nt":
+            self.assertEqual(first_path.stat().st_mode & 0o777, 0o600)
+        with database.get_db() as db:
+            with self.assertRaisesRegex(FileExistsError, "already exists"):
+                export_topic_review_sample(db, batch.batch_id, first_path)
+
+    def test_export_rejects_future_cutoff_and_tampering(self):
+        export_path = self.path.parent / "review.json"
+        with database.get_db() as db:
+            batch = create_sample_batch(
+                db, seed="tamper", per_topic_limit=1,
+                created_by="review-lead", now=NOW,
+            )
+            current = db.execute(
+                "SELECT COALESCE(MAX(sequence),0) FROM topic_assignment_review_order"
+            ).fetchone()[0]
+            with self.assertRaisesRegex(TopicReviewExportError, "beyond"):
+                build_topic_review_export(
+                    db, batch.batch_id, review_cutoff_sequence=current + 1
+                )
+            export_topic_review_sample(db, batch.batch_id, export_path)
+        document = json.loads(export_path.read_text(encoding="utf-8"))
+        document["payload"]["members"][0]["title"] = "tampered"
+        export_path.write_text(json.dumps(document), encoding="utf-8")
+        with self.assertRaisesRegex(TopicReviewExportError, "digest"):
+            verify_topic_review_export(export_path)
 
     def test_migration_31_preserves_schema_30_review_state(self):
         predecessor = self.path.parent / "predecessor.db"
