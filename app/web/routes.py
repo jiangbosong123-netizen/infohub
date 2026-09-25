@@ -25,6 +25,17 @@ from ..api_catalog import (
     list_entities,
 )
 from ..api_cursor import CursorEpochChanged, CursorError, CursorExpired, CursorFilterMismatch
+from ..api_sources import (
+    SOURCE_CHANNELS,
+    SOURCE_TIERS,
+    SourceCatalogUnavailable,
+    SourceListResponse,
+    SourceNotFound,
+    SourceResponse,
+    get_source,
+    list_sources,
+    source_etag,
+)
 from ..api_topics import (
     RestrictedTopic,
     TOPIC_GROUPS,
@@ -127,6 +138,28 @@ _TOPIC_LIST_OPENAPI = {
     ],
 }
 _TOPIC_DETAIL_OPENAPI = {
+    "x-required-scopes": ["read:catalog"],
+    "parameters": [
+        {"name": "If-None-Match", "in": "header", "required": False,
+         "schema": {"type": "string", "maxLength": 512}},
+    ],
+}
+_SOURCE_LIST_OPENAPI = {
+    "x-required-scopes": ["read:catalog"],
+    "parameters": [
+        {"name": "limit", "in": "query", "required": False,
+         "schema": {"type": "integer", "minimum": 1, "maximum": 100, "default": 50}},
+        {"name": "cursor", "in": "query", "required": False,
+         "schema": {"type": "string", "minLength": 1}},
+        {"name": "q", "in": "query", "required": False,
+         "schema": {"type": "string", "maxLength": 200}},
+        {"name": "channel", "in": "query", "required": False,
+         "schema": {"type": "string", "enum": sorted(SOURCE_CHANNELS)}},
+        {"name": "tier", "in": "query", "required": False,
+         "schema": {"type": "string", "enum": sorted(SOURCE_TIERS)}},
+    ],
+}
+_SOURCE_DETAIL_OPENAPI = {
     "x-required-scopes": ["read:catalog"],
     "parameters": [
         {"name": "If-None-Match", "in": "header", "required": False,
@@ -892,6 +925,94 @@ def api_v1_topic(id: str, request: Request, response: Response):
         TopicStatisticsAdmissionError, TopicStatisticsUnavailable,
         sqlite3.Error, OSError, KeyError, TypeError, ValueError,
     ):
+        return v1_error(503, "not_ready", request_id)
+    if conditional:
+        try:
+            validators = [value.strip() for value in conditional[0].decode("ascii").split(",")]
+        except UnicodeDecodeError:
+            return v1_error(422, "invalid_parameter", request_id)
+        if "*" in validators or any(
+            validator == etag or (validator.startswith("W/") and validator[2:] == etag)
+            for validator in validators
+        ):
+            return Response(status_code=304, headers={"ETag": etag})
+    response.headers["ETag"] = etag
+    return result
+
+
+@app.get(
+    "/api/v1/sources", response_model=SourceListResponse,
+    openapi_extra=_SOURCE_LIST_OPENAPI,
+)
+def api_v1_sources(request: Request):
+    request_id = request.state.request_id
+    if not config.API_CATALOG_ENABLED:
+        return v1_error(503, "not_ready", request_id)
+    allowed = {"limit", "cursor", "q", "channel", "tier"}
+    if set(request.query_params) - allowed or any(
+        len(request.query_params.getlist(name)) != 1 for name in request.query_params
+    ):
+        return v1_error(422, "invalid_parameter", request_id)
+    raw_limit = request.query_params.get("limit", "50")
+    try:
+        limit = int(raw_limit)
+    except ValueError:
+        return v1_error(422, "invalid_parameter", request_id)
+    query = request.query_params.get("q")
+    query = query.strip() if query is not None else None
+    if query == "":
+        query = None
+    channel = request.query_params.get("channel")
+    tier = request.query_params.get("tier")
+    if (str(limit) != raw_limit or not 1 <= limit <= 100
+            or (query is not None and len(query) > 200)
+            or (channel is not None and channel not in SOURCE_CHANNELS)
+            or (tier is not None and tier not in SOURCE_TIERS)):
+        return v1_error(422, "invalid_parameter", request_id)
+    try:
+        with get_db() as db:
+            db.execute("BEGIN")
+            return list_sources(
+                db, request.state.api_principal, request_id=request_id,
+                limit=limit, cursor=request.query_params.get("cursor"),
+                query=query, channel=channel, tier=tier,
+            )
+    except CursorExpired:
+        return v1_error(410, "cursor_expired", request_id)
+    except CursorFilterMismatch:
+        return v1_error(400, "filter_mismatch", request_id)
+    except CursorEpochChanged:
+        return v1_error(409, "epoch_changed", request_id)
+    except CursorError:
+        return v1_error(400, "invalid_cursor", request_id)
+    except (SourceCatalogUnavailable, sqlite3.Error, OSError, KeyError, TypeError, ValueError):
+        return v1_error(503, "not_ready", request_id)
+
+
+@app.get(
+    "/api/v1/sources/{id}", response_model=SourceResponse,
+    openapi_extra=_SOURCE_DETAIL_OPENAPI,
+)
+def api_v1_source(id: str, request: Request, response: Response):
+    request_id = request.state.request_id
+    if not config.API_CATALOG_ENABLED:
+        return v1_error(503, "not_ready", request_id)
+    if request.query_params or not id or len(id) > 128:
+        return v1_error(422, "invalid_parameter", request_id)
+    conditional = [
+        value for key, value in request.scope["headers"]
+        if key.lower() == b"if-none-match"
+    ]
+    if len(conditional) > 1 or (conditional and len(conditional[0]) > 512):
+        return v1_error(422, "invalid_parameter", request_id)
+    try:
+        with get_db() as db:
+            db.execute("BEGIN")
+            result = get_source(db, request_id=request_id, source_id=id)
+            etag = source_etag(result, request.state.api_principal)
+    except SourceNotFound:
+        return v1_error(404, "resource_not_found", request_id)
+    except (SourceCatalogUnavailable, sqlite3.Error, OSError, KeyError, TypeError, ValueError):
         return v1_error(503, "not_ready", request_id)
     if conditional:
         try:

@@ -29,8 +29,35 @@ legacy_unverified 和 rejected assertion 不会被悄悄提升为已验证事实
 merged/restricted entity 定义足够的公开 canonical/restriction 投影，因此检测到此类身份时
 整个接口返回 `503 not_ready`，而不是漏行或返回不完整 canonical ID。
 
-P18 后续会按独立 PR 增加 entity detail、topic/source 目录、item/event/analysis 等领域读取。
+P18 后续会按独立 PR 增加 publisher、item、event、analysis 等领域读取。
 在统一查询服务、历史语义和生产消费者验收完成前，v1 仍不声明为稳定外部服务。
+
+## P18k：采集来源目录
+
+`GET /api/v1/sources` 和 `GET /api/v1/sources/{id}` 使用 `read:catalog` scope 和
+`INFOHUB_API_CATALOG_ENABLED` 开关。列表只接受 `limit`、`cursor`、`q`、`channel` 和 `tier`；
+channel 与 tier 必须使用正式枚举，未知、重复、超长或非规范参数返回
+`422 invalid_parameter`。游标绑定 API key、消费者、权限版本、dataset epoch 和全部筛选条件。
+
+这里的 source 是**采集入口**，ID 是配置中的稳定 source key；它不是文章刊登者 publisher，也不
+代表多来源独立性。响应读取每个启用来源最后一个不可变 `source_config_versions` 快照，而不是可变的
+legacy `sources` 展示字段。配置 SHA-256 会在读取时重新计算；缺少快照、字段/哈希错误、未知分类、
+无效 URL 或无法解析的公司采集对象都会使列表 fail closed。已停用且没有正式历史发布契约的来源暂不
+进入 v1；恢复启用后仍使用原 source key。
+
+DTO 只公开名称、频道、来源层级、采集器类型、URL 的 origin host、采集周期、可选的配置采集对象
+entity ID，以及配置版本 ID/hash/生效时间。不公开完整抓取 URL、查询参数、运行水位、错误原文、
+请求头或凭据。公司专属 Google News 入口的 `collection_subject_entity_id` 表示“该采集配置以此实体
+为检索对象”，不能解释为 Google News 是该公司的发布方。
+
+列表是短期 live cursor；详情提供绑定权限、dataset/epoch 和完整 DTO 的 ETag，支持
+`If-None-Match`。来源运行健康属于 `read:ops` 的后续独立契约，不混入目录响应。publisher 目录也应
+继续作为独立资源设计，不能从 source URL 猜测并冒充已核验发布方。
+
+2026-09-25 的 schema-33 隔离真实数据副本中有 57 个历史 source，42 个当前启用来源都具备不可变
+配置快照并成功读取；频道分布为 AI 8、机器人 2、股市 32，23 个公司专属入口解析到稳定 entity。
+列表与详情读取约 0.006 秒，演练前后 source/config 行数均不变。结果见
+[`p18t-api-source-catalog.json`](evidence/p18t-api-source-catalog.json)。Windows 与生产未修改。
 
 ## P18j：主题目录与可审计统计
 

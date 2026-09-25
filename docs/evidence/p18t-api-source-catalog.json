@@ -1,0 +1,50 @@
+{
+  "source": "isolated real-data schema-33 database from p18q rehearsal",
+  "production_changed": false,
+  "catalog": {
+    "historical_sources": 57,
+    "active_sources_returned": 42,
+    "configuration_versions": 42,
+    "channels": {
+      "ai": 8,
+      "robot": 2,
+      "stock": 32
+    },
+    "tiers": {
+      "official": 3,
+      "media": 29,
+      "info": 9,
+      "reconcile": 1
+    },
+    "collection_subject_entity_links": 23
+  },
+  "read_rehearsal": {
+    "list_and_detail_elapsed_seconds": 0.006,
+    "first_detail_id": "cls-telegraph",
+    "source_rows_before": 57,
+    "source_rows_after": 57,
+    "configuration_rows_before": 42,
+    "configuration_rows_after": 42
+  },
+  "contract": {
+    "scope": "read:catalog",
+    "source_means_acquisition_endpoint": true,
+    "publisher_identity_inferred": false,
+    "full_url_exposed": false,
+    "runtime_error_exposed": false,
+    "configuration_hash_recomputed": true,
+    "missing_or_invalid_active_snapshot_fails_closed": true,
+    "detail_etag": true,
+    "cursor_bound_to_filters_and_authorization": true
+  },
+  "limitations": [
+    "Inactive historical sources are outside the v1 current-source view until a reviewed history contract exists.",
+    "Source runtime health requires a separate read:ops contract.",
+    "Publisher identity remains a separate catalog and is not inferred from the collection endpoint."
+  ],
+  "validation": {
+    "unit_tests": "435 passed",
+    "python_compile": "passed",
+    "git_diff_check": "passed"
+  }
+}
