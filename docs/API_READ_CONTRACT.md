@@ -59,6 +59,30 @@ entity ID，以及配置版本 ID/hash/生效时间。不公开完整抓取 URL�
 列表与详情读取约 0.006 秒，演练前后 source/config 行数均不变。结果见
 [`p18t-api-source-catalog.json`](evidence/p18t-api-source-catalog.json)。Windows 与生产未修改。
 
+## P18l：发布方目录
+
+`GET /api/v1/publishers` 和 `GET /api/v1/publishers/{id}` 使用 `read:catalog` scope 和
+`INFOHUB_API_CATALOG_ENABLED` 开关。publisher 表示“谁刊登了内容”，与采集入口 source 是不同身份；
+一个 source 可以采集多个 publisher，同一个 publisher 也可以经多个 source 被发现。接口不会根据
+source URL、文章 URL 或展示字符串临时猜测 publisher 身份。
+
+列表只接受 `limit`、`cursor` 和 `q`。`q` 匹配当前正式名称或 active 名称断言；排序固定为稳定
+publisher ID，游标绑定 API key、消费者、权限版本、dataset epoch 和查询条件。详情提供权限感知的
+ETag 并支持 `If-None-Match`。inactive 对外映射为 retired；目录存在 merged/restricted、缺失当前版本、
+版本状态不一致、版本哈希错误或无效机构实体关联时，列表整体 fail closed。restricted 详情返回 403，
+merged 详情在 canonical 投影定义前返回 503。
+
+DTO 返回稳定 publisher/version ID、正式名称、active aliases、状态、可选 organization entity ID、
+版本生效时间，以及**仅限 `verification_status='verified'`** 的域名断言和证据 ID。名称、版本与公开域名
+的不可变哈希均在读取时重算。`legacy_unverified`、candidate、rejected、deprecated 不进入公共响应；
+尤其现有配置同步生成的域名均为 `legacy_unverified`，不能因为“看起来正确”而升级为已核验事实。
+域名验证需要后续带 evidence 的显式审核流程。
+
+2026-09-25 的 schema-33 隔离真实数据副本中有 11 个 active publisher、22 个 active 名称断言和
+11 个 `legacy_unverified` 域名；因此当前 API 合法返回 11 个 publisher 和 0 个公开 verified 域名。
+只读演练前后相关表计数不变。机器可读结果见
+[`p18u-api-publisher-catalog.json`](evidence/p18u-api-publisher-catalog.json)。Windows 与生产未修改。
+
 ## P18j：主题目录与可审计统计
 
 `GET /api/v1/topics` 和 `GET /api/v1/topics/{id}` 使用 `read:catalog` scope，并继续受

@@ -27,7 +27,7 @@ _POLICIES = (
     ("GET", re.compile(r"/api/v1/events/[^/]+/evidence/?"), "read:evidence", "evidence"),
     ("GET", re.compile(r"/api/v1/events(?:/[^/]+)?/?"), "read:events", "events"),
     ("GET", re.compile(r"/api/v1/analyses/[^/]+/?"), "read:analyses", "analyses"),
-    ("GET", re.compile(r"/api/v1/(?:entities|topics|sources)(?:/[^/]+)?/?"), "read:catalog", "catalog"),
+    ("GET", re.compile(r"/api/v1/(?:entities|topics|sources|publishers)(?:/[^/]+)?/?"), "read:catalog", "catalog"),
     ("GET", re.compile(r"/api/v1/signals/[^/]+/inputs/?"), "read:signals", "signals"),
     ("GET", re.compile(r"/api/v1/signals(?:/[^/]+)?/?"), "read:signals", "signals"),
     ("GET", re.compile(r"/api/v1/reports(?:/[^/]+)?/?"), "read:reports", "reports"),

@@ -162,6 +162,7 @@ class V1AuthGatewayTests(unittest.TestCase):
             ("GET", "/api/v1/events/a/evidence"): "read:evidence",
             ("GET", "/api/v1/entities"): "read:catalog",
             ("GET", "/api/v1/sources/a"): "read:catalog",
+            ("GET", "/api/v1/publishers/a"): "read:catalog",
             ("GET", "/api/v1/signals/a/inputs"): "read:signals",
             ("GET", "/api/v1/reports/a"): "read:reports",
             ("POST", "/api/v1/sync/snapshots"): "read:sync",

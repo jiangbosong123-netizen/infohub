@@ -36,6 +36,16 @@ from ..api_sources import (
     list_sources,
     source_etag,
 )
+from ..api_publishers import (
+    PublisherCatalogUnavailable,
+    PublisherListResponse,
+    PublisherNotFound,
+    PublisherResponse,
+    RestrictedPublisher,
+    get_publisher,
+    list_publishers,
+    publisher_etag,
+)
 from ..api_topics import (
     RestrictedTopic,
     TOPIC_GROUPS,
@@ -160,6 +170,24 @@ _SOURCE_LIST_OPENAPI = {
     ],
 }
 _SOURCE_DETAIL_OPENAPI = {
+    "x-required-scopes": ["read:catalog"],
+    "parameters": [
+        {"name": "If-None-Match", "in": "header", "required": False,
+         "schema": {"type": "string", "maxLength": 512}},
+    ],
+}
+_PUBLISHER_LIST_OPENAPI = {
+    "x-required-scopes": ["read:catalog"],
+    "parameters": [
+        {"name": "limit", "in": "query", "required": False,
+         "schema": {"type": "integer", "minimum": 1, "maximum": 100, "default": 50}},
+        {"name": "cursor", "in": "query", "required": False,
+         "schema": {"type": "string", "minLength": 1}},
+        {"name": "q", "in": "query", "required": False,
+         "schema": {"type": "string", "maxLength": 200}},
+    ],
+}
+_PUBLISHER_DETAIL_OPENAPI = {
     "x-required-scopes": ["read:catalog"],
     "parameters": [
         {"name": "If-None-Match", "in": "header", "required": False,
@@ -1013,6 +1041,91 @@ def api_v1_source(id: str, request: Request, response: Response):
     except SourceNotFound:
         return v1_error(404, "resource_not_found", request_id)
     except (SourceCatalogUnavailable, sqlite3.Error, OSError, KeyError, TypeError, ValueError):
+        return v1_error(503, "not_ready", request_id)
+    if conditional:
+        try:
+            validators = [value.strip() for value in conditional[0].decode("ascii").split(",")]
+        except UnicodeDecodeError:
+            return v1_error(422, "invalid_parameter", request_id)
+        if "*" in validators or any(
+            validator == etag or (validator.startswith("W/") and validator[2:] == etag)
+            for validator in validators
+        ):
+            return Response(status_code=304, headers={"ETag": etag})
+    response.headers["ETag"] = etag
+    return result
+
+
+@app.get(
+    "/api/v1/publishers", response_model=PublisherListResponse,
+    openapi_extra=_PUBLISHER_LIST_OPENAPI,
+)
+def api_v1_publishers(request: Request):
+    request_id = request.state.request_id
+    if not config.API_CATALOG_ENABLED:
+        return v1_error(503, "not_ready", request_id)
+    allowed = {"limit", "cursor", "q"}
+    if set(request.query_params) - allowed or any(
+        len(request.query_params.getlist(name)) != 1 for name in request.query_params
+    ):
+        return v1_error(422, "invalid_parameter", request_id)
+    raw_limit = request.query_params.get("limit", "50")
+    try:
+        limit = int(raw_limit)
+    except ValueError:
+        return v1_error(422, "invalid_parameter", request_id)
+    query = request.query_params.get("q")
+    query = query.strip() if query is not None else None
+    if query == "":
+        query = None
+    if (str(limit) != raw_limit or not 1 <= limit <= 100
+            or (query is not None and len(query) > 200)):
+        return v1_error(422, "invalid_parameter", request_id)
+    try:
+        with get_db() as db:
+            db.execute("BEGIN")
+            return list_publishers(
+                db, request.state.api_principal, request_id=request_id,
+                limit=limit, cursor=request.query_params.get("cursor"), query=query,
+            )
+    except CursorExpired:
+        return v1_error(410, "cursor_expired", request_id)
+    except CursorFilterMismatch:
+        return v1_error(400, "filter_mismatch", request_id)
+    except CursorEpochChanged:
+        return v1_error(409, "epoch_changed", request_id)
+    except CursorError:
+        return v1_error(400, "invalid_cursor", request_id)
+    except (PublisherCatalogUnavailable, sqlite3.Error, OSError, KeyError, TypeError, ValueError):
+        return v1_error(503, "not_ready", request_id)
+
+
+@app.get(
+    "/api/v1/publishers/{id}", response_model=PublisherResponse,
+    openapi_extra=_PUBLISHER_DETAIL_OPENAPI,
+)
+def api_v1_publisher(id: str, request: Request, response: Response):
+    request_id = request.state.request_id
+    if not config.API_CATALOG_ENABLED:
+        return v1_error(503, "not_ready", request_id)
+    if request.query_params or not id or len(id) > 128:
+        return v1_error(422, "invalid_parameter", request_id)
+    conditional = [
+        value for key, value in request.scope["headers"]
+        if key.lower() == b"if-none-match"
+    ]
+    if len(conditional) > 1 or (conditional and len(conditional[0]) > 512):
+        return v1_error(422, "invalid_parameter", request_id)
+    try:
+        with get_db() as db:
+            db.execute("BEGIN")
+            result = get_publisher(db, request_id=request_id, publisher_id=id)
+            etag = publisher_etag(result, request.state.api_principal)
+    except PublisherNotFound:
+        return v1_error(404, "resource_not_found", request_id)
+    except RestrictedPublisher:
+        return v1_error(403, "restricted_content", request_id)
+    except (PublisherCatalogUnavailable, sqlite3.Error, OSError, KeyError, TypeError, ValueError):
         return v1_error(503, "not_ready", request_id)
     if conditional:
         try:
