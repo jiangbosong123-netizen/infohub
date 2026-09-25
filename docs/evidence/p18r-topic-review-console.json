@@ -1,0 +1,37 @@
+{
+  "source": "isolated real-data schema-33 database from p18q rehearsal",
+  "production_changed": false,
+  "sample_batch": {
+    "id": "topic_sample_c6d3dcd9a1914758b0e89cd71f80721c",
+    "members": 1092
+  },
+  "read_rehearsal": {
+    "http_status": 200,
+    "page_title_present": true,
+    "pending_label_present": true,
+    "response_bytes": 3549,
+    "review_rows_before": 2,
+    "review_rows_after": 2
+  },
+  "security_contract": {
+    "bind_host": "127.0.0.1",
+    "bind_host_configurable": false,
+    "csrf_token": "random and process-local",
+    "reviewer_identity": "fixed at startup from the operating-system user",
+    "batch_identity": "fixed at startup",
+    "bulk_decision_endpoint": false,
+    "cache_control": "no-store",
+    "frame_ancestors_denied": true,
+    "production_portal_mount": false
+  },
+  "limitations": [
+    "The rehearsal rendered the real sample but deliberately submitted no human decision.",
+    "This is a single-operator loopback maintenance tool, not a remote multi-user review service.",
+    "Windows and production data were not changed."
+  ],
+  "validation": {
+    "unit_tests": "429 passed",
+    "python_compile": "passed",
+    "git_diff_check": "passed"
+  }
+}

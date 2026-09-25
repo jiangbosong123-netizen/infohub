@@ -41,6 +41,7 @@ from __future__ import annotations
   python cli.py topic-review-sample-create PER_TOPIC_LIMIT SEED
   python cli.py topic-review-sample-report BATCH_ID
   python cli.py topic-review-sample-queue BATCH_ID [AFTER_ORDINAL|none] [LIMIT] [pending|all]
+  python cli.py topic-review-console BATCH_ID [PORT]  # 仅本机的逐条抽样审核页面
   python cli.py topic-sample-gate-preview BATCH_ID
   python cli.py topic-sample-gate-review BATCH_ID approved|rejected EXPECTED|none OVERALL_DECIDED_BPS TOPIC_DECIDED_BPS OVERALL_ACCEPTANCE_BPS TOPIC_ACCEPTANCE_BPS REASON
   python cli.py topic-statistics-advance [N]  # 推进至多 N 个主题统计（maintenance only，可续跑）
@@ -454,6 +455,32 @@ def cmd_topic_review_sample_queue(
     print(json.dumps([row.to_dict() for row in rows], ensure_ascii=False, indent=2))
 
 
+def cmd_topic_review_console(batch_id: str, port: int) -> None:
+    if config.PROCESS_ROLE != "maintenance":
+        raise config.RuntimeConfigurationError(
+            "topic-review-console requires maintenance role"
+        )
+    if not 1 <= port <= 65535:
+        raise ValueError("port must be between 1 and 65535")
+    import getpass
+    import secrets
+    import uvicorn
+    from app.db_admin import verify_database
+    from app.topic_review_console import create_topic_review_console
+    from app.topic_review_sampling import get_sample_batch
+    verify_database(config.DB_PATH, require_current=True)
+    with get_db() as db:
+        get_sample_batch(db, batch_id)
+    review_app = create_topic_review_console(
+        batch_id=batch_id,
+        csrf_token=secrets.token_urlsafe(32),
+        reviewer_id=getpass.getuser(),
+    )
+    print(f"本机审核工作台：http://127.0.0.1:{port}/")
+    print(f"审核批次：{batch_id} · 审核人：{getpass.getuser()}")
+    uvicorn.run(review_app, host="127.0.0.1", port=port, log_level="info")
+
+
 def cmd_topic_sample_gate_preview(batch_id: str) -> None:
     if config.PROCESS_ROLE != "maintenance":
         raise config.RuntimeConfigurationError(
@@ -752,6 +779,10 @@ def main() -> None:
             sys.argv[2], sys.argv[3] if len(sys.argv) > 3 else "none",
             int(sys.argv[4]) if len(sys.argv) > 4 else 50,
             sys.argv[5] if len(sys.argv) > 5 else "pending",
+        )
+    elif cmd == "topic-review-console" and len(sys.argv) >= 3:
+        cmd_topic_review_console(
+            sys.argv[2], int(sys.argv[3]) if len(sys.argv) > 3 else 8011,
         )
     elif cmd == "topic-sample-gate-preview" and len(sys.argv) == 3:
         cmd_topic_sample_gate_preview(sys.argv[2])

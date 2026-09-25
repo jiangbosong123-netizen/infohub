@@ -41,6 +41,10 @@ The workflow never creates review decisions and provides no bulk-accept path.
 Each member must still pass through the append-only review ledger. A later
 statistics publication still needs its separate admission review.
 
+For a one-item-at-a-time browser interface, use the maintenance-only
+[local topic review console](TOPIC_REVIEW_CONSOLE.md). It operates on one fixed
+sample batch over loopback and preserves the same ledger and concurrency rules.
+
 After a batch has been reviewed, use the
 [sample evaluation gate](TOPIC_REVIEW_SAMPLE_GATE.md) to freeze the measured
 result and the exact quality thresholds used by the evaluator.

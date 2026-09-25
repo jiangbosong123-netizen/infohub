@@ -155,6 +155,10 @@ config/watchlist.yaml # 关注公司清单
 测试使用临时数据库和模拟 AI 响应，不抓取外网、不调用付费模型。
 GitHub Actions 在 push / PR 时执行检查（Python 3.11 / 3.12）。
 
+主题抽样的人工复核可使用独立的
+[本地审核工作台](docs/TOPIC_REVIEW_CONSOLE.md)。它只以 maintenance 角色绑定
+`127.0.0.1`，不会把写入口挂到生产门户；每次提交只记录一条带并发校验的审核决定。
+
 升级已有实例时，`cli.py init-db` 会先识别数据库版本。旧库需要变更时自动通过
 SQLite backup API 在配置的 `INFOHUB_BACKUP_PATH` 创建带环境标签的一致性备份，再以显式事务迁移；失败会
 完整回滚。未知的新版本、迁移记录被改动、完整性或外键检查失败时会停止启动，不继续写库。
