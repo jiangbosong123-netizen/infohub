@@ -233,3 +233,15 @@ Event 读取不能只因为表存在就开放。2026-09-25 的两个只读隔离
 机器可读差异和准入条件见
 [`p18x-event-api-readiness.json`](evidence/p18x-event-api-readiness.json)。两个副本的 SHA-256 在审计前后
 一致；Windows 与生产未修改。
+
+## P18p：Event 版本级发布准入基础
+
+Schema 34 新增追加式 `event_admission_reviews`，把内部候选聚类状态与对外知识状态正式分开。每次审核
+绑定一个不可变且必须为 current 的 event version，并冻结事件/证据/引用/匹配指标及 SHA-256。准入分为
+`reported`、`corroborated` 和 `confirmed`；缺少审核、最新审核为 `rejected`、指标变化或生成新版本时均
+fail closed。旧投影的 `candidate`、`unknown`、context evidence 和 pending link 无法通过 reported 准入。
+
+corroborated 要求至少两个支持文档和两个经核验的独立原始 publisher；confirmed 要求
+`confirmed_by_primary`，且至少一条支持证据来自与事件 primary entity 对应的已核验原始 publisher。
+完整规则与维护命令见 [`EVENT_ADMISSION.md`](EVENT_ADMISSION.md)。本单元只建立版本级审核边界；固定
+质量抽样、数据集级发布门和 Event API 仍未实现，生产开关不存在，Windows 未修改。
