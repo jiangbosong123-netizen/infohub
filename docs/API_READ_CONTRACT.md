@@ -216,3 +216,20 @@ exchange。ticker 和 exchange ticker 在进入查询及游标签名前规范化
 watchlist ticker 冒充为已核验身份。合成契约测试覆盖大小写规范化、交易所限定、多候选分页、
 未核验排除和游标过滤绑定。结果见
 [`p18c-api-entity-identifiers.json`](evidence/p18c-api-entity-identifiers.json)。
+
+## P18o：Event API 准入审计
+
+Event 读取不能只因为表存在就开放。2026-09-25 的两个只读隔离副本显示：最新主题质量演练库已有
+47,266 个稳定文档，但事件表为空；较早完成 P23 投影的副本有 29,698 个事件和 25,490 条证据/链接，
+但全部事件都是 `candidate`、全部当前版本都是 `knowledge_status=unknown`，25,490 个旧聚类决定仍为
+`pending`，没有正式 event relation 或 merge。这说明事件投影尚未进入当前集成基线，而且旧标题聚类
+不能直接升级成已发布宏观事实。
+
+因此 `GET /api/v1/events` 暂不接线，已保留的鉴权路径仍只会在通过鉴权后返回 404。正式接口必须先引入
+独立的事件发布/准入状态，明确区分 candidate、reported、corroborated 与 confirmed；验证 event/version
+链、实体和主题引用、document/raw evidence 配对，并通过固定抽样质量门槛。任何 candidate 输出都必须
+显式携带 candidate 和 unknown 标签，不能进入“已确认事件”默认视图，也不能直接驱动宏观或情绪结论。
+
+机器可读差异和准入条件见
+[`p18x-event-api-readiness.json`](evidence/p18x-event-api-readiness.json)。两个副本的 SHA-256 在审计前后
+一致；Windows 与生产未修改。

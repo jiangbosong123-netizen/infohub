@@ -1,0 +1,56 @@
+{
+  "recorded_date": "2026-09-25",
+  "production_changed": false,
+  "copies": {
+    "latest_topic_quality": {
+      "documents": 47266,
+      "events": 0,
+      "event_versions": 0,
+      "event_evidence": 0,
+      "document_event_links": 0,
+      "event_statuses": {},
+      "knowledge_statuses": {},
+      "pending_match_decisions": 0,
+      "event_relations": 0,
+      "event_merges": 0,
+      "database_sha256_before": "5b6c34d77134309a97037b9d19a3497cdbaaa4ef60b275b76d24e70e3d83b878",
+      "database_sha256_after": "5b6c34d77134309a97037b9d19a3497cdbaaa4ef60b275b76d24e70e3d83b878",
+      "database_unchanged": true
+    },
+    "projected_event_copy": {
+      "documents": 36262,
+      "events": 29698,
+      "event_versions": 29698,
+      "event_evidence": 25490,
+      "document_event_links": 25490,
+      "event_statuses": {
+        "candidate": 29698
+      },
+      "knowledge_statuses": {
+        "unknown": 29698
+      },
+      "pending_match_decisions": 25490,
+      "event_relations": 0,
+      "event_merges": 0,
+      "database_sha256_before": "3bd023487b421cad77c0bffc85f0f0534dcc0d93b50656846fee6a9545b9094d",
+      "database_sha256_after": "3bd023487b421cad77c0bffc85f0f0534dcc0d93b50656846fee6a9545b9094d",
+      "database_unchanged": true
+    }
+  },
+  "decision": {
+    "event_api_ready": false,
+    "reason": "The newest integrated rehearsal has no event projection, while the projected copy contains only unreviewed candidate events with unknown knowledge status.",
+    "required_before_enablement": [
+      "Select one integrated rehearsal database containing the current document/topic schema and event projection.",
+      "Define an event publication/admission state that is distinct from candidate clustering.",
+      "Require explicit candidate labeling and prevent unknown candidates from appearing as confirmed events.",
+      "Validate entity/topic references, version hashes, evidence pairs, and current-version chains.",
+      "Run fixed event quality sampling before enabling downstream macro or sentiment consumers."
+    ]
+  },
+  "limitations": [
+    "Both inputs are isolated Mac copies, not a fresh Windows production export.",
+    "This audit measures structural readiness, not event clustering accuracy."
+  ],
+  "windows_touched": false
+}
