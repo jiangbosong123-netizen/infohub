@@ -22,6 +22,11 @@ Merged, split, and retracted identities cannot be admitted. These rules intentio
 the legacy story projection, whose events are `candidate`/`unknown`, whose links are pending,
 and whose evidence is contextual rather than supporting.
 
+Match status is resolved from the latest append-only human match review when one exists;
+otherwise it remains the immutable matcher's original `review_status`. See
+[`EVENT_MATCH_REVIEWS.md`](EVENT_MATCH_REVIEWS.md). A later match review changes the live
+admission metrics hash and therefore invalidates an older publication decision.
+
 Maintenance operators first inspect the frozen metrics, then append a decision using the
 review ID they observed:
 

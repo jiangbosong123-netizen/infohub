@@ -161,13 +161,22 @@ def _metrics(db: sqlite3.Connection, event_version_id: str) -> dict:
     facts = {item["fact_id"] for item in semantic["facts"]}
     supported_facts = {item["fact_id"] for item in support if item["fact_id"]}
     link_statuses = db.execute(
-        """SELECT decision.review_status,COUNT(*) AS count
-           FROM document_event_links AS link
-           JOIN match_decisions AS decision ON decision.id=link.decision_id
-           WHERE link.event_version_id=?
-             AND NOT EXISTS(SELECT 1 FROM document_event_links AS later
-                            WHERE later.supersedes_link_id=link.id)
-           GROUP BY decision.review_status""",
+        """WITH current_links AS (
+               SELECT COALESCE(
+                          (SELECT review.decision
+                           FROM event_match_reviews AS review
+                           WHERE review.decision_id=decision.id
+                           ORDER BY review.version DESC LIMIT 1),
+                          decision.review_status
+                      ) AS review_status
+               FROM document_event_links AS link
+               JOIN match_decisions AS decision ON decision.id=link.decision_id
+               WHERE link.event_version_id=?
+                 AND NOT EXISTS(SELECT 1 FROM document_event_links AS later
+                                WHERE later.supersedes_link_id=link.id)
+           )
+           SELECT review_status,COUNT(*) AS count
+           FROM current_links GROUP BY review_status""",
         (event_version_id,),
     ).fetchall()
     links = {item["review_status"]: item["count"] for item in link_statuses}
