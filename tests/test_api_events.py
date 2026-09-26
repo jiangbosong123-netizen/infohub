@@ -81,6 +81,12 @@ class ApiEventTests(unittest.TestCase):
                    VALUES('event-evidence-2','event-version-2',?,?,'supports',?)""",
                 (self.document_version_id, self.raw_record_id, NOW),
             )
+            db.execute(
+                """INSERT INTO event_evidence(
+                       id,event_version_id,document_version_id,evidence_id,fact_id,role,available_at)
+                   VALUES('event-evidence-3','event-version-2',?,?,NULL,'context',?)""",
+                (self.document_version_id, self.raw_record_id, NOW),
+            )
             batch = create_sample_batch(
                 db, seed="api-events", per_stratum_limit=250,
                 created_by="api-fixture", now=NOW,
@@ -119,6 +125,11 @@ class ApiEventTests(unittest.TestCase):
             wrong = create_consumer(db, "event-wrong", actor="test")
             self.wrong_key = issue_api_key(
                 db, wrong, {"read:items"},
+                expires_at=datetime.now(timezone.utc) + timedelta(days=1), actor="test",
+            )
+            evidence = create_consumer(db, "event-evidence-test", actor="test")
+            self.evidence_key = issue_api_key(
+                db, evidence, {"read:evidence"},
                 expires_at=datetime.now(timezone.utc) + timedelta(days=1), actor="test",
             )
             self.entity_id = entity_id

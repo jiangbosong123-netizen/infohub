@@ -318,3 +318,15 @@ ETag。响应显式携带 release、event version 和 admission proof，不暴�
 `read:evidence` 接口。完整契约见 [`EVENT_API.md`](EVENT_API.md)。Windows 生产环境未修改，开关未开启。
 Python 3.11 与 3.12 各 481 项回归测试及 Docker 构建通过；机器可读证据见
 [`p18u-event-api-contract.json`](evidence/p18u-event-api-contract.json)。
+
+## P18v-event：发布绑定的 Event 证据 API
+
+`GET /api/v1/events/{id}/evidence` 只读取当前有效 `event-release-v1` 中固定的 event version，要求
+独立的 `read:evidence` 权限。响应逐条绑定 immutable document version 与 raw record digest，携带来源、
+发布时间、抓取时间、证据角色和可选 fact ID；不输出原始 payload、存储路径、请求 URL、HTTP headers、
+外部源 ID 或 retention 配置。公开 URL 会移除 userinfo、fragment 和常见敏感查询参数。
+
+列表按 evidence ID 稳定排序，游标绑定 API key、授权版本、dataset epoch、release review、event ID 和
+完整筛选集合；支持 role 与 fact ID 精确筛选。事件未发布返回 404，发布链任一环节变旧则返回
+`503 not_ready`。接口沿用默认关闭的 `INFOHUB_API_EVENTS_ENABLED`，同时由网关强制要求更高权限，
+详细契约见 [`EVENT_EVIDENCE_API.md`](EVENT_EVIDENCE_API.md)。本单元无数据库迁移，Windows 与生产未修改。
