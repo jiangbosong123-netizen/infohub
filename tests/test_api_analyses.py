@@ -7,6 +7,7 @@ from fastapi.testclient import TestClient
 from app import config, database
 from app.analysis_results import publish_analysis_result
 from app.api_auth import create_consumer, issue_api_key
+from app.curation_search import advance_search_index
 from app.web.routes import app
 from tests.test_analysis_runs import AnalysisRunTests, T0
 
@@ -31,6 +32,11 @@ class ApiAnalysisTests(unittest.TestCase):
             review_status="unreviewed", evidence_status="supported",
             idempotency_key="result:api-first", now=T0,
         )
+        # Consume the derived search refresh marker exactly as the worker does before
+        # publishing another summarization for the same document.
+        for _ in range(3):
+            if advance_search_index(limit=10).dirty_remaining == 0:
+                break
         second_job, second_run, second_attempt = fixture.completed_attempt("api-second")
         second_output = {
             "schema_version": "summary/1.0",
