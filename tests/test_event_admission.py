@@ -236,7 +236,7 @@ class EventAdmissionTests(unittest.TestCase):
             db_admin.apply_migrations(db, db_admin.MIGRATIONS[:33])
             db.execute("INSERT INTO sources(key,name,channel,type) VALUES('x','X','ai','rss')")
         report = db_admin.migrate_database(predecessor)
-        self.assertEqual(report.applied_versions, (34, 35))
+        self.assertEqual(report.applied_versions, (34, 35, 36))
         self.assertEqual(db_admin.verify_database(report.backup_path).schema_version, 33)
         with database.get_db(predecessor) as db:
             columns = {row["name"] for row in db.execute(

@@ -2866,6 +2866,72 @@ def _event_match_review_foundation(db: sqlite3.Connection) -> None:
     _execute_script(db, EVENT_MATCH_REVIEW_SCHEMA_SQL)
 
 
+EVENT_REVIEW_SAMPLING_SCHEMA_SQL = """
+CREATE TABLE event_match_review_order (
+    sequence INTEGER PRIMARY KEY AUTOINCREMENT,
+    review_id TEXT NOT NULL UNIQUE REFERENCES event_match_reviews(id)
+);
+INSERT INTO event_match_review_order(review_id)
+SELECT id FROM event_match_reviews ORDER BY rowid;
+CREATE TRIGGER event_match_review_order_review_insert
+AFTER INSERT ON event_match_reviews
+BEGIN
+  INSERT INTO event_match_review_order(review_id) VALUES(NEW.id);
+END;
+CREATE TRIGGER event_match_review_order_no_update
+BEFORE UPDATE ON event_match_review_order
+BEGIN SELECT RAISE(ABORT,'event match review order is immutable'); END;
+CREATE TRIGGER event_match_review_order_no_delete
+BEFORE DELETE ON event_match_review_order
+BEGIN SELECT RAISE(ABORT,'event match review order is immutable'); END;
+
+CREATE TABLE event_review_sampling_batches (
+    id TEXT PRIMARY KEY,
+    dataset_id TEXT NOT NULL,
+    seed TEXT NOT NULL CHECK(length(trim(seed)) BETWEEN 1 AND 120),
+    per_stratum_limit INTEGER NOT NULL CHECK(per_stratum_limit BETWEEN 1 AND 250),
+    decision_cutoff_sequence INTEGER NOT NULL CHECK(decision_cutoff_sequence>=0),
+    review_cutoff_sequence INTEGER NOT NULL CHECK(review_cutoff_sequence>=0),
+    candidate_count INTEGER NOT NULL CHECK(candidate_count>=0),
+    stratum_count INTEGER NOT NULL CHECK(stratum_count>=0),
+    member_count INTEGER NOT NULL CHECK(member_count>=0),
+    manifest_sha256 TEXT NOT NULL CHECK(length(manifest_sha256)=64),
+    created_by TEXT NOT NULL CHECK(length(trim(created_by)) BETWEEN 1 AND 120),
+    created_at TEXT NOT NULL,
+    UNIQUE(dataset_id,seed,per_stratum_limit,decision_cutoff_sequence,
+           review_cutoff_sequence,manifest_sha256)
+);
+CREATE TABLE event_review_sampling_members (
+    batch_id TEXT NOT NULL REFERENCES event_review_sampling_batches(id),
+    ordinal INTEGER NOT NULL CHECK(ordinal>=0),
+    decision_id TEXT NOT NULL REFERENCES match_decisions(id),
+    stratum_key TEXT NOT NULL,
+    queue_sequence INTEGER NOT NULL CHECK(queue_sequence>0),
+    selection_sha256 TEXT NOT NULL CHECK(length(selection_sha256)=64),
+    PRIMARY KEY(batch_id,ordinal),
+    UNIQUE(batch_id,decision_id)
+);
+CREATE INDEX idx_event_review_sampling_members_stratum
+    ON event_review_sampling_members(batch_id,stratum_key,ordinal);
+CREATE TRIGGER event_review_sampling_batches_no_update
+BEFORE UPDATE ON event_review_sampling_batches
+BEGIN SELECT RAISE(ABORT,'event review sampling batches are immutable'); END;
+CREATE TRIGGER event_review_sampling_batches_no_delete
+BEFORE DELETE ON event_review_sampling_batches
+BEGIN SELECT RAISE(ABORT,'event review sampling batches are immutable'); END;
+CREATE TRIGGER event_review_sampling_members_no_update
+BEFORE UPDATE ON event_review_sampling_members
+BEGIN SELECT RAISE(ABORT,'event review sampling members are immutable'); END;
+CREATE TRIGGER event_review_sampling_members_no_delete
+BEFORE DELETE ON event_review_sampling_members
+BEGIN SELECT RAISE(ABORT,'event review sampling members are immutable'); END;
+"""
+
+
+def _event_review_sampling_foundation(db: sqlite3.Connection) -> None:
+    _execute_script(db, EVENT_REVIEW_SAMPLING_SCHEMA_SQL)
+
+
 # Migration 1 freezes the exact legacy schema at main@88a2a1e. Future schema
 # changes must append a new Migration instead of editing this definition.
 MIGRATIONS = (
@@ -3017,6 +3083,8 @@ MIGRATIONS = (
               EVENT_ADMISSION_SCHEMA_SQL, _event_admission_foundation),
     Migration(35, "stable event match review queue and decisions",
               EVENT_MATCH_REVIEW_SCHEMA_SQL, _event_match_review_foundation),
+    Migration(36, "immutable reproducible event match review sampling",
+              EVENT_REVIEW_SAMPLING_SCHEMA_SQL, _event_review_sampling_foundation),
 )
 CURRENT_SCHEMA_VERSION = MIGRATIONS[-1].version
 REQUIRED_MIGRATION_COLUMNS = {
@@ -3068,6 +3136,8 @@ EXPECTED_TABLES = LEGACY_ANCHORS | {
     "topic_review_sample_evaluations",
     "event_admission_reviews",
     "event_match_review_queue", "event_match_reviews",
+    "event_match_review_order", "event_review_sampling_batches",
+    "event_review_sampling_members",
 }
 EXPECTED_ITEM_COLUMNS = {
     "id", "source_id", "url", "title", "title_zh", "summary", "raw_summary",
@@ -3306,6 +3376,16 @@ EXPECTED_IDENTITY_AUXILIARY_COLUMNS = {
     "event_match_reviews": {
         "id", "decision_id", "version", "previous_review_id", "decision",
         "evidence_ids_json", "reviewer_id", "reason", "reviewed_at",
+    },
+    "event_match_review_order": {"sequence", "review_id"},
+    "event_review_sampling_batches": {
+        "id", "dataset_id", "seed", "per_stratum_limit",
+        "decision_cutoff_sequence", "review_cutoff_sequence", "candidate_count",
+        "stratum_count", "member_count", "manifest_sha256", "created_by", "created_at",
+    },
+    "event_review_sampling_members": {
+        "batch_id", "ordinal", "decision_id", "stratum_key", "queue_sequence",
+        "selection_sha256",
     },
     "sec_security_keys": {
         "cik", "exchange", "ticker", "security_entity_id", "first_evidence_id",
@@ -3583,6 +3663,10 @@ EXPECTED_INGEST_TRIGGERS = {
     "event_match_review_queue_decision_insert", "event_match_review_queue_no_update",
     "event_match_review_queue_no_delete", "event_match_reviews_valid_append",
     "event_match_reviews_no_update", "event_match_reviews_no_delete",
+    "event_match_review_order_review_insert", "event_match_review_order_no_update",
+    "event_match_review_order_no_delete", "event_review_sampling_batches_no_update",
+    "event_review_sampling_batches_no_delete", "event_review_sampling_members_no_update",
+    "event_review_sampling_members_no_delete",
     "sec_security_keys_no_update", "sec_security_keys_no_delete",
     "sec_filing_versions_valid_append", "sec_filing_versions_no_update",
     "sec_filing_versions_no_delete", "sec_filings_identity_immutable",
@@ -4121,6 +4205,8 @@ def _assert_current_schema(db: sqlite3.Connection) -> None:
         verify_sample_evaluations(db)
         from .event_match_reviews import verify_match_reviews
         verify_match_reviews(db)
+        from .event_review_sampling import verify_sampling_batches as verify_event_samples
+        verify_event_samples(db)
         from .event_admission import verify_event_admission_reviews
         verify_event_admission_reviews(db)
     except (ValueError, RuntimeError) as exc:

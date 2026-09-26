@@ -54,6 +54,9 @@ from __future__ import annotations
   python cli.py event-match-review-preview DECISION_ID
   python cli.py event-match-review-queue [AFTER|none] [LIMIT] [pending|all]
   python cli.py event-match-review DECISION_ID accepted|rejected EXPECTED|none EVIDENCE_ID[,EVIDENCE_ID...] REASON
+  python cli.py event-review-sample-create PER_STRATUM_LIMIT SEED
+  python cli.py event-review-sample-report BATCH_ID
+  python cli.py event-review-sample-queue BATCH_ID [AFTER_ORDINAL|none] [LIMIT] [pending|all]
   python cli.py legacy-event-project   # 将旧 story 映射为 shadow candidate event（maintenance only）
   python cli.py legacy-curation-enqueue [AFTER_ID] [LIMIT]  # 分页排入旧策展转换任务（maintenance only）
   python cli.py legacy-curation-process [N]  # 处理最多 N 个离线转换任务（maintenance only）
@@ -705,6 +708,57 @@ def cmd_event_match_review(
     print(json.dumps(result.to_dict(), ensure_ascii=False, indent=2))
 
 
+def cmd_event_review_sample_create(per_stratum_limit: int, seed: str) -> None:
+    if config.PROCESS_ROLE != "maintenance":
+        raise config.RuntimeConfigurationError(
+            "event-review-sample-create requires maintenance role"
+        )
+    import getpass
+    from app.db_admin import verify_database
+    from app.event_review_sampling import create_sample_batch
+    verify_database(config.DB_PATH, require_current=True)
+    with get_db() as db:
+        db.execute("BEGIN IMMEDIATE")
+        result = create_sample_batch(
+            db, seed=seed, per_stratum_limit=per_stratum_limit,
+            created_by=getpass.getuser(),
+        )
+    print(json.dumps(result.to_dict(), ensure_ascii=False, indent=2))
+
+
+def cmd_event_review_sample_report(batch_id: str) -> None:
+    if config.PROCESS_ROLE != "maintenance":
+        raise config.RuntimeConfigurationError(
+            "event-review-sample-report requires maintenance role"
+        )
+    from app.db_admin import verify_database
+    from app.event_review_sampling import sample_report
+    verify_database(config.DB_PATH, require_current=True)
+    with get_db() as db:
+        result = sample_report(db, batch_id)
+    print(json.dumps(result.to_dict(), ensure_ascii=False, indent=2))
+
+
+def cmd_event_review_sample_queue(
+    batch_id: str, after: str, limit: int, mode: str,
+) -> None:
+    if config.PROCESS_ROLE != "maintenance":
+        raise config.RuntimeConfigurationError(
+            "event-review-sample-queue requires maintenance role"
+        )
+    if mode not in {"pending", "all"}:
+        raise ValueError("event review sample queue mode must be pending or all")
+    from app.db_admin import verify_database
+    from app.event_review_sampling import sample_queue
+    verify_database(config.DB_PATH, require_current=True)
+    with get_db() as db:
+        rows = sample_queue(
+            db, batch_id, after_ordinal=-1 if after == "none" else int(after),
+            limit=limit, pending_only=mode == "pending",
+        )
+    print(json.dumps([row.to_dict() for row in rows], ensure_ascii=False, indent=2))
+
+
 def cmd_legacy_event_project() -> None:
     if config.PROCESS_ROLE != "maintenance":
         raise config.RuntimeConfigurationError(
@@ -951,6 +1005,16 @@ def main() -> None:
         cmd_event_match_review(
             sys.argv[2], sys.argv[3], sys.argv[4], sys.argv[5],
             " ".join(sys.argv[6:]),
+        )
+    elif cmd == "event-review-sample-create" and len(sys.argv) >= 4:
+        cmd_event_review_sample_create(int(sys.argv[2]), " ".join(sys.argv[3:]))
+    elif cmd == "event-review-sample-report" and len(sys.argv) == 3:
+        cmd_event_review_sample_report(sys.argv[2])
+    elif cmd == "event-review-sample-queue" and len(sys.argv) >= 3:
+        cmd_event_review_sample_queue(
+            sys.argv[2], sys.argv[3] if len(sys.argv) > 3 else "none",
+            int(sys.argv[4]) if len(sys.argv) > 4 else 50,
+            sys.argv[5] if len(sys.argv) > 5 else "pending",
         )
     elif cmd == "legacy-event-project":
         cmd_legacy_event_project()
