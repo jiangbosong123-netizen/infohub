@@ -8,6 +8,7 @@ sample evaluation, match-decision population, event version, evidence, or admiss
 
 - `GET /api/v1/events` requires `read:events`.
 - `GET /api/v1/events/{id}` requires `read:events`.
+- `GET /api/v1/events/{id}/evidence` requires the stronger `read:evidence` scope.
 
 The list accepts `limit`, `cursor`, `q`, `type`, `state`, `entity_id`, and `topic_id`.
 Unknown, duplicate, empty, non-canonical, or out-of-range parameters return the stable
@@ -31,7 +32,7 @@ the switch does not bypass the release gate: without a current approved release,
 return `503 not_ready`. Windows production remains unchanged until the operator intentionally
 deploys the completed release and enables the flag.
 
-Evidence rows remain behind the separately authorized future
-`GET /api/v1/events/{id}/evidence` contract. This keeps raw provenance disclosure and pagination
-out of the initial event representation while every event remains traceable through its frozen
-admission and release hashes.
+Evidence rows use a separately authorized contract documented in
+[`EVENT_EVIDENCE_API.md`](EVENT_EVIDENCE_API.md). This keeps raw provenance disclosure and
+pagination out of the initial event representation while every released event remains traceable
+to immutable document versions and raw-record digests.

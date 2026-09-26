@@ -71,6 +71,12 @@ from ..api_events import (
     get_event,
     list_events,
 )
+from ..api_event_evidence import (
+    EVIDENCE_ROLES,
+    EventEvidenceResponse,
+    EventEvidenceUnavailable,
+    list_event_evidence,
+)
 from ..api_topics import (
     RestrictedTopic,
     TOPIC_GROUPS,
@@ -278,6 +284,19 @@ _EVENT_DETAIL_OPENAPI = {
     "parameters": [
         {"name": "If-None-Match", "in": "header", "required": False,
          "schema": {"type": "string", "maxLength": 512}},
+    ],
+}
+_EVENT_EVIDENCE_LIST_OPENAPI = {
+    "x-required-scopes": ["read:evidence"],
+    "parameters": [
+        {"name": "limit", "in": "query", "required": False,
+         "schema": {"type": "integer", "minimum": 1, "maximum": 100, "default": 50}},
+        {"name": "cursor", "in": "query", "required": False,
+         "schema": {"type": "string", "minLength": 1}},
+        {"name": "role", "in": "query", "required": False,
+         "schema": {"type": "string", "enum": sorted(EVIDENCE_ROLES)}},
+        {"name": "fact_id", "in": "query", "required": False,
+         "schema": {"type": "string", "minLength": 1, "maxLength": 128}},
     ],
 }
 
@@ -1471,6 +1490,55 @@ def api_v1_event(id: str, request: Request, response: Response):
             return Response(status_code=304, headers={"ETag": etag})
     response.headers["ETag"] = etag
     return result
+
+
+@app.get(
+    "/api/v1/events/{id}/evidence", response_model=EventEvidenceResponse,
+    openapi_extra=_EVENT_EVIDENCE_LIST_OPENAPI,
+)
+def api_v1_event_evidence(id: str, request: Request):
+    request_id = request.state.request_id
+    if not config.API_EVENTS_ENABLED:
+        return v1_error(503, "not_ready", request_id)
+    allowed = {"limit", "cursor", "role", "fact_id"}
+    if set(request.query_params) - allowed or any(
+        len(request.query_params.getlist(name)) != 1 for name in request.query_params
+    ):
+        return v1_error(422, "invalid_parameter", request_id)
+    raw_limit = request.query_params.get("limit", "50")
+    try:
+        limit = int(raw_limit)
+    except ValueError:
+        return v1_error(422, "invalid_parameter", request_id)
+    role = request.query_params.get("role")
+    fact_id = request.query_params.get("fact_id")
+    if (
+        not id or len(id) > 128 or str(limit) != raw_limit or not 1 <= limit <= 100
+        or (role is not None and role not in EVIDENCE_ROLES)
+        or (fact_id is not None and (not fact_id or len(fact_id) > 128))
+    ):
+        return v1_error(422, "invalid_parameter", request_id)
+    try:
+        with get_db() as db:
+            db.execute("BEGIN")
+            return list_event_evidence(
+                db, request.state.api_principal, request_id=request_id, event_id=id,
+                limit=limit, cursor=request.query_params.get("cursor"), role=role,
+                fact_id=fact_id,
+            )
+    except EventNotFound:
+        return v1_error(404, "resource_not_found", request_id)
+    except CursorExpired:
+        return v1_error(410, "cursor_expired", request_id)
+    except CursorFilterMismatch:
+        return v1_error(400, "filter_mismatch", request_id)
+    except CursorEpochChanged:
+        return v1_error(409, "epoch_changed", request_id)
+    except CursorError:
+        return v1_error(400, "invalid_cursor", request_id)
+    except (EventCatalogUnavailable, EventEvidenceUnavailable, sqlite3.Error, OSError,
+            KeyError, TypeError, ValueError):
+        return v1_error(503, "not_ready", request_id)
 
 
 def _unready_snapshot(exc: Exception) -> dict:

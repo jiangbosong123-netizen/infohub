@@ -1,0 +1,36 @@
+{
+  "module": "P18v-event release-bound Event evidence API",
+  "checked_at": "2026-09-26T21:55:02Z",
+  "source_commit": "af1a8f2",
+  "endpoint": "GET /api/v1/events/{id}/evidence",
+  "required_scope": "read:evidence",
+  "consistency": "event-release-v1 manifest",
+  "default_enabled": false,
+  "contract_checks": {
+    "release_bound_event_version": true,
+    "separate_evidence_scope": true,
+    "signed_filter_bound_pagination": true,
+    "immutable_document_and_raw_record_trace": true,
+    "raw_payload_and_internal_transport_metadata_omitted": true,
+    "unreleased_event_not_found": true,
+    "stale_release_fails_closed": true,
+    "unknown_and_duplicate_parameters_rejected": true,
+    "openapi_scope_declared": true
+  },
+  "github_actions": {
+    "run": "https://github.com/jiangbosong123-netizen/infohub/actions/runs/36274430512",
+    "python_3_11": {
+      "status": "passed",
+      "tests": 488
+    },
+    "python_3_12": {
+      "status": "passed",
+      "tests": 488
+    },
+    "docker_build": "passed"
+  },
+  "schema_changed": false,
+  "source_database_modified": false,
+  "windows_production_modified": false,
+  "windows_feature_flag_enabled": false
+}

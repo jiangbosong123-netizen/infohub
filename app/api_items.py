@@ -195,7 +195,7 @@ def _identity(db: sqlite3.Connection) -> sqlite3.Row:
     return identity
 
 
-def _public_url(value: str) -> str | None:
+def public_document_url(value: str) -> str | None:
     try:
         parts = urlsplit(value)
     except ValueError as exc:
@@ -315,7 +315,7 @@ def _item_view(db: sqlite3.Connection, row: sqlite3.Row) -> ItemView:
             normalizer_version=row["normalizer_version"], title=row["title_original"],
             language=row["language"], text_length=len(row["text"]), text=row["text"],
             content_sha256=row["content_sha256"], version_sha256=row["version_sha256"],
-            canonical_url=_public_url(row["canonical_url"]), source_id=row["source_key"],
+            canonical_url=public_document_url(row["canonical_url"]), source_id=row["source_key"],
             publisher_id=row["publisher_id"],
             time=ItemTimeQuality(
                 published_at=published_at, source_time_value_id=time_value_id,
