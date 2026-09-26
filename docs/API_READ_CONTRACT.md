@@ -290,3 +290,18 @@ live metrics hash 改变，旧批准立即失效；严格数据库验证会按�
 与生产未修改。2026-09-26 的真实 Mac 数据库隔离副本从 schema 0 升至 37，59,992 条 item 和
 51,242 条 story 全部保留，严格验证通过且源文件 SHA-256 前后相同；评估账本按设计为空。机器可读
 证据见 [`p18s-event-review-sample-gate-migration.json`](evidence/p18s-event-review-sample-gate-migration.json)。
+
+## P18t：Event 数据集发布门
+
+Schema 38 新增追加式 `event_dataset_release_reviews`，把当前 dataset epoch、当前已批准的事件匹配
+抽样评估，以及准确的公开事件版本清单冻结为一个可审计发布决定。`event-release-v1` 固定要求总体和
+每层抽样完成率为 100%，总体和每层机器决定接受率至少为 90%，并要求抽样截止序号覆盖当前全部匹配
+决定。已保存记录中的阈值不能降低这组代码政策下限。
+
+清单逐项绑定 event、event version、admission review、公开状态和准入指标哈希。样本后来被修正、
+出现新匹配决定、事件版本或准入变化时，当前批准都会 fail closed；操作方必须按依赖关系重新抽样、
+评估或发布。严格数据库验证同时核对哈希、数据集归属和全部历史引用。详细契约见
+[`EVENT_DATASET_RELEASE.md`](EVENT_DATASET_RELEASE.md)。本单元仍不开放 Event API，也不修改 Windows
+生产环境。2026-09-26 的真实 Mac 数据库隔离副本从 schema 0 升至 38，60,032 条 item 和
+51,276 条 story 全部保留，严格验证通过且源文件 SHA-256 前后相同；发布账本按设计为空。机器可读
+证据见 [`p18t-event-dataset-release-migration.json`](evidence/p18t-event-dataset-release-migration.json)。

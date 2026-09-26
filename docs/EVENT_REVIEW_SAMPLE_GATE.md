@@ -34,5 +34,6 @@ becomes stale. A consumer of `approved_sample_evaluation` fails closed until a n
 is appended. Strict database verification reconstructs every historical evaluation at its
 stored cutoff and rejects an approval that did not satisfy its recorded thresholds.
 
-The next unit is the dataset-level event release gate that binds an approved sample, event
-admission state and coverage requirements. Windows and production remain unchanged.
+The dataset-level release gate now binds an approved sample, current decision-population coverage,
+event admission state and the exact release manifest; see
+[`EVENT_DATASET_RELEASE.md`](EVENT_DATASET_RELEASE.md). Windows and production remain unchanged.

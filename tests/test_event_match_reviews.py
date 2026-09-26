@@ -227,7 +227,7 @@ class EventMatchReviewTests(unittest.TestCase):
             db_admin.apply_migrations(db, db_admin.MIGRATIONS[:34])
             db.execute("INSERT INTO sources(key,name,channel,type) VALUES('x','X','ai','rss')")
         report = db_admin.migrate_database(predecessor)
-        self.assertEqual(report.applied_versions, (35, 36, 37))
+        self.assertEqual(report.applied_versions, (35, 36, 37, 38))
         self.assertEqual(db_admin.verify_database(report.backup_path).schema_version, 34)
         with database.get_db(predecessor) as db:
             tables = {row[0] for row in db.execute(
