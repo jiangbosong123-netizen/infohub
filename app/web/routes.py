@@ -84,6 +84,16 @@ from ..api_analyses import (
     analysis_etag,
     get_analysis,
 )
+from ..api_evidence import (
+    EvidenceNotFound,
+    EvidenceResponse,
+    EvidenceRestricted,
+    EvidenceUnavailable,
+    ItemEvidenceResponse,
+    evidence_etag,
+    get_evidence,
+    list_item_evidence,
+)
 from ..api_topics import (
     RestrictedTopic,
     TOPIC_GROUPS,
@@ -265,6 +275,24 @@ _ITEM_VERSION_LIST_OPENAPI = {
          "schema": {"type": "integer", "minimum": 1, "maximum": 100, "default": 50}},
         {"name": "cursor", "in": "query", "required": False,
          "schema": {"type": "string", "minLength": 1}},
+    ],
+}
+_ITEM_EVIDENCE_LIST_OPENAPI = {
+    "x-required-scopes": ["read:items", "read:evidence"],
+    "parameters": [
+        {"name": "version_id", "in": "query", "required": True,
+         "schema": {"type": "string", "minLength": 1, "maxLength": 128}},
+        {"name": "limit", "in": "query", "required": False,
+         "schema": {"type": "integer", "minimum": 1, "maximum": 100, "default": 50}},
+        {"name": "cursor", "in": "query", "required": False,
+         "schema": {"type": "string", "minLength": 1}},
+    ],
+}
+_EVIDENCE_DETAIL_OPENAPI = {
+    "x-required-scopes": ["read:evidence"],
+    "parameters": [
+        {"name": "If-None-Match", "in": "header", "required": False,
+         "schema": {"type": "string", "maxLength": 512}},
     ],
 }
 _EVENT_LIST_OPENAPI = {
@@ -462,6 +490,7 @@ def _system_snapshot() -> dict:
             "api_items_enabled": config.API_ITEMS_ENABLED,
             "api_events_enabled": config.API_EVENTS_ENABLED,
             "api_analyses_enabled": config.API_ANALYSES_ENABLED,
+            "api_evidence_enabled": config.API_EVIDENCE_ENABLED,
             "topic_read_enabled": TOPIC_READ_ENABLED,
         },
         "readiness": {
@@ -1411,6 +1440,96 @@ def api_v1_item_versions(id: str, request: Request):
 
 
 @app.get(
+    "/api/v1/items/{id}/evidence", response_model=ItemEvidenceResponse,
+    openapi_extra=_ITEM_EVIDENCE_LIST_OPENAPI,
+)
+def api_v1_item_evidence(id: str, request: Request):
+    request_id = request.state.request_id
+    if not config.API_ITEMS_ENABLED or not config.API_EVIDENCE_ENABLED:
+        return v1_error(503, "not_ready", request_id)
+    principal = request.state.api_principal
+    if not principal.allows("read:items"):
+        return v1_error(403, "insufficient_scope", request_id)
+    allowed = {"version_id", "limit", "cursor"}
+    if (not id or len(id) > 96 or set(request.query_params) - allowed
+            or any(len(request.query_params.getlist(name)) != 1
+                   for name in request.query_params)):
+        return v1_error(422, "invalid_parameter", request_id)
+    version_id = request.query_params.get("version_id")
+    raw_limit = request.query_params.get("limit", "50")
+    try:
+        limit = int(raw_limit)
+    except ValueError:
+        return v1_error(422, "invalid_parameter", request_id)
+    if (not version_id or len(version_id) > 128 or str(limit) != raw_limit
+            or not 1 <= limit <= 100):
+        return v1_error(422, "invalid_parameter", request_id)
+    try:
+        with get_db() as db:
+            db.execute("BEGIN")
+            return list_item_evidence(
+                db, principal, request_id=request_id, item_id=id,
+                version_id=version_id, limit=limit,
+                cursor=request.query_params.get("cursor"),
+            )
+    except EvidenceNotFound:
+        return v1_error(404, "resource_not_found", request_id)
+    except EvidenceRestricted:
+        return v1_error(403, "restricted_content", request_id)
+    except CursorExpired:
+        return v1_error(410, "cursor_expired", request_id)
+    except CursorFilterMismatch:
+        return v1_error(400, "filter_mismatch", request_id)
+    except CursorEpochChanged:
+        return v1_error(409, "epoch_changed", request_id)
+    except CursorError:
+        return v1_error(400, "invalid_cursor", request_id)
+    except (EvidenceUnavailable, sqlite3.Error, OSError, KeyError, TypeError, ValueError):
+        return v1_error(503, "not_ready", request_id)
+
+
+@app.get(
+    "/api/v1/evidence/{id}", response_model=EvidenceResponse,
+    openapi_extra=_EVIDENCE_DETAIL_OPENAPI,
+)
+def api_v1_evidence(id: str, request: Request, response: Response):
+    request_id = request.state.request_id
+    if not config.API_EVIDENCE_ENABLED:
+        return v1_error(503, "not_ready", request_id)
+    if request.query_params or not id or len(id) > 128:
+        return v1_error(422, "invalid_parameter", request_id)
+    conditional = [
+        value for key, value in request.scope["headers"]
+        if key.lower() == b"if-none-match"
+    ]
+    if len(conditional) > 1 or (conditional and len(conditional[0]) > 512):
+        return v1_error(422, "invalid_parameter", request_id)
+    try:
+        with get_db() as db:
+            db.execute("BEGIN")
+            result = get_evidence(db, request_id=request_id, evidence_id=id)
+            etag = evidence_etag(result, request.state.api_principal)
+    except EvidenceNotFound:
+        return v1_error(404, "resource_not_found", request_id)
+    except EvidenceRestricted:
+        return v1_error(403, "restricted_content", request_id)
+    except (EvidenceUnavailable, sqlite3.Error, OSError, KeyError, TypeError, ValueError):
+        return v1_error(503, "not_ready", request_id)
+    if conditional:
+        try:
+            validators = [value.strip() for value in conditional[0].decode("ascii").split(",")]
+        except UnicodeDecodeError:
+            return v1_error(422, "invalid_parameter", request_id)
+        if "*" in validators or any(
+            validator == etag or (validator.startswith("W/") and validator[2:] == etag)
+            for validator in validators
+        ):
+            return Response(status_code=304, headers={"ETag": etag})
+    response.headers["ETag"] = etag
+    return result
+
+
+@app.get(
     "/api/v1/events", response_model=EventListResponse,
     openapi_extra=_EVENT_LIST_OPENAPI,
 )
@@ -1611,6 +1730,7 @@ def _unready_snapshot(exc: Exception) -> dict:
             "api_items_enabled": config.API_ITEMS_ENABLED,
             "api_events_enabled": config.API_EVENTS_ENABLED,
             "api_analyses_enabled": config.API_ANALYSES_ENABLED,
+            "api_evidence_enabled": config.API_EVIDENCE_ENABLED,
         },
         "readiness": {
             "status": "not_ready",

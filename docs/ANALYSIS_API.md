@@ -16,7 +16,8 @@ immutable result remains readable by its own ID for audit and reproducibility.
 
 The endpoint never returns rendered prompts, raw response or output storage references, provider
 request IDs, token counts, prices, costs, error detail or model reasoning. Those values remain in
-the internal operations ledger. Evidence payloads require the separate `read:evidence` contract.
+the internal operations ledger. Redacted evidence metadata requires the separate `read:evidence`
+contract; captured payload bytes are not part of the public API.
 
 The response uses a principal-bound ETag over the dataset epoch and complete public view.
 `If-None-Match` supports strong and weak comparison. Unknown query parameters, including the
