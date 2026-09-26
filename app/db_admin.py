@@ -2983,6 +2983,58 @@ def _event_review_sample_gate_foundation(db: sqlite3.Connection) -> None:
     _execute_script(db, EVENT_REVIEW_SAMPLE_GATE_SCHEMA_SQL)
 
 
+EVENT_DATASET_RELEASE_SCHEMA_SQL = """
+CREATE TABLE event_dataset_release_reviews (
+    id TEXT PRIMARY KEY,
+    dataset_id TEXT NOT NULL,
+    dataset_epoch TEXT NOT NULL,
+    version INTEGER NOT NULL CHECK(version>0),
+    previous_review_id TEXT REFERENCES event_dataset_release_reviews(id),
+    decision TEXT NOT NULL CHECK(decision IN ('approved','rejected')),
+    sample_evaluation_id TEXT NOT NULL REFERENCES event_review_sample_evaluations(id),
+    sample_metrics_sha256 TEXT NOT NULL CHECK(length(sample_metrics_sha256)=64),
+    event_manifest_json TEXT NOT NULL CHECK(json_valid(event_manifest_json)),
+    event_manifest_sha256 TEXT NOT NULL CHECK(length(event_manifest_sha256)=64),
+    metrics_json TEXT NOT NULL CHECK(json_valid(metrics_json)),
+    metrics_sha256 TEXT NOT NULL CHECK(length(metrics_sha256)=64),
+    reviewer_id TEXT NOT NULL CHECK(length(trim(reviewer_id)) BETWEEN 1 AND 120),
+    reason TEXT NOT NULL CHECK(length(trim(reason)) BETWEEN 1 AND 1000),
+    reviewed_at TEXT NOT NULL,
+    policy_version TEXT NOT NULL CHECK(policy_version='event-release-v1'),
+    UNIQUE(dataset_id,dataset_epoch,version),
+    FOREIGN KEY(dataset_id,dataset_epoch)
+        REFERENCES dataset_epochs(dataset_id,epoch),
+    CHECK((version=1 AND previous_review_id IS NULL)
+       OR (version>1 AND previous_review_id IS NOT NULL))
+);
+CREATE INDEX idx_event_dataset_release_reviews_current
+    ON event_dataset_release_reviews(dataset_id,dataset_epoch,version DESC);
+CREATE TRIGGER event_dataset_release_reviews_valid_append
+BEFORE INSERT ON event_dataset_release_reviews
+WHEN NEW.version != COALESCE(
+         (SELECT MAX(version)+1 FROM event_dataset_release_reviews
+          WHERE dataset_id=NEW.dataset_id AND dataset_epoch=NEW.dataset_epoch),1
+     )
+  OR (NEW.version=1 AND NEW.previous_review_id IS NOT NULL)
+  OR (NEW.version>1 AND NEW.previous_review_id IS NOT (
+         SELECT id FROM event_dataset_release_reviews
+         WHERE dataset_id=NEW.dataset_id AND dataset_epoch=NEW.dataset_epoch
+           AND version=NEW.version-1
+     ))
+BEGIN SELECT RAISE(ABORT,'event dataset release reviews must form a contiguous append-only chain'); END;
+CREATE TRIGGER event_dataset_release_reviews_no_update
+BEFORE UPDATE ON event_dataset_release_reviews
+BEGIN SELECT RAISE(ABORT,'event dataset release reviews are immutable'); END;
+CREATE TRIGGER event_dataset_release_reviews_no_delete
+BEFORE DELETE ON event_dataset_release_reviews
+BEGIN SELECT RAISE(ABORT,'event dataset release reviews are immutable'); END;
+"""
+
+
+def _event_dataset_release_foundation(db: sqlite3.Connection) -> None:
+    _execute_script(db, EVENT_DATASET_RELEASE_SCHEMA_SQL)
+
+
 # Migration 1 freezes the exact legacy schema at main@88a2a1e. Future schema
 # changes must append a new Migration instead of editing this definition.
 MIGRATIONS = (
@@ -3139,6 +3191,9 @@ MIGRATIONS = (
     Migration(37, "append-only event review sample evaluation gate",
               EVENT_REVIEW_SAMPLE_GATE_SCHEMA_SQL,
               _event_review_sample_gate_foundation),
+    Migration(38, "append-only event dataset release gate",
+              EVENT_DATASET_RELEASE_SCHEMA_SQL,
+              _event_dataset_release_foundation),
 )
 CURRENT_SCHEMA_VERSION = MIGRATIONS[-1].version
 REQUIRED_MIGRATION_COLUMNS = {
@@ -3193,6 +3248,7 @@ EXPECTED_TABLES = LEGACY_ANCHORS | {
     "event_match_review_order", "event_review_sampling_batches",
     "event_review_sampling_members",
     "event_review_sample_evaluations",
+    "event_dataset_release_reviews",
 }
 EXPECTED_ITEM_COLUMNS = {
     "id", "source_id", "url", "title", "title_zh", "summary", "raw_summary",
@@ -3448,6 +3504,12 @@ EXPECTED_IDENTITY_AUXILIARY_COLUMNS = {
         "minimum_stratum_decided_bps", "minimum_acceptance_bps",
         "minimum_stratum_acceptance_bps", "metrics_json", "metrics_sha256",
         "evaluator_id", "reason", "evaluated_at",
+    },
+    "event_dataset_release_reviews": {
+        "id", "dataset_id", "dataset_epoch", "version", "previous_review_id",
+        "decision", "sample_evaluation_id", "sample_metrics_sha256",
+        "event_manifest_json", "event_manifest_sha256", "metrics_json",
+        "metrics_sha256", "reviewer_id", "reason", "reviewed_at", "policy_version",
     },
     "sec_security_keys": {
         "cik", "exchange", "ticker", "security_entity_id", "first_evidence_id",
@@ -3732,6 +3794,9 @@ EXPECTED_INGEST_TRIGGERS = {
     "event_review_sample_evaluations_valid_append",
     "event_review_sample_evaluations_no_update",
     "event_review_sample_evaluations_no_delete",
+    "event_dataset_release_reviews_valid_append",
+    "event_dataset_release_reviews_no_update",
+    "event_dataset_release_reviews_no_delete",
     "sec_security_keys_no_update", "sec_security_keys_no_delete",
     "sec_filing_versions_valid_append", "sec_filing_versions_no_update",
     "sec_filing_versions_no_delete", "sec_filings_identity_immutable",
@@ -4274,6 +4339,8 @@ def _assert_current_schema(db: sqlite3.Connection) -> None:
         verify_event_samples(db)
         from .event_review_sample_gate import verify_sample_evaluations as verify_event_gate
         verify_event_gate(db)
+        from .event_dataset_release import verify_release_reviews
+        verify_release_reviews(db)
         from .event_admission import verify_event_admission_reviews
         verify_event_admission_reviews(db)
     except (ValueError, RuntimeError) as exc:

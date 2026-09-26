@@ -59,6 +59,9 @@ from __future__ import annotations
   python cli.py event-review-sample-queue BATCH_ID [AFTER_ORDINAL|none] [LIMIT] [pending|all]
   python cli.py event-sample-gate-preview BATCH_ID
   python cli.py event-sample-gate-review BATCH_ID approved|rejected EXPECTED|none OVERALL_DECIDED_BPS STRATUM_DECIDED_BPS OVERALL_ACCEPTANCE_BPS STRATUM_ACCEPTANCE_BPS REASON
+  python cli.py event-release-preview SAMPLE_EVALUATION_ID
+  python cli.py event-release-review SAMPLE_EVALUATION_ID approved|rejected EXPECTED|none REASON
+  python cli.py event-release-status
   python cli.py legacy-event-project   # 将旧 story 映射为 shadow candidate event（maintenance only）
   python cli.py legacy-curation-enqueue [AFTER_ID] [LIMIT]  # 分页排入旧策展转换任务（maintenance only）
   python cli.py legacy-curation-process [N]  # 处理最多 N 个离线转换任务（maintenance only）
@@ -804,6 +807,55 @@ def cmd_event_sample_gate_review(
     print(json.dumps(result.to_dict(), ensure_ascii=False, indent=2))
 
 
+def cmd_event_release_preview(sample_evaluation_id: str) -> None:
+    if config.PROCESS_ROLE != "maintenance":
+        raise config.RuntimeConfigurationError(
+            "event-release-preview requires maintenance role"
+        )
+    from app.db_admin import verify_database
+    from app.event_dataset_release import release_preview
+    verify_database(config.DB_PATH, require_current=True)
+    with get_db() as db:
+        result = release_preview(db, sample_evaluation_id)
+    print(json.dumps(result.to_dict(), ensure_ascii=False, indent=2))
+
+
+def cmd_event_release_review(
+    sample_evaluation_id: str, decision: str, expected_previous: str, reason: str,
+) -> None:
+    if config.PROCESS_ROLE != "maintenance":
+        raise config.RuntimeConfigurationError(
+            "event-release-review requires maintenance role"
+        )
+    import getpass
+    from app.db_admin import verify_database
+    from app.event_dataset_release import record_release_review
+    verify_database(config.DB_PATH, require_current=True)
+    with get_db() as db:
+        db.execute("BEGIN IMMEDIATE")
+        result = record_release_review(
+            db, sample_evaluation_id=sample_evaluation_id, decision=decision,
+            expected_previous_review_id=(
+                None if expected_previous == "none" else expected_previous
+            ),
+            reviewer_id=getpass.getuser(), reason=reason,
+        )
+    print(json.dumps(result.to_dict(), ensure_ascii=False, indent=2))
+
+
+def cmd_event_release_status() -> None:
+    if config.PROCESS_ROLE != "maintenance":
+        raise config.RuntimeConfigurationError(
+            "event-release-status requires maintenance role"
+        )
+    from app.db_admin import verify_database
+    from app.event_dataset_release import approved_event_release
+    verify_database(config.DB_PATH, require_current=True)
+    with get_db() as db:
+        result = approved_event_release(db)
+    print(json.dumps(result, ensure_ascii=False, indent=2))
+
+
 def cmd_legacy_event_project() -> None:
     if config.PROCESS_ROLE != "maintenance":
         raise config.RuntimeConfigurationError(
@@ -1069,6 +1121,14 @@ def main() -> None:
             int(sys.argv[6]), int(sys.argv[7]), int(sys.argv[8]),
             " ".join(sys.argv[9:]),
         )
+    elif cmd == "event-release-preview" and len(sys.argv) == 3:
+        cmd_event_release_preview(sys.argv[2])
+    elif cmd == "event-release-review" and len(sys.argv) >= 6:
+        cmd_event_release_review(
+            sys.argv[2], sys.argv[3], sys.argv[4], " ".join(sys.argv[5:]),
+        )
+    elif cmd == "event-release-status" and len(sys.argv) == 2:
+        cmd_event_release_status()
     elif cmd == "legacy-event-project":
         cmd_legacy_event_project()
     elif cmd == "legacy-curation-enqueue":

@@ -100,7 +100,7 @@ class EventReviewSampleGateTests(unittest.TestCase):
             db_admin.apply_migrations(db, db_admin.MIGRATIONS[:36])
             db.execute("INSERT INTO sources(key,name,channel,type) VALUES('x','X','ai','rss')")
         report = db_admin.migrate_database(predecessor)
-        self.assertEqual(report.applied_versions, (37,))
+        self.assertEqual(report.applied_versions, (37, 38))
         self.assertEqual(db_admin.verify_database(report.backup_path).schema_version, 36)
         with database.get_db(predecessor) as db:
             self.assertEqual(db.execute(
