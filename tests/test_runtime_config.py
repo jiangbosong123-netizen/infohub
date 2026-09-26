@@ -35,6 +35,7 @@ class RuntimeConfigurationTests(unittest.TestCase):
         self.assertFalse(settings.topic_read_enabled)
         self.assertFalse(settings.api_catalog_enabled)
         self.assertFalse(settings.api_items_enabled)
+        self.assertFalse(settings.api_events_enabled)
         self.assertEqual(settings.api_key_rate_per_minute, 60)
         self.assertEqual(settings.api_consumer_concurrency, 5)
         self.assertEqual(settings.api_request_lease_seconds, 300)
@@ -97,6 +98,18 @@ class RuntimeConfigurationTests(unittest.TestCase):
         )
         self.assertTrue(settings.api_items_enabled)
         self.assertFalse(settings.api_catalog_enabled)
+
+    def test_event_api_switch_is_independent_and_defaults_off(self):
+        self.assertFalse(config.load_runtime_settings({}, self.root).api_events_enabled)
+        settings = config.load_runtime_settings(
+            {
+                "INFOHUB_API_EVENTS_ENABLED": "true",
+                "INFOHUB_API_ITEMS_ENABLED": "false",
+            },
+            self.root,
+        )
+        self.assertTrue(settings.api_events_enabled)
+        self.assertFalse(settings.api_items_enabled)
 
     def test_report_write_requires_visible_read_path(self):
         with self.assertRaisesRegex(config.RuntimeConfigurationError, "requires INFOHUB_REPORT_READ_ENABLED"):
@@ -204,6 +217,7 @@ class RuntimeConfigurationTests(unittest.TestCase):
             values["INFOHUB_REPORT_WRITE_ENABLED"] = "false"
             values["INFOHUB_API_CATALOG_ENABLED"] = "false"
             values["INFOHUB_API_ITEMS_ENABLED"] = "false"
+            values["INFOHUB_API_EVENTS_ENABLED"] = "false"
             settings = config.load_runtime_settings(values, self.root)
             self.assertEqual(settings.database_path, Path("/app/data/app.db"))
             self.assertEqual(settings.backup_path, Path("/app/data/backups"))
@@ -243,6 +257,8 @@ class RuntimeConfigurationTests(unittest.TestCase):
         worker_values["INFOHUB_API_CATALOG_ENABLED"] = "false"
         web_values["INFOHUB_API_ITEMS_ENABLED"] = "false"
         worker_values["INFOHUB_API_ITEMS_ENABLED"] = "false"
+        web_values["INFOHUB_API_EVENTS_ENABLED"] = "false"
+        worker_values["INFOHUB_API_EVENTS_ENABLED"] = "false"
         self.assertFalse(config.load_runtime_settings(web_values, self.root).allow_network_tasks)
         self.assertTrue(config.load_runtime_settings(worker_values, self.root).allow_network_tasks)
         self.assertIn("/api/live", " ".join(compose["services"]["infohub"]["healthcheck"]["test"]))

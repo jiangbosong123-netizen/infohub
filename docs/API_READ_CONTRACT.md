@@ -305,3 +305,16 @@ Schema 38 新增追加式 `event_dataset_release_reviews`，把当前 dataset ep
 生产环境。2026-09-26 的真实 Mac 数据库隔离副本从 schema 0 升至 38，60,032 条 item 和
 51,276 条 story 全部保留，严格验证通过且源文件 SHA-256 前后相同；发布账本按设计为空。机器可读
 证据见 [`p18t-event-dataset-release-migration.json`](evidence/p18t-event-dataset-release-migration.json)。
+
+## P18u：发布绑定的 Event 读取 API
+
+`GET /api/v1/events` 和 `GET /api/v1/events/{id}` 只读取当前有效 `event-release-v1` 清单，并要求
+`read:events`。列表使用与 API key、授权版本、dataset epoch、release review 和完整筛选集合绑定的签名
+游标，按稳定 event ID 分页；支持标题、事件类型、公开状态、实体和主题筛选。详情返回绑定调用方权限的
+ETag。响应显式携带 release、event version 和 admission proof，不暴露内部 candidate 状态为公共事实。
+
+接口由独立且默认关闭的 `INFOHUB_API_EVENTS_ENABLED` 控制；发布、抽样、匹配或准入任何一层变旧时均
+返回 `503 not_ready`，内部存在但不在批准清单中的事件返回 404。证据明细继续留给单独的
+`read:evidence` 接口。完整契约见 [`EVENT_API.md`](EVENT_API.md)。Windows 生产环境未修改，开关未开启。
+Python 3.11 与 3.12 各 481 项回归测试及 Docker 构建通过；机器可读证据见
+[`p18u-event-api-contract.json`](evidence/p18u-event-api-contract.json)。
