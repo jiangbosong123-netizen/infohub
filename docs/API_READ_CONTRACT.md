@@ -330,3 +330,5 @@ Python 3.11 与 3.12 各 481 项回归测试及 Docker 构建通过；机器可�
 完整筛选集合；支持 role 与 fact ID 精确筛选。事件未发布返回 404，发布链任一环节变旧则返回
 `503 not_ready`。接口沿用默认关闭的 `INFOHUB_API_EVENTS_ENABLED`，同时由网关强制要求更高权限，
 详细契约见 [`EVENT_EVIDENCE_API.md`](EVENT_EVIDENCE_API.md)。本单元无数据库迁移，Windows 与生产未修改。
+Python 3.11 与 3.12 各 488 项回归测试及 Docker 构建通过；机器可读证据见
+[`p18v-event-evidence-api-contract.json`](evidence/p18v-event-evidence-api-contract.json)。
