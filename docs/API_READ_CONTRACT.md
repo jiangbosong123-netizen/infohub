@@ -276,3 +276,17 @@ seed、decision 和稳定队列序号的 SHA-256 排序选样。批次、成员�
 schema 0 升至 36，59,988 条 item 和 51,238 条 story 全部保留，严格验证通过且源文件 SHA-256
 前后相同；源库尚未运行事件投影，所以抽样表按设计为空。机器可读证据见
 [`p18r-event-review-sampling-migration.json`](evidence/p18r-event-review-sampling-migration.json)。Windows 与生产未修改。
+
+## P18s：Event 抽样质量评估门
+
+Schema 37 新增追加式 `event_review_sample_evaluations`。评估冻结 sample manifest、review cutoff、
+总体与逐层指标、四项显式阈值及指标 SHA-256；批准要求样本非空，并同时通过总体完成率、每层完成率、
+总体接受率和每层接受率。某一低质量 decision、matcher 版本或分数层不能被其他高质量层平均掩盖。
+
+评估链使用前一 evaluation ID 防止并发覆盖，历史记录不可修改或删除。样本成员后来被人工纠正时，
+live metrics hash 改变，旧批准立即失效；严格数据库验证会按历史 cutoff 重建每次评估。该批准只证明
+其记录阈值已经满足，未来 dataset release gate 还必须规定最低政策阈值，不能接受更弱的自定义批准。
+操作说明见 [`EVENT_REVIEW_SAMPLE_GATE.md`](EVENT_REVIEW_SAMPLE_GATE.md)。Event API 仍未启用，Windows
+与生产未修改。2026-09-26 的真实 Mac 数据库隔离副本从 schema 0 升至 37，59,992 条 item 和
+51,242 条 story 全部保留，严格验证通过且源文件 SHA-256 前后相同；评估账本按设计为空。机器可读
+证据见 [`p18s-event-review-sample-gate-migration.json`](evidence/p18s-event-review-sample-gate-migration.json)。

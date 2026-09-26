@@ -33,6 +33,7 @@ The database verifier recomputes every frozen population, selection rank and man
 It also verifies that every event match review has exactly one immutable global order row.
 A later decision or review does not change an existing batch.
 
-This unit records sample observations but does not define pass thresholds. The next unit is an
-append-only event sample evaluation gate. A subsequent dataset release decision must bind the
-approved sample before the Event API can be enabled. Windows and production remain unchanged.
+Sample thresholds and append-only decisions are defined in
+[`EVENT_REVIEW_SAMPLE_GATE.md`](EVENT_REVIEW_SAMPLE_GATE.md). A subsequent dataset release
+decision must bind an approved sample before the Event API can be enabled. Windows and
+production remain unchanged.
