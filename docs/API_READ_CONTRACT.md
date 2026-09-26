@@ -360,4 +360,5 @@ document version 引用；不输出 payload 内容、摘要、存储路径、请
 retention 配置。未绑定 document version 的原始记录返回 404，仅绑定 restricted document 的记录返回 403，
 duplicate alias 不作为公开引用。接口由独立且默认关闭的 `INFOHUB_API_EVIDENCE_ENABLED` 控制，文档列表还
 要求 `INFOHUB_API_ITEMS_ENABLED`。完整契约见 [`EVIDENCE_API.md`](EVIDENCE_API.md)。本单元无数据库迁移，
-Windows 与生产未修改。
+Windows 与生产未修改。Python 3.11 与 3.12 各 505 项回归测试及 Docker 构建通过；机器可读证据见
+[`p18x-document-evidence-api-contract.json`](evidence/p18x-document-evidence-api-contract.json)。

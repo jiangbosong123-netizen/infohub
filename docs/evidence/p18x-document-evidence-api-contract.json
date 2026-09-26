@@ -1,0 +1,39 @@
+{
+  "module": "P18x-evidence document and raw-evidence API",
+  "checked_at": "2026-09-26T22:28:07Z",
+  "source_commit": "5196997",
+  "endpoints": [
+    "GET /api/v1/items/{id}/evidence",
+    "GET /api/v1/evidence/{id}"
+  ],
+  "required_scopes": {
+    "item_evidence": ["read:items", "read:evidence"],
+    "evidence_detail": ["read:evidence"]
+  },
+  "consistency": "immutable document version",
+  "default_enabled": false,
+  "contract_checks": {
+    "exact_version_required": true,
+    "dual_scope_item_boundary": true,
+    "signed_version_bound_pagination": true,
+    "principal_bound_detail_etag": true,
+    "raw_payload_and_internal_transport_metadata_omitted": true,
+    "unattached_evidence_not_found": true,
+    "restricted_only_evidence_denied": true,
+    "duplicate_alias_references_omitted": true,
+    "unknown_and_duplicate_parameters_rejected": true,
+    "independent_runtime_switch": true,
+    "openapi_scopes_declared": true
+  },
+  "github_actions": {
+    "run": "https://github.com/jiangbosong123-netizen/infohub/actions/runs/36276268060",
+    "python_3_11": {"status": "passed", "tests": 505},
+    "python_3_12": {"status": "passed", "tests": 505},
+    "docker_build": "passed"
+  },
+  "schema_changed": false,
+  "payload_blob_read": false,
+  "source_database_modified": false,
+  "windows_production_modified": false,
+  "windows_feature_flag_enabled": false
+}
