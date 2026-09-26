@@ -2806,6 +2806,66 @@ def _event_admission_foundation(db: sqlite3.Connection) -> None:
     _execute_script(db, EVENT_ADMISSION_SCHEMA_SQL)
 
 
+EVENT_MATCH_REVIEW_SCHEMA_SQL = """
+CREATE TABLE event_match_review_queue (
+    sequence INTEGER PRIMARY KEY AUTOINCREMENT,
+    decision_id TEXT NOT NULL UNIQUE REFERENCES match_decisions(id)
+);
+INSERT INTO event_match_review_queue(decision_id)
+SELECT id FROM match_decisions ORDER BY rowid;
+CREATE TRIGGER event_match_review_queue_decision_insert
+AFTER INSERT ON match_decisions
+BEGIN
+  INSERT INTO event_match_review_queue(decision_id) VALUES(NEW.id);
+END;
+CREATE TRIGGER event_match_review_queue_no_update
+BEFORE UPDATE ON event_match_review_queue
+BEGIN SELECT RAISE(ABORT,'event match review queue is immutable'); END;
+CREATE TRIGGER event_match_review_queue_no_delete
+BEFORE DELETE ON event_match_review_queue
+BEGIN SELECT RAISE(ABORT,'event match review queue is immutable'); END;
+
+CREATE TABLE event_match_reviews (
+    id TEXT PRIMARY KEY,
+    decision_id TEXT NOT NULL REFERENCES match_decisions(id),
+    version INTEGER NOT NULL CHECK(version>0),
+    previous_review_id TEXT REFERENCES event_match_reviews(id),
+    decision TEXT NOT NULL CHECK(decision IN ('accepted','rejected')),
+    evidence_ids_json TEXT NOT NULL CHECK(json_valid(evidence_ids_json)),
+    reviewer_id TEXT NOT NULL CHECK(length(trim(reviewer_id)) BETWEEN 1 AND 120),
+    reason TEXT NOT NULL CHECK(length(trim(reason)) BETWEEN 1 AND 1000),
+    reviewed_at TEXT NOT NULL,
+    UNIQUE(decision_id,version),
+    CHECK((version=1 AND previous_review_id IS NULL)
+       OR (version>1 AND previous_review_id IS NOT NULL))
+);
+CREATE INDEX idx_event_match_reviews_current
+    ON event_match_reviews(decision_id,version DESC);
+CREATE TRIGGER event_match_reviews_valid_append
+BEFORE INSERT ON event_match_reviews
+WHEN NEW.version != COALESCE(
+         (SELECT MAX(version)+1 FROM event_match_reviews
+          WHERE decision_id=NEW.decision_id),1
+     )
+  OR (NEW.version=1 AND NEW.previous_review_id IS NOT NULL)
+  OR (NEW.version>1 AND NEW.previous_review_id IS NOT (
+         SELECT id FROM event_match_reviews
+         WHERE decision_id=NEW.decision_id AND version=NEW.version-1
+     ))
+BEGIN SELECT RAISE(ABORT,'event match reviews must form a contiguous append-only chain'); END;
+CREATE TRIGGER event_match_reviews_no_update
+BEFORE UPDATE ON event_match_reviews
+BEGIN SELECT RAISE(ABORT,'event match reviews are immutable'); END;
+CREATE TRIGGER event_match_reviews_no_delete
+BEFORE DELETE ON event_match_reviews
+BEGIN SELECT RAISE(ABORT,'event match reviews are immutable'); END;
+"""
+
+
+def _event_match_review_foundation(db: sqlite3.Connection) -> None:
+    _execute_script(db, EVENT_MATCH_REVIEW_SCHEMA_SQL)
+
+
 # Migration 1 freezes the exact legacy schema at main@88a2a1e. Future schema
 # changes must append a new Migration instead of editing this definition.
 MIGRATIONS = (
@@ -2955,6 +3015,8 @@ MIGRATIONS = (
               _topic_statistics_quality_gate_foundation),
     Migration(34, "append-only event publication admission",
               EVENT_ADMISSION_SCHEMA_SQL, _event_admission_foundation),
+    Migration(35, "stable event match review queue and decisions",
+              EVENT_MATCH_REVIEW_SCHEMA_SQL, _event_match_review_foundation),
 )
 CURRENT_SCHEMA_VERSION = MIGRATIONS[-1].version
 REQUIRED_MIGRATION_COLUMNS = {
@@ -3005,6 +3067,7 @@ EXPECTED_TABLES = LEGACY_ANCHORS | {
     "topic_review_sampling_members",
     "topic_review_sample_evaluations",
     "event_admission_reviews",
+    "event_match_review_queue", "event_match_reviews",
 }
 EXPECTED_ITEM_COLUMNS = {
     "id", "source_id", "url", "title", "title_zh", "summary", "raw_summary",
@@ -3238,6 +3301,11 @@ EXPECTED_IDENTITY_AUXILIARY_COLUMNS = {
         "id", "event_version_id", "version", "previous_review_id", "decision",
         "metrics_json", "metrics_sha256", "reviewer_id", "reason", "reviewed_at",
         "policy_version",
+    },
+    "event_match_review_queue": {"sequence", "decision_id"},
+    "event_match_reviews": {
+        "id", "decision_id", "version", "previous_review_id", "decision",
+        "evidence_ids_json", "reviewer_id", "reason", "reviewed_at",
     },
     "sec_security_keys": {
         "cik", "exchange", "ticker", "security_entity_id", "first_evidence_id",
@@ -3512,6 +3580,9 @@ EXPECTED_INGEST_TRIGGERS = {
     "topic_review_sample_evaluations_no_delete",
     "event_admission_reviews_valid_append", "event_admission_reviews_no_update",
     "event_admission_reviews_no_delete",
+    "event_match_review_queue_decision_insert", "event_match_review_queue_no_update",
+    "event_match_review_queue_no_delete", "event_match_reviews_valid_append",
+    "event_match_reviews_no_update", "event_match_reviews_no_delete",
     "sec_security_keys_no_update", "sec_security_keys_no_delete",
     "sec_filing_versions_valid_append", "sec_filing_versions_no_update",
     "sec_filing_versions_no_delete", "sec_filings_identity_immutable",
@@ -4048,6 +4119,8 @@ def _assert_current_schema(db: sqlite3.Connection) -> None:
         verify_sampling_batches(db)
         from .topic_review_sample_gate import verify_sample_evaluations
         verify_sample_evaluations(db)
+        from .event_match_reviews import verify_match_reviews
+        verify_match_reviews(db)
         from .event_admission import verify_event_admission_reviews
         verify_event_admission_reviews(db)
     except (ValueError, RuntimeError) as exc:

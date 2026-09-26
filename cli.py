@@ -51,6 +51,9 @@ from __future__ import annotations
   python cli.py topic-admission-review PUBLICATION_ID approved|rejected EXPECTED|none MIN_BPS true|false SAMPLE_EVALUATION|none REASON
   python cli.py event-admission-preview EVENT_VERSION_ID
   python cli.py event-admission-review EVENT_VERSION_ID reported|corroborated|confirmed|rejected EXPECTED|none REASON
+  python cli.py event-match-review-preview DECISION_ID
+  python cli.py event-match-review-queue [AFTER|none] [LIMIT] [pending|all]
+  python cli.py event-match-review DECISION_ID accepted|rejected EXPECTED|none EVIDENCE_ID[,EVIDENCE_ID...] REASON
   python cli.py legacy-event-project   # 将旧 story 映射为 shadow candidate event（maintenance only）
   python cli.py legacy-curation-enqueue [AFTER_ID] [LIMIT]  # 分页排入旧策展转换任务（maintenance only）
   python cli.py legacy-curation-process [N]  # 处理最多 N 个离线转换任务（maintenance only）
@@ -644,6 +647,64 @@ def cmd_event_admission_review(
     print(json.dumps(result.to_dict(), ensure_ascii=False, indent=2))
 
 
+def cmd_event_match_review_preview(decision_id: str) -> None:
+    if config.PROCESS_ROLE != "maintenance":
+        raise config.RuntimeConfigurationError(
+            "event-match-review-preview requires maintenance role"
+        )
+    from app.db_admin import verify_database
+    from app.event_match_reviews import review_preview
+    verify_database(config.DB_PATH, require_current=True)
+    with get_db() as db:
+        result = review_preview(db, decision_id)
+    print(json.dumps(result.to_dict(), ensure_ascii=False, indent=2))
+
+
+def cmd_event_match_review_queue(after: str, limit: int, mode: str) -> None:
+    if config.PROCESS_ROLE != "maintenance":
+        raise config.RuntimeConfigurationError(
+            "event-match-review-queue requires maintenance role"
+        )
+    if mode not in {"pending", "all"}:
+        raise ValueError("event match review queue mode must be pending or all")
+    from app.db_admin import verify_database
+    from app.event_match_reviews import review_queue
+    verify_database(config.DB_PATH, require_current=True)
+    with get_db() as db:
+        rows = review_queue(
+            db, after_sequence=0 if after == "none" else int(after),
+            limit=limit, pending_only=mode == "pending",
+        )
+    print(json.dumps([row.to_dict() for row in rows], ensure_ascii=False, indent=2))
+
+
+def cmd_event_match_review(
+    decision_id: str, decision: str, expected_previous: str,
+    evidence_ids_raw: str, reason: str,
+) -> None:
+    if config.PROCESS_ROLE != "maintenance":
+        raise config.RuntimeConfigurationError(
+            "event-match-review requires maintenance role"
+        )
+    evidence_ids = tuple(
+        item.strip() for item in evidence_ids_raw.split(",") if item.strip()
+    )
+    import getpass
+    from app.db_admin import verify_database
+    from app.event_match_reviews import record_match_review
+    verify_database(config.DB_PATH, require_current=True)
+    with get_db() as db:
+        db.execute("BEGIN IMMEDIATE")
+        result = record_match_review(
+            db, decision_id=decision_id, decision=decision,
+            expected_previous_review_id=(
+                None if expected_previous == "none" else expected_previous
+            ),
+            evidence_ids=evidence_ids, reviewer_id=getpass.getuser(), reason=reason,
+        )
+    print(json.dumps(result.to_dict(), ensure_ascii=False, indent=2))
+
+
 def cmd_legacy_event_project() -> None:
     if config.PROCESS_ROLE != "maintenance":
         raise config.RuntimeConfigurationError(
@@ -877,6 +938,19 @@ def main() -> None:
     elif cmd == "event-admission-review" and len(sys.argv) >= 6:
         cmd_event_admission_review(
             sys.argv[2], sys.argv[3], sys.argv[4], " ".join(sys.argv[5:]),
+        )
+    elif cmd == "event-match-review-preview" and len(sys.argv) == 3:
+        cmd_event_match_review_preview(sys.argv[2])
+    elif cmd == "event-match-review-queue":
+        cmd_event_match_review_queue(
+            sys.argv[2] if len(sys.argv) > 2 else "none",
+            int(sys.argv[3]) if len(sys.argv) > 3 else 50,
+            sys.argv[4] if len(sys.argv) > 4 else "pending",
+        )
+    elif cmd == "event-match-review" and len(sys.argv) >= 7:
+        cmd_event_match_review(
+            sys.argv[2], sys.argv[3], sys.argv[4], sys.argv[5],
+            " ".join(sys.argv[6:]),
         )
     elif cmd == "legacy-event-project":
         cmd_legacy_event_project()

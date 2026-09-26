@@ -245,3 +245,19 @@ corroborated 要求至少两个支持文档和两个经核验的独立原始 pub
 `confirmed_by_primary`，且至少一条支持证据来自与事件 primary entity 对应的已核验原始 publisher。
 完整规则与维护命令见 [`EVENT_ADMISSION.md`](EVENT_ADMISSION.md)。本单元只建立版本级审核边界；固定
 质量抽样、数据集级发布门和 Event API 仍未实现，生产开关不存在，Windows 未修改。
+
+## P18q：Event 匹配人工审核基础
+
+Schema 35 为不可变 `match_decisions` 增加稳定序号队列和追加式人工审核账本。机器给出的决策、分数、
+特征、理由、版本与输入保持原样；人工只能以新 review 明确接受或拒绝，不能覆盖机器记录。每个 review
+必须引用属于决策输入 document version 的 raw evidence；`candidate_link` 还要求证据已经固定到候选
+event version。陈旧写入、无证据决定以及修改/删除历史审核均 fail closed。
+
+事件准入现在读取“最新人工审核，否则原始机器 review_status”的有效状态。因此人工接受 pending link
+后可以重新申请事件准入，拒绝则阻止发布；任何后续 match review 都会改变准入指标，使旧准入 hash
+失效。迁移只建立审核能力，不会批量接受旧数据。操作契约见
+[`EVENT_MATCH_REVIEWS.md`](EVENT_MATCH_REVIEWS.md)；固定事件抽样、质量阈值、数据集发布门和 Event API
+仍是后续单元。2026-09-26 的 Mac 隔离迁移把 schema 0 的真实数据库副本升级到 schema 35，保留
+59,969 条 item 和 51,226 条 story，源文件 SHA-256 前后不变；该副本没有运行事件投影，所以新增队列
+保持为空，没有伪造审核。机器可读证据见
+[`p18q-event-match-review-migration.json`](evidence/p18q-event-match-review-migration.json)。Windows 与生产未修改。
