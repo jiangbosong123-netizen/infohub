@@ -77,6 +77,13 @@ from ..api_event_evidence import (
     EventEvidenceUnavailable,
     list_event_evidence,
 )
+from ..api_analyses import (
+    AnalysisNotFound,
+    AnalysisResponse,
+    AnalysisUnavailable,
+    analysis_etag,
+    get_analysis,
+)
 from ..api_topics import (
     RestrictedTopic,
     TOPIC_GROUPS,
@@ -299,6 +306,13 @@ _EVENT_EVIDENCE_LIST_OPENAPI = {
          "schema": {"type": "string", "minLength": 1, "maxLength": 128}},
     ],
 }
+_ANALYSIS_DETAIL_OPENAPI = {
+    "x-required-scopes": ["read:analyses"],
+    "parameters": [
+        {"name": "If-None-Match", "in": "header", "required": False,
+         "schema": {"type": "string", "maxLength": 512}},
+    ],
+}
 
 
 def _selected_clause(alias: str = "i", score_expr: str | None = None) -> str:
@@ -447,6 +461,7 @@ def _system_snapshot() -> dict:
             "api_catalog_enabled": config.API_CATALOG_ENABLED,
             "api_items_enabled": config.API_ITEMS_ENABLED,
             "api_events_enabled": config.API_EVENTS_ENABLED,
+            "api_analyses_enabled": config.API_ANALYSES_ENABLED,
             "topic_read_enabled": TOPIC_READ_ENABLED,
         },
         "readiness": {
@@ -1500,6 +1515,7 @@ def api_v1_event_evidence(id: str, request: Request):
     request_id = request.state.request_id
     if not config.API_EVENTS_ENABLED:
         return v1_error(503, "not_ready", request_id)
+
     allowed = {"limit", "cursor", "role", "fact_id"}
     if set(request.query_params) - allowed or any(
         len(request.query_params.getlist(name)) != 1 for name in request.query_params
@@ -1541,6 +1557,45 @@ def api_v1_event_evidence(id: str, request: Request):
         return v1_error(503, "not_ready", request_id)
 
 
+@app.get(
+    "/api/v1/analyses/{id}", response_model=AnalysisResponse,
+    openapi_extra=_ANALYSIS_DETAIL_OPENAPI,
+)
+def api_v1_analysis(id: str, request: Request, response: Response):
+    request_id = request.state.request_id
+    if not config.API_ANALYSES_ENABLED:
+        return v1_error(503, "not_ready", request_id)
+    if request.query_params or not id or len(id) > 128:
+        return v1_error(422, "invalid_parameter", request_id)
+    conditional = [
+        value for key, value in request.scope["headers"]
+        if key.lower() == b"if-none-match"
+    ]
+    if len(conditional) > 1 or (conditional and len(conditional[0]) > 512):
+        return v1_error(422, "invalid_parameter", request_id)
+    try:
+        with get_db() as db:
+            db.execute("BEGIN")
+            result = get_analysis(db, request_id=request_id, analysis_id=id)
+            etag = analysis_etag(result, request.state.api_principal)
+    except AnalysisNotFound:
+        return v1_error(404, "resource_not_found", request_id)
+    except (AnalysisUnavailable, sqlite3.Error, OSError, KeyError, TypeError, ValueError):
+        return v1_error(503, "not_ready", request_id)
+    if conditional:
+        try:
+            validators = [value.strip() for value in conditional[0].decode("ascii").split(",")]
+        except UnicodeDecodeError:
+            return v1_error(422, "invalid_parameter", request_id)
+        if "*" in validators or any(
+            validator == etag or (validator.startswith("W/") and validator[2:] == etag)
+            for validator in validators
+        ):
+            return Response(status_code=304, headers={"ETag": etag})
+    response.headers["ETag"] = etag
+    return result
+
+
 def _unready_snapshot(exc: Exception) -> dict:
     return {
         "status": "unavailable",
@@ -1555,6 +1610,7 @@ def _unready_snapshot(exc: Exception) -> dict:
             "api_catalog_enabled": config.API_CATALOG_ENABLED,
             "api_items_enabled": config.API_ITEMS_ENABLED,
             "api_events_enabled": config.API_EVENTS_ENABLED,
+            "api_analyses_enabled": config.API_ANALYSES_ENABLED,
         },
         "readiness": {
             "status": "not_ready",

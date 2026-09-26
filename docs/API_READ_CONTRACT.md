@@ -332,3 +332,18 @@ Python 3.11 与 3.12 各 481 项回归测试及 Docker 构建通过；机器可�
 详细契约见 [`EVENT_EVIDENCE_API.md`](EVENT_EVIDENCE_API.md)。本单元无数据库迁移，Windows 与生产未修改。
 Python 3.11 与 3.12 各 488 项回归测试及 Docker 构建通过；机器可读证据见
 [`p18v-event-evidence-api-contract.json`](evidence/p18v-event-evidence-api-contract.json)。
+
+## P18w-analysis：已发布 Analysis 读取 API
+
+`GET /api/v1/analyses/{id}` 以 immutable `analysis_results.id` 精确读取已经进入 publication ledger 的
+分析结果，并要求 `read:analyses`。响应携带 publication view version、subject/input version 清单、模型与
+pipeline、prompt/parameters/input hash、验证与人工复核状态、证据引用和 validated output。后续 publication
+取代旧结果时旧结果标为 `stale=true`，仍可按 ID 审计，不覆盖历史。
+
+接口不输出 rendered prompt、raw response/output 存储路径、provider request ID、token、成本、错误详情或
+模型推理过程；证据 payload 仍需独立 `read:evidence`。详情 ETag 与调用方权限及 dataset epoch 绑定。未来
+`as_of` 状态解析尚未实现，传入任何查询参数都会返回 422，避免伪造历史能力。接口由默认关闭的
+`INFOHUB_API_ANALYSES_ENABLED` 独立控制，不调用模型、不改变 schema，Windows 与生产未修改。完整契约见
+[`ANALYSIS_API.md`](ANALYSIS_API.md)。
+Python 3.11 与 3.12 各 501 项回归测试及 Docker 构建通过；机器可读证据见
+[`p18w-analysis-api-contract.json`](evidence/p18w-analysis-api-contract.json)。

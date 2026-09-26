@@ -1,0 +1,32 @@
+{
+  "module": "P18w-analysis published Analysis API",
+  "checked_at": "2026-09-26T22:08:44Z",
+  "source_commit": "1635ef1",
+  "endpoint": "GET /api/v1/analyses/{id}",
+  "required_scope": "read:analyses",
+  "default_enabled": false,
+  "contract_checks": {
+    "published_results_only": true,
+    "immutable_result_and_view_identity": true,
+    "ordered_version_pinned_inputs": true,
+    "model_prompt_parameter_and_input_provenance": true,
+    "validated_output_and_evidence_references": true,
+    "superseded_result_marked_stale": true,
+    "sensitive_attempt_and_storage_metadata_omitted": true,
+    "principal_bound_etag": true,
+    "unsupported_history_rejected": true,
+    "independent_runtime_switch": true,
+    "openapi_scope_declared": true
+  },
+  "github_actions": {
+    "run": "https://github.com/jiangbosong123-netizen/infohub/actions/runs/36275179059",
+    "python_3_11": {"status": "passed", "tests": 501},
+    "python_3_12": {"status": "passed", "tests": 501},
+    "docker_build": "passed"
+  },
+  "schema_changed": false,
+  "provider_called": false,
+  "source_database_modified": false,
+  "windows_production_modified": false,
+  "windows_feature_flag_enabled": false
+}
