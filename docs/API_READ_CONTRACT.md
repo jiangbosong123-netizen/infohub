@@ -345,3 +345,5 @@ pipeline、prompt/parameters/input hash、验证与人工复核状态、证据�
 `as_of` 状态解析尚未实现，传入任何查询参数都会返回 422，避免伪造历史能力。接口由默认关闭的
 `INFOHUB_API_ANALYSES_ENABLED` 独立控制，不调用模型、不改变 schema，Windows 与生产未修改。完整契约见
 [`ANALYSIS_API.md`](ANALYSIS_API.md)。
+Python 3.11 与 3.12 各 501 项回归测试及 Docker 构建通过；机器可读证据见
+[`p18w-analysis-api-contract.json`](evidence/p18w-analysis-api-contract.json)。
