@@ -1,0 +1,38 @@
+{
+  "module": "P18u release-bound Event API",
+  "checked_at": "2026-09-26T21:45:26Z",
+  "source_commit": "2120ad087486650a69215e6483703153128758c7",
+  "endpoints": [
+    "GET /api/v1/events",
+    "GET /api/v1/events/{id}"
+  ],
+  "required_scope": "read:events",
+  "consistency": "event-release-v1 manifest",
+  "default_enabled": false,
+  "contract_checks": {
+    "release_bound_list_and_detail": true,
+    "signed_filter_bound_pagination": true,
+    "principal_bound_etag": true,
+    "unreleased_event_not_found": true,
+    "stale_release_fails_closed": true,
+    "unknown_and_duplicate_parameters_rejected": true,
+    "independent_runtime_switch": true,
+    "openapi_scope_declared": true
+  },
+  "github_actions": {
+    "run": "https://github.com/jiangbosong123-netizen/infohub/actions/runs/36273941934",
+    "python_3_11": {
+      "status": "passed",
+      "tests": 481
+    },
+    "python_3_12": {
+      "status": "passed",
+      "tests": 481
+    },
+    "docker_build": "passed"
+  },
+  "schema_changed": false,
+  "source_database_modified": false,
+  "windows_production_modified": false,
+  "windows_feature_flag_enabled": false
+}

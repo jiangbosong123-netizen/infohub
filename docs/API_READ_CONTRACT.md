@@ -316,3 +316,5 @@ ETag。响应显式携带 release、event version 和 admission proof，不暴�
 接口由独立且默认关闭的 `INFOHUB_API_EVENTS_ENABLED` 控制；发布、抽样、匹配或准入任何一层变旧时均
 返回 `503 not_ready`，内部存在但不在批准清单中的事件返回 404。证据明细继续留给单独的
 `read:evidence` 接口。完整契约见 [`EVENT_API.md`](EVENT_API.md)。Windows 生产环境未修改，开关未开启。
+Python 3.11 与 3.12 各 481 项回归测试及 Docker 构建通过；机器可读证据见
+[`p18u-event-api-contract.json`](evidence/p18u-event-api-contract.json)。
