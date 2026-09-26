@@ -37,5 +37,6 @@ publication. Either change also changes the admission metrics hash, so an older 
 becomes stale and fails closed until it is reviewed again.
 
 This unit does not declare the old 25,490 pending legacy projections correct and does not bulk
-accept them. Reproducible sampling, quality thresholds and a dataset-level Event API release
-gate remain separate work. Windows and production stay unchanged.
+accept them. Reproducible stratified sampling is defined in
+[`EVENT_REVIEW_SAMPLING.md`](EVENT_REVIEW_SAMPLING.md); quality thresholds and a dataset-level
+Event API release gate remain separate work. Windows and production stay unchanged.

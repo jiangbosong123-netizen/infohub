@@ -261,3 +261,18 @@ event version。陈旧写入、无证据决定以及修改/删除历史审核均
 59,969 条 item 和 51,226 条 story，源文件 SHA-256 前后不变；该副本没有运行事件投影，所以新增队列
 保持为空，没有伪造审核。机器可读证据见
 [`p18q-event-match-review-migration.json`](evidence/p18q-event-match-review-migration.json)。Windows 与生产未修改。
+
+## P18r：Event 匹配质量固定抽样
+
+Schema 36 为 pending 事件匹配增加不可变、可复现的分层抽样。每个批次同时冻结 match decision 队列
+截止序号和人工 review 截止序号，并按机器决策、matcher 版本、分数区间分层；层内使用绑定 dataset、
+seed、decision 和稳定队列序号的 SHA-256 排序选样。批次、成员、全局 review 顺序和 manifest hash 均
+不可修改，严格数据库校验会从冻结截止点重新计算候选总体与全部成员。
+
+抽样报告提供总体及每层的 pending、accepted、rejected、完成率和接受率，也能按历史 review cutoff
+重现当时状态。该单元只建立可信测量样本，不预设通过阈值，也不会把抽样接受扩展为批量接受。下一单元
+将建立追加式样本评估门，之后数据集发布决定才能引用它。操作说明见
+[`EVENT_REVIEW_SAMPLING.md`](EVENT_REVIEW_SAMPLING.md)。2026-09-26 的真实 Mac 数据库隔离副本从
+schema 0 升至 36，59,988 条 item 和 51,238 条 story 全部保留，严格验证通过且源文件 SHA-256
+前后相同；源库尚未运行事件投影，所以抽样表按设计为空。机器可读证据见
+[`p18r-event-review-sampling-migration.json`](evidence/p18r-event-review-sampling-migration.json)。Windows 与生产未修改。
