@@ -47,6 +47,16 @@ class ApiItemTests(unittest.TestCase):
                 db, wrong, {"read:catalog"},
                 expires_at=now + timedelta(days=1), actor="test",
             )
+            evidence = create_consumer(db, "item-evidence-test", actor="test")
+            self.evidence_key = issue_api_key(
+                db, evidence, {"read:items", "read:evidence"},
+                expires_at=now + timedelta(days=1), actor="test",
+            )
+            evidence_only = create_consumer(db, "evidence-only-test", actor="test")
+            self.evidence_only_key = issue_api_key(
+                db, evidence_only, {"read:evidence"},
+                expires_at=now + timedelta(days=1), actor="test",
+            )
             dataset = db.execute(
                 "SELECT dataset_id FROM dataset_state WHERE singleton=1"
             ).fetchone()[0]
@@ -70,6 +80,20 @@ class ApiItemTests(unittest.TestCase):
                 time_status="parsed", point_in_time=True,
                 content_origin="publisher_text", content_extent="full",
                 extraction_status="complete",
+            )
+            payload_sha = sha("raw-alpha-metadata")
+            db.execute(
+                """INSERT INTO raw_records(
+                       id,first_ingest_run_id,source_id,external_id,observed_at,
+                       ingested_at,media_type,payload_sha256,payload_ref,payload_kind,
+                       size_bytes,retention_class)
+                   VALUES('raw-b','run-1',1,'alpha-metadata',?,?,'text/html',?,?,'html',
+                          25,'private-metadata')""",
+                (T1, T1, payload_sha, f"sha256/{payload_sha}"),
+            )
+            db.execute(
+                """INSERT INTO document_version_inputs(version_id,raw_record_id,role)
+                   VALUES('doc-a-v1','raw-b','metadata')"""
             )
             self._document(
                 db, dataset, 2, "doc-b", "flash", "active", T2,
@@ -96,6 +120,7 @@ class ApiItemTests(unittest.TestCase):
             patch("app.web.routes.get_db", lambda: database.get_db(self.path)),
             patch("app.web.v1_auth.get_db", lambda: database.get_db(self.path)),
             patch.object(config, "API_ITEMS_ENABLED", True),
+            patch.object(config, "API_EVIDENCE_ENABLED", True),
         )
         for mocked in patches:
             mocked.start()
@@ -451,14 +476,146 @@ class ApiItemTests(unittest.TestCase):
         self.assertEqual(stale.status_code, 503)
         self.assertEqual(stale.json()["error"]["code"], "not_ready")
 
+    def test_item_evidence_is_version_pinned_redacted_and_cursor_bound(self):
+        first = self.client.get(
+            "/api/v1/items/doc-a/evidence",
+            params={"version_id": "doc-a-v1", "limit": 1},
+            headers=self.headers(self.evidence_key),
+        )
+        self.assertEqual(first.status_code, 200)
+        body = first.json()
+        self.assertEqual(body["item"], {
+            "id": "doc-a", "version_id": "doc-a-v1", "version": 1,
+        })
+        self.assertEqual(body["pagination"]["consistency"], "immutable_version")
+        self.assertEqual(body["pagination"]["order"], "evidence_id_asc")
+        self.assertEqual(body["data"][0]["raw_record"]["id"], "raw-a")
+        self.assertEqual(body["data"][0]["input_role"], "primary")
+        serialized = json.dumps(body, sort_keys=True)
+        for sensitive in ("payload_ref", "external_id", "retention_class", "request_url"):
+            self.assertNotIn(sensitive, serialized)
+        second = self.client.get(
+            "/api/v1/items/doc-a/evidence",
+            params={
+                "version_id": "doc-a-v1", "limit": 1,
+                "cursor": body["pagination"]["next_cursor"],
+            },
+            headers=self.headers(self.evidence_key),
+        )
+        self.assertEqual(second.status_code, 200)
+        self.assertEqual(second.json()["data"][0]["raw_record"]["id"], "raw-b")
+        mismatch = self.client.get(
+            "/api/v1/items/doc-b/evidence",
+            params={
+                "version_id": "doc-b-v1", "limit": 1,
+                "cursor": body["pagination"]["next_cursor"],
+            },
+            headers=self.headers(self.evidence_key),
+        )
+        self.assertEqual(mismatch.status_code, 400)
+        self.assertEqual(mismatch.json()["error"]["code"], "filter_mismatch")
+        missing_version = self.client.get(
+            "/api/v1/items/doc-a/evidence",
+            params={"version_id": "doc-a-v2"},
+            headers=self.headers(self.evidence_key),
+        )
+        self.assertEqual(missing_version.status_code, 404)
+        evidence_only = self.client.get(
+            "/api/v1/items/doc-a/evidence",
+            params={"version_id": "doc-a-v1"},
+            headers=self.headers(self.evidence_only_key),
+        )
+        self.assertEqual(evidence_only.status_code, 403)
+        self.assertEqual(evidence_only.json()["error"]["code"], "insufficient_scope")
+
+    def test_evidence_detail_is_redacted_cacheable_and_fail_closed(self):
+        with database.get_db(self.path) as db:
+            for raw_id, external_id in (("raw-r", "restricted"), ("raw-u", "unattached")):
+                digest = sha(raw_id)
+                db.execute(
+                    """INSERT INTO raw_records(
+                           id,first_ingest_run_id,source_id,external_id,observed_at,
+                           ingested_at,media_type,payload_sha256,payload_ref,payload_kind,
+                           size_bytes,retention_class)
+                       VALUES(?,'run-1',1,?,?,?,'application/json',?,?,'api_record',
+                              0,'private-metadata')""",
+                    (raw_id, external_id, T1, T1, digest, f"sha256/{digest}"),
+                )
+            db.execute(
+                """INSERT INTO document_version_inputs(version_id,raw_record_id,role)
+                   VALUES('doc-r-v1','raw-r','primary')"""
+            )
+        detail = self.client.get(
+            "/api/v1/evidence/raw-a", headers=self.headers(self.evidence_only_key)
+        )
+        self.assertEqual(detail.status_code, 200)
+        body = detail.json()
+        self.assertEqual(body["data"]["id"], "raw-a")
+        self.assertEqual(body["data"]["source_id"], "wire-feed")
+        self.assertEqual(body["data"]["document_refs"], [{
+            "id": "doc-a", "version_id": "doc-a-v1", "input_role": "primary",
+        }])
+        self.assertNotIn("payload_ref", json.dumps(body, sort_keys=True))
+        cached = self.client.get(
+            "/api/v1/evidence/raw-a",
+            headers={**self.headers(self.evidence_only_key),
+                     "If-None-Match": detail.headers["etag"]},
+        )
+        self.assertEqual(cached.status_code, 304)
+        self.assertEqual(
+            self.client.get(
+                "/api/v1/evidence/missing", headers=self.headers(self.evidence_only_key)
+            ).status_code,
+            404,
+        )
+        self.assertEqual(
+            self.client.get(
+                "/api/v1/evidence/raw-u", headers=self.headers(self.evidence_only_key)
+            ).status_code,
+            404,
+        )
+        restricted = self.client.get(
+            "/api/v1/evidence/raw-r", headers=self.headers(self.evidence_only_key)
+        )
+        self.assertEqual(restricted.status_code, 403)
+        self.assertEqual(restricted.json()["error"]["code"], "restricted_content")
+        self.assertEqual(
+            self.client.get(
+                "/api/v1/evidence/raw-a", headers=self.headers()
+            ).status_code,
+            403,
+        )
+        with patch.object(config, "API_EVIDENCE_ENABLED", False):
+            disabled = self.client.get(
+                "/api/v1/evidence/raw-a", headers=self.headers(self.evidence_only_key)
+            )
+        self.assertEqual(disabled.status_code, 503)
+
+    def test_evidence_parameters_are_strict(self):
+        for path in (
+            "/api/v1/items/doc-a/evidence",
+            "/api/v1/items/doc-a/evidence?version_id=doc-a-v1&unknown=1",
+            "/api/v1/items/doc-a/evidence?version_id=doc-a-v1&limit=01",
+            "/api/v1/items/doc-a/evidence?version_id=doc-a-v1&version_id=doc-a-v1",
+            "/api/v1/evidence/raw-a?version=1",
+        ):
+            with self.subTest(path=path):
+                response = self.client.get(path, headers=self.headers(self.evidence_key))
+                self.assertEqual(response.status_code, 422)
+                self.assertEqual(response.json()["error"]["code"], "invalid_parameter")
+
     def test_openapi_declares_item_contract(self):
         schema = self.client.get("/openapi.json").json()
         listing = schema["paths"]["/api/v1/items"]["get"]
         detail = schema["paths"]["/api/v1/items/{id}"]["get"]
         versions = schema["paths"]["/api/v1/items/{id}/versions"]["get"]
+        evidence = schema["paths"]["/api/v1/items/{id}/evidence"]["get"]
+        evidence_detail = schema["paths"]["/api/v1/evidence/{id}"]["get"]
         self.assertEqual(listing["x-required-scopes"], ["read:items"])
         self.assertEqual(detail["x-required-scopes"], ["read:items"])
         self.assertEqual(versions["x-required-scopes"], ["read:items"])
+        self.assertEqual(evidence["x-required-scopes"], ["read:items", "read:evidence"])
+        self.assertEqual(evidence_detail["x-required-scopes"], ["read:evidence"])
         self.assertEqual(
             {parameter["name"] for parameter in listing["parameters"]},
             {"limit", "cursor", "q", "kind", "language", "source_id", "publisher_id"},
@@ -466,6 +623,10 @@ class ApiItemTests(unittest.TestCase):
         self.assertEqual(
             {parameter["name"] for parameter in versions["parameters"]},
             {"id", "limit", "cursor"},
+        )
+        self.assertEqual(
+            {parameter["name"] for parameter in evidence["parameters"]},
+            {"id", "version_id", "limit", "cursor"},
         )
 
 

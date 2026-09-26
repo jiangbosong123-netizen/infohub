@@ -347,3 +347,18 @@ pipeline、prompt/parameters/input hash、验证与人工复核状态、证据�
 [`ANALYSIS_API.md`](ANALYSIS_API.md)。
 Python 3.11 与 3.12 各 501 项回归测试及 Docker 构建通过；机器可读证据见
 [`p18w-analysis-api-contract.json`](evidence/p18w-analysis-api-contract.json)。
+
+## P18x-evidence：文档与原始证据读取 API
+
+`GET /api/v1/items/{id}/evidence` 强制调用方同时持有 `read:items` 与 `read:evidence`，并必须指定不可变的
+`version_id`，避免随 current version 指针漂移。列表按 raw record ID 稳定分页，签名游标绑定 API key、
+授权版本、dataset epoch、item ID 和 version ID。`GET /api/v1/evidence/{id}` 以 `read:evidence` 精确读取
+单条原始记录的脱敏元数据，并用调用方权限及 dataset epoch 绑定 ETag。
+
+两个接口只输出公开 source key、时间、media type、payload SHA-256、类型、截断状态、字节数和不可变
+document version 引用；不输出 payload 内容、摘要、存储路径、请求/跳转 URL、HTTP headers、外部源 ID 或
+retention 配置。未绑定 document version 的原始记录返回 404，仅绑定 restricted document 的记录返回 403，
+duplicate alias 不作为公开引用。接口由独立且默认关闭的 `INFOHUB_API_EVIDENCE_ENABLED` 控制，文档列表还
+要求 `INFOHUB_API_ITEMS_ENABLED`。完整契约见 [`EVIDENCE_API.md`](EVIDENCE_API.md)。本单元无数据库迁移，
+Windows 与生产未修改。Python 3.11 与 3.12 各 505 项回归测试及 Docker 构建通过；机器可读证据见
+[`p18x-document-evidence-api-contract.json`](evidence/p18x-document-evidence-api-contract.json)。

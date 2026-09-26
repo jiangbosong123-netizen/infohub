@@ -88,6 +88,7 @@ class RuntimeSettings:
     api_items_enabled: bool
     api_events_enabled: bool
     api_analyses_enabled: bool
+    api_evidence_enabled: bool
     api_key_rate_per_minute: int
     api_consumer_concurrency: int
     api_request_lease_seconds: int
@@ -234,6 +235,7 @@ def load_runtime_settings(
     api_items_enabled = _boolean(values, "INFOHUB_API_ITEMS_ENABLED", False)
     api_events_enabled = _boolean(values, "INFOHUB_API_EVENTS_ENABLED", False)
     api_analyses_enabled = _boolean(values, "INFOHUB_API_ANALYSES_ENABLED", False)
+    api_evidence_enabled = _boolean(values, "INFOHUB_API_EVIDENCE_ENABLED", False)
     api_key_rate_per_minute = _integer(
         values, "INFOHUB_API_KEY_RATE_PER_MINUTE", 60, 1, 10_000
     )
@@ -312,6 +314,7 @@ def load_runtime_settings(
         api_items_enabled=api_items_enabled,
         api_events_enabled=api_events_enabled,
         api_analyses_enabled=api_analyses_enabled,
+        api_evidence_enabled=api_evidence_enabled,
         api_key_rate_per_minute=api_key_rate_per_minute,
         api_consumer_concurrency=api_consumer_concurrency,
         api_request_lease_seconds=api_request_lease_seconds,
@@ -343,6 +346,7 @@ API_CATALOG_ENABLED = RUNTIME.api_catalog_enabled
 API_ITEMS_ENABLED = RUNTIME.api_items_enabled
 API_EVENTS_ENABLED = RUNTIME.api_events_enabled
 API_ANALYSES_ENABLED = RUNTIME.api_analyses_enabled
+API_EVIDENCE_ENABLED = RUNTIME.api_evidence_enabled
 API_KEY_RATE_PER_MINUTE = RUNTIME.api_key_rate_per_minute
 API_CONSUMER_CONCURRENCY = RUNTIME.api_consumer_concurrency
 API_REQUEST_LEASE_SECONDS = RUNTIME.api_request_lease_seconds
