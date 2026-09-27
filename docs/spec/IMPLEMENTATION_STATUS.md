@@ -13,9 +13,10 @@ the implementation PR series proceeded. It was restored on 2026-09-27 after `mai
   the current build-out. Each implementation document under `docs/` and machine-readable record
   under `docs/evidence/` states its own validation and production status.
 - P19 snapshot plus reliable incremental synchronization is the active phase. Schema 39 contains
-  the snapshot ledger and the worker can build an immutable research snapshot from a completed
-  SQLite backup. Snapshot HTTP routes, selected-projection policy, changes, retention and consumer
-  drills are still absent; the existing pieces are not a finished sync API.
+  the snapshot ledger, the worker builds immutable research snapshots from completed SQLite
+  backups, and the default-off HTTP API creates, reports and reads verified snapshot pages.
+  Selected-projection policy, changes, retention and consumer drills are still absent; the
+  implemented snapshot path alone is not a finished incremental sync service.
 - P20 macro and sentiment outputs, the remaining portal cutover and final Windows consumer drills
   are later phases. A target endpoint in `openapi.yaml` is not proof that its route exists.
 

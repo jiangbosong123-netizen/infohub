@@ -1197,9 +1197,10 @@ paths:
       - read:sync
       security:
       - ConsumerToken: []
-      description: Target contract, not yet implemented. Unknown query parameters are rejected with 422. See API_CONTRACT.md
-        for transaction and authorization invariants. Additionally requires each requested resource read scope;
-        snapshot is bound to principal and authorization version.
+      description: Implemented behind INFOHUB_API_SYNC_ENABLED, which defaults off and also requires durable jobs. Unknown query parameters
+        are rejected with 422. Creation atomically records the principal-bound request and durable job.
+        Additionally requires each requested resource read scope; snapshots are bound to key, consumer,
+        authorization version and dataset epoch. The selected projection remains fail-closed until its policy exists.
       responses:
         '202':
           description: Accepted snapshot job
@@ -1237,8 +1238,8 @@ paths:
       - read:sync
       security:
       - ConsumerToken: []
-      description: Target contract, not yet implemented. Unknown query parameters are rejected with 422. See API_CONTRACT.md
-        for transaction and authorization invariants.
+      description: Implemented behind INFOHUB_API_SYNC_ENABLED. Only the creating key and unchanged
+        authorization version can read status or the immutable manifest.
       responses:
         '200':
           description: Successful read
@@ -1269,8 +1270,8 @@ paths:
       - read:sync
       security:
       - ConsumerToken: []
-      description: Target contract, not yet implemented. Unknown query parameters are rejected with 422. See API_CONTRACT.md
-        for transaction and authorization invariants.
+      description: Implemented behind INFOHUB_API_SYNC_ENABLED. Each private stored page is size/hash checked
+        before records are returned; signed cursors are key-, authorization-, epoch-, snapshot- and resource-bound.
       responses:
         '200':
           description: Successful read

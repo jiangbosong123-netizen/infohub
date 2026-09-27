@@ -10,6 +10,7 @@ from fastapi import FastAPI, Request, Response, HTTPException, Query
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
+from pydantic import ValidationError
 
 from ..ai.daily import EVENT_NAMES, render_markdown
 from .. import config
@@ -105,6 +106,21 @@ from ..api_topics import (
     get_topic,
     list_topics,
     topic_etag,
+)
+from ..api_sync import (
+    RESOURCES as SYNC_RESOURCES,
+    SnapshotConflict,
+    SnapshotCreate,
+    SnapshotExpired,
+    SnapshotLimitReached,
+    SnapshotNotFound,
+    SnapshotNotReady,
+    SnapshotPageResponse,
+    SnapshotResponse,
+    SnapshotUnavailable,
+    create_snapshot,
+    get_snapshot,
+    read_snapshot_page,
 )
 from ..config import (
     APP_TZ,
@@ -491,6 +507,7 @@ def _system_snapshot() -> dict:
             "api_events_enabled": config.API_EVENTS_ENABLED,
             "api_analyses_enabled": config.API_ANALYSES_ENABLED,
             "api_evidence_enabled": config.API_EVIDENCE_ENABLED,
+            "api_sync_enabled": config.API_SYNC_ENABLED,
             "topic_read_enabled": TOPIC_READ_ENABLED,
         },
         "readiness": {
@@ -1715,6 +1732,121 @@ def api_v1_analysis(id: str, request: Request, response: Response):
     return result
 
 
+@app.post(
+    "/api/v1/sync/snapshots", status_code=202, response_model=SnapshotResponse,
+    openapi_extra={"x-required-scopes": ["read:sync"]},
+)
+async def api_v1_create_snapshot(request: Request):
+    request_id = request.state.request_id
+    if not config.API_SYNC_ENABLED or not config.DURABLE_JOBS_ENABLED:
+        return v1_error(503, "not_ready", request_id)
+    if request.query_params:
+        return v1_error(422, "invalid_parameter", request_id)
+    keys = [value for key, value in request.scope["headers"]
+            if key.lower() == b"idempotency-key"]
+    if len(keys) != 1:
+        return v1_error(422, "invalid_parameter", request_id)
+    try:
+        idempotency_key = keys[0].decode("ascii")
+        raw = await request.body()
+        if len(raw) > 4096:
+            raise ValueError("body too large")
+        body = SnapshotCreate.model_validate_json(raw)
+        with get_db() as db:
+            result = create_snapshot(
+                db, principal=request.state.api_principal, request_id=request_id,
+                idempotency_key=idempotency_key, request=body,
+            )
+    except (ValidationError, UnicodeDecodeError, ValueError):
+        return v1_error(422, "invalid_parameter", request_id)
+    except PermissionError:
+        return v1_error(403, "insufficient_scope", request_id)
+    except SnapshotConflict:
+        return v1_error(409, "idempotency_conflict", request_id)
+    except SnapshotLimitReached:
+        return v1_error(429, "snapshot_limit_reached", request_id, retry_after=300)
+    except SnapshotNotReady:
+        return v1_error(503, "not_ready", request_id)
+    except (SnapshotUnavailable, sqlite3.Error, OSError, KeyError, TypeError):
+        return v1_error(503, "not_ready", request_id)
+    return result
+
+
+@app.get(
+    "/api/v1/sync/snapshots/{id}", response_model=SnapshotResponse,
+    openapi_extra={"x-required-scopes": ["read:sync"]},
+)
+def api_v1_get_snapshot(id: str, request: Request):
+    request_id = request.state.request_id
+    if not config.API_SYNC_ENABLED or not config.DURABLE_JOBS_ENABLED:
+        return v1_error(503, "not_ready", request_id)
+    if request.query_params or not id or len(id) > 128:
+        return v1_error(422, "invalid_parameter", request_id)
+    try:
+        with get_db() as db:
+            return get_snapshot(
+                db, principal=request.state.api_principal,
+                request_id=request_id, snapshot_id=id,
+            )
+    except SnapshotNotFound:
+        return v1_error(404, "resource_not_found", request_id)
+    except SnapshotConflict:
+        return v1_error(409, "epoch_changed", request_id)
+    except (SnapshotUnavailable, sqlite3.Error, OSError, KeyError, TypeError, ValueError):
+        return v1_error(503, "not_ready", request_id)
+
+
+@app.get(
+    "/api/v1/sync/snapshots/{id}/pages", response_model=SnapshotPageResponse,
+    openapi_extra={"x-required-scopes": ["read:sync"]},
+)
+def api_v1_read_snapshot_page(id: str, request: Request):
+    request_id = request.state.request_id
+    if not config.API_SYNC_ENABLED or not config.DURABLE_JOBS_ENABLED:
+        return v1_error(503, "not_ready", request_id)
+    allowed = {"resource", "limit", "cursor"}
+    if set(request.query_params) - allowed or any(
+        len(request.query_params.getlist(name)) != 1 for name in request.query_params
+    ):
+        return v1_error(422, "invalid_parameter", request_id)
+    resource = request.query_params.get("resource")
+    raw_limit = request.query_params.get("limit", "50")
+    try:
+        limit = int(raw_limit)
+    except ValueError:
+        return v1_error(422, "invalid_parameter", request_id)
+    if (not id or len(id) > 128 or resource not in SYNC_RESOURCES
+            or str(limit) != raw_limit or not 1 <= limit <= 100):
+        return v1_error(422, "invalid_parameter", request_id)
+    try:
+        with get_db() as db:
+            return read_snapshot_page(
+                db, principal=request.state.api_principal, request_id=request_id,
+                snapshot_id=id, resource=resource, limit=limit,
+                cursor=request.query_params.get("cursor"),
+            )
+    except SnapshotNotFound:
+        return v1_error(404, "resource_not_found", request_id)
+    except SnapshotExpired:
+        return v1_error(410, "snapshot_expired", request_id)
+    except SnapshotNotReady:
+        return v1_error(409, "snapshot_not_ready", request_id)
+    except SnapshotConflict:
+        return v1_error(409, "epoch_changed", request_id)
+    except PermissionError:
+        return v1_error(403, "insufficient_scope", request_id)
+    except CursorExpired:
+        return v1_error(410, "cursor_expired", request_id)
+    except CursorFilterMismatch:
+        return v1_error(400, "filter_mismatch", request_id)
+    except CursorEpochChanged:
+        return v1_error(409, "epoch_changed", request_id)
+    except CursorError:
+        return v1_error(400, "invalid_cursor", request_id)
+    except (SnapshotUnavailable, sqlite3.Error, OSError, KeyError, TypeError, ValueError):
+        return v1_error(503, "not_ready", request_id)
+
+
 def _unready_snapshot(exc: Exception) -> dict:
     return {
         "status": "unavailable",
@@ -1731,6 +1863,7 @@ def _unready_snapshot(exc: Exception) -> dict:
             "api_events_enabled": config.API_EVENTS_ENABLED,
             "api_analyses_enabled": config.API_ANALYSES_ENABLED,
             "api_evidence_enabled": config.API_EVIDENCE_ENABLED,
+            "api_sync_enabled": config.API_SYNC_ENABLED,
         },
         "readiness": {
             "status": "not_ready",

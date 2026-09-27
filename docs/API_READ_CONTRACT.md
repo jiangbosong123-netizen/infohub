@@ -396,3 +396,20 @@ legacy schema 升至 39，保留 62,077 条 item 与 52,956 条 story，并生�
 由于该 legacy 库尚无正式发布的 change，九种公共资源均正确为空，没有绕过发布门导出内部表。
 Python 3.11 与 3.12 各 515 项回归测试及 Docker 构建通过；机器可读证据见
 [`p19b-sync-snapshot-worker.json`](evidence/p19b-sync-snapshot-worker.json)。
+
+## P19c：可靠同步快照 API
+
+`POST /api/v1/sync/snapshots`、`GET /api/v1/sync/snapshots/{id}` 与
+`GET /api/v1/sync/snapshots/{id}/pages` 由独立且默认关闭的
+`INFOHUB_API_SYNC_ENABLED` 控制；durable worker 未启用时同样返回 503。创建请求要求 `read:sync`
+以及每种资源对应的读取 scope，
+并在同一事务中冻结 consumer、具体 key、`authz_version`、dataset epoch、完整 scope 清单、请求
+JCS hash、到期时间和 durable job。相同幂等键与相同正文复用任务，正文变化返回 409；每 key
+同时最多一个构建、滚动 24 小时最多五次。
+
+状态与页面只能由创建时的 key 和未变化的授权版本读取。页面游标绑定 key、授权版本、epoch、
+snapshot 和 resource；服务读取私有文件后核对路径边界、字节数、SHA-256、记录数及首尾 ID，
+再按请求 limit 切页并计算响应 `data` 的 JCS hash。响应不会暴露 `payload_ref`、备份文件或存储路径。
+过期页面返回 410，未 ready 返回 409，文件或账本不一致返回 503。`selected` 投影仍因没有获批
+选择策略而 fail closed。Windows 与生产未修改；正式发布账本为空时 API 会返回经过验证的空资源，
+不会把 legacy 内部表绕过发布流程导出。

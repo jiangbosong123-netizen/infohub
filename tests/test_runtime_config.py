@@ -38,6 +38,7 @@ class RuntimeConfigurationTests(unittest.TestCase):
         self.assertFalse(settings.api_events_enabled)
         self.assertFalse(settings.api_analyses_enabled)
         self.assertFalse(settings.api_evidence_enabled)
+        self.assertFalse(settings.api_sync_enabled)
         self.assertEqual(settings.api_key_rate_per_minute, 60)
         self.assertEqual(settings.api_consumer_concurrency, 5)
         self.assertEqual(settings.api_request_lease_seconds, 300)
@@ -136,6 +137,15 @@ class RuntimeConfigurationTests(unittest.TestCase):
         )
         self.assertTrue(settings.api_evidence_enabled)
         self.assertFalse(settings.api_items_enabled)
+
+    def test_sync_api_switch_is_independent_and_defaults_off(self):
+        settings = config.load_runtime_settings({}, self.root)
+        self.assertFalse(settings.api_sync_enabled)
+        enabled = config.load_runtime_settings(
+            {"INFOHUB_API_SYNC_ENABLED": "true"}, self.root
+        )
+        self.assertTrue(enabled.api_sync_enabled)
+        self.assertFalse(enabled.api_items_enabled)
 
     def test_report_write_requires_visible_read_path(self):
         with self.assertRaisesRegex(config.RuntimeConfigurationError, "requires INFOHUB_REPORT_READ_ENABLED"):
@@ -246,6 +256,7 @@ class RuntimeConfigurationTests(unittest.TestCase):
             values["INFOHUB_API_EVENTS_ENABLED"] = "false"
             values["INFOHUB_API_ANALYSES_ENABLED"] = "false"
             values["INFOHUB_API_EVIDENCE_ENABLED"] = "false"
+            values["INFOHUB_API_SYNC_ENABLED"] = "false"
             settings = config.load_runtime_settings(values, self.root)
             self.assertEqual(settings.database_path, Path("/app/data/app.db"))
             self.assertEqual(settings.backup_path, Path("/app/data/backups"))
@@ -291,6 +302,8 @@ class RuntimeConfigurationTests(unittest.TestCase):
         worker_values["INFOHUB_API_ANALYSES_ENABLED"] = "false"
         web_values["INFOHUB_API_EVIDENCE_ENABLED"] = "false"
         worker_values["INFOHUB_API_EVIDENCE_ENABLED"] = "false"
+        web_values["INFOHUB_API_SYNC_ENABLED"] = "false"
+        worker_values["INFOHUB_API_SYNC_ENABLED"] = "false"
         self.assertFalse(config.load_runtime_settings(web_values, self.root).allow_network_tasks)
         self.assertTrue(config.load_runtime_settings(worker_values, self.root).allow_network_tasks)
         self.assertIn("/api/live", " ".join(compose["services"]["infohub"]["healthcheck"]["test"]))
