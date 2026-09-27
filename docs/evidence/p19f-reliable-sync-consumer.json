@@ -1,0 +1,51 @@
+{
+  "phase": "P19f",
+  "scope": "Independent reference consumer and snapshot-to-change recovery drill",
+  "recorded_at": "2026-09-27T23:07:51.952891Z",
+  "production_changed": false,
+  "validation": {
+    "python_3_11": {
+      "tests": 532,
+      "status": "passed"
+    },
+    "python_3_12": {
+      "tests": 532,
+      "status": "passed"
+    },
+    "synthetic_api_worker_consumer_drill": {
+      "snapshot_pages": 2,
+      "operations": [
+        "create",
+        "update",
+        "withdraw",
+        "merge",
+        "split",
+        "delete"
+      ],
+      "unsubscribed_sequence_gap": "passed",
+      "empty_scan_cursor_advance": "passed",
+      "payload_tamper_rollback": "passed",
+      "object_and_cursor_atomicity": "passed",
+      "epoch_mismatch_requires_snapshot": "passed"
+    },
+    "real_database_isolated_rehearsal": {
+      "source_sha256_before": "8bc03ee4ac2dbea083dd5e50ceb3221829bc5c54e0a839feca53fcaae2e53d84",
+      "source_sha256_after": "8bc03ee4ac2dbea083dd5e50ceb3221829bc5c54e0a839feca53fcaae2e53d84",
+      "schema_to": 39,
+      "items_before": 63086,
+      "items_after": 63086,
+      "stories_before": 53756,
+      "stories_after": 53756,
+      "server_change_log_count": 0,
+      "snapshot_status": "ready",
+      "snapshot_resources": 9,
+      "local_object_count": 0,
+      "local_high_water": 0,
+      "empty_change_batch": true,
+      "integrity_check": "ok",
+      "foreign_key_violations": 0,
+      "source_unchanged": true
+    }
+  },
+  "known_boundary": "The legacy database has no formal public change rows, so the real-data research snapshot and downstream materialization are correctly empty. This does not delete or hide the 63,086 legacy items; controlled publication/backfill remains required. A real external consumer and Windows restart/restore drill remain P23 acceptance work."
+}

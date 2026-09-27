@@ -17,8 +17,10 @@ the implementation PR series proceeded. It was restored on 2026-09-27 after `mai
   backups, and the default-off HTTP API creates, reports and reads verified snapshot pages. The
   snapshot resume cursor now drives bounded, hash-verified incremental change reads and rejects
   key, authorization or epoch changes. Expired private snapshot files have a verified, idempotent
-  daily cleanup path while immutable database ledgers and change history remain retained. Selected-
-  projection policy, change-history compaction and consumer drills are still absent; those
+  daily cleanup path while immutable database ledgers and change history remain retained. A
+  separate reference consumer now verifies complete snapshots and atomically commits change batches
+  with its opaque cursor in a synthetic API/worker drill. Selected-projection policy,
+  change-history compaction and the real P23 Windows/external-consumer drill are still absent; those
   remaining units keep the sync service pre-production.
 - P20 macro and sentiment outputs, the remaining portal cutover and final Windows consumer drills
   are later phases. A target endpoint in `openapi.yaml` is not proof that its route exists.

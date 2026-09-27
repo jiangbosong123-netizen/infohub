@@ -441,3 +441,19 @@ snapshot 高水位 H。`GET /api/v1/changes` 只接受该签名 cursor 与 1–1
 63,060 条 item 与 53,734 条 story 全部保留，完整性与外键检查通过，源库未修改；其正式快照账本为空，
 所以预览没有候选文件。Python 3.11 与 3.12 各 529 项回归测试通过；机器可读证据见
 [`p19e-sync-retention.json`](evidence/p19e-sync-retention.json)。Windows 与生产未修改。
+
+## P19f：参考消费者与恢复演练
+
+`examples/reliable_sync_consumer.py` 在独立 SQLite 中实现最小下游物化，不直接访问 InfoHub 数据库，也不
+保存 bearer token。初次导入核验 v1/schema、dataset/epoch、snapshot、每页 JCS hash、ID 字节序、资源
+总 count/hash 和完整分页链，全部通过后才在一个事务中替换对象并保存 snapshot 水位与 opaque cursor。
+增量批次逐条验证 seq、资源范围和 payload hash，再把对象变化与 next cursor 同事务提交。
+
+withdraw、merge、split 和 delete 都保存 tombstone/replacement payload，不做无痕物理删除；未订阅资源造成
+的 seq 空号合法，空批次仍推进到服务端 high-water。epoch 不同或高水位回退要求全新 snapshot，坏 hash
+则整批回滚。完整接入说明见 [`RELIABLE_SYNC_CONSUMER.md`](RELIABLE_SYNC_CONSUMER.md)。本单元是本地合成
+消费者契约演练；真实外部消费者与 Windows 重启/恢复仍属于 P23，Windows 与生产未修改。
+真实 Mac 数据库的隔离副本保留 63,086 条 item 与 53,756 条 story，并完成九资源 ready snapshot、独立
+消费者导入与空增量交接；正式 `change_log` 仍为空，因此公开物化结果按设计为空。Python 3.11 与 3.12
+各 532 项回归测试通过；机器可读证据见
+[`p19f-reliable-sync-consumer.json`](evidence/p19f-reliable-sync-consumer.json)。
