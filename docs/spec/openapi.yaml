@@ -1325,8 +1325,9 @@ paths:
       - read:sync
       security:
       - ConsumerToken: []
-      description: Target contract, not yet implemented. Unknown query parameters are rejected with 422. See API_CONTRACT.md
-        for transaction and authorization invariants.
+      description: Implemented behind INFOHUB_API_SYNC_ENABLED. The signed cursor freezes the creating
+        key, authorization version, dataset epoch and snapshot resource set. Responses are bounded and
+        verify every change payload hash before delivery.
       responses:
         '200':
           description: Successful read

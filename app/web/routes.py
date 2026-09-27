@@ -122,6 +122,7 @@ from ..api_sync import (
     get_snapshot,
     read_snapshot_page,
 )
+from ..api_changes import ChangeFeedUnavailable, ChangesResponse, list_changes
 from ..config import (
     APP_TZ,
     APP_VERSION,
@@ -1844,6 +1845,46 @@ def api_v1_read_snapshot_page(id: str, request: Request):
     except CursorError:
         return v1_error(400, "invalid_cursor", request_id)
     except (SnapshotUnavailable, sqlite3.Error, OSError, KeyError, TypeError, ValueError):
+        return v1_error(503, "not_ready", request_id)
+
+
+@app.get(
+    "/api/v1/changes", response_model=ChangesResponse,
+    openapi_extra={"x-required-scopes": ["read:sync"]},
+)
+def api_v1_changes(request: Request):
+    request_id = request.state.request_id
+    if not config.API_SYNC_ENABLED:
+        return v1_error(503, "not_ready", request_id)
+    allowed = {"cursor", "limit"}
+    if set(request.query_params) - allowed or any(
+        len(request.query_params.getlist(name)) != 1 for name in request.query_params
+    ):
+        return v1_error(422, "invalid_parameter", request_id)
+    cursor = request.query_params.get("cursor")
+    raw_limit = request.query_params.get("limit", "50")
+    try:
+        limit = int(raw_limit)
+    except ValueError:
+        return v1_error(422, "invalid_parameter", request_id)
+    if (not cursor or len(cursor) > 4096 or str(limit) != raw_limit
+            or not 1 <= limit <= 100):
+        return v1_error(422, "invalid_parameter", request_id)
+    try:
+        with get_db() as db:
+            return list_changes(
+                db, principal=request.state.api_principal, request_id=request_id,
+                cursor=cursor, limit=limit,
+            )
+    except PermissionError:
+        return v1_error(403, "insufficient_scope", request_id)
+    except CursorExpired:
+        return v1_error(410, "cursor_expired", request_id)
+    except CursorEpochChanged:
+        return v1_error(409, "epoch_changed", request_id)
+    except CursorError:
+        return v1_error(400, "invalid_cursor", request_id)
+    except (ChangeFeedUnavailable, sqlite3.Error, OSError, KeyError, TypeError, ValueError):
         return v1_error(503, "not_ready", request_id)
 
 
