@@ -43,3 +43,8 @@ policy and selection-reason contract exist yet; returning research data under th
 incorrect. P19c will create/status/download snapshots through authenticated APIs. P19d will add the
 change stream and signed resume cursor. Retention cleanup and end-to-end restore drills remain
 later P19 units. Windows production is unchanged.
+
+The isolated current-data rehearsal and supported-runtime checks are recorded in
+[`p19b-sync-snapshot-worker.json`](evidence/p19b-sync-snapshot-worker.json). The legacy copy has no
+published `change_log` records, so its correct public-projection snapshot has nine empty resources;
+the worker does not bypass publication gates by exporting legacy portal tables directly.

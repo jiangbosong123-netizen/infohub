@@ -391,4 +391,8 @@ UTF-8 字节序输出 `resource_type/resource_id/version_id/payload` 记录。�
 原子改名并重新读取校验，之后资源/页清单、知识检查点、最终 snapshot 和 ready 状态才在一个事务内公开。
 任务 lease 过期、epoch 漂移、权限撤销或授权版本变化均 fail closed。完整规则见
 [`SYNC_SNAPSHOT_WORKER.md`](SYNC_SNAPSHOT_WORKER.md)。本单元还不开放 HTTP API，也不执行生产清理。
-`selected` 因尚无获批的选择策略而明确拒绝；Windows 与生产未修改。
+`selected` 因尚无获批的选择策略而明确拒绝；Windows 与生产未修改。真实 Mac 数据库隔离副本从
+legacy schema 升至 39，保留 62,077 条 item 与 52,956 条 story，并生成覆盖九种资源的 ready 快照；
+由于该 legacy 库尚无正式发布的 change，九种公共资源均正确为空，没有绕过发布门导出内部表。
+Python 3.11 与 3.12 各 515 项回归测试及 Docker 构建通过；机器可读证据见
+[`p19b-sync-snapshot-worker.json`](evidence/p19b-sync-snapshot-worker.json)。
