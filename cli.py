@@ -26,6 +26,7 @@ from __future__ import annotations
   python cli.py jobs-status            # 显示持久任务各状态数量
   python cli.py dataset-status         # 显示数据集、epoch 与变化高水位
   python cli.py dataset-new-epoch EXPECTED_EPOCH REASON  # 恢复后切换同步代际
+  python cli.py sync-retention [--apply] # 检查或清理已过期快照文件（账本不删除）
   python cli.py serve                  # 只启动网站，不建库、不迁移、不抓取
   python cli.py worker                 # 启动持久任务调度与执行进程
   python cli.py worker-health          # 检查当前版本 worker 心跳
@@ -221,6 +222,20 @@ def cmd_dataset_new_epoch(expected_epoch: str, reason: str) -> None:
     from app.publication import rotate_dataset_epoch
     result = rotate_dataset_epoch(expected_epoch=expected_epoch, reason=reason)
     print(json.dumps(result.to_dict(), ensure_ascii=False, indent=2))
+
+
+def cmd_sync_retention(apply: bool) -> None:
+    if config.PROCESS_ROLE != "maintenance":
+        raise config.RuntimeConfigurationError(
+            "sync-retention requires INFOHUB_PROCESS_ROLE=maintenance"
+        )
+    from app.db_admin import verify_database
+    from app.sync_retention import cleanup_expired_snapshot_files
+    verify_database(config.DB_PATH, require_current=True)
+    report = cleanup_expired_snapshot_files(dry_run=not apply)
+    print(json.dumps(report.to_dict(), ensure_ascii=False, indent=2))
+    if report.refused:
+        raise SystemExit(1)
 
 
 def cmd_crawl() -> None:
@@ -1018,6 +1033,10 @@ def main() -> None:
         cmd_dataset_status()
     elif cmd == "dataset-new-epoch" and len(sys.argv) >= 4:
         cmd_dataset_new_epoch(sys.argv[2], " ".join(sys.argv[3:]))
+    elif cmd == "sync-retention" and (
+        len(sys.argv) == 2 or (len(sys.argv) == 3 and sys.argv[2] == "--apply")
+    ):
+        cmd_sync_retention(len(sys.argv) == 3 and sys.argv[2] == "--apply")
     elif cmd == "serve":
         cmd_serve()
     elif cmd == "worker":

@@ -12,7 +12,8 @@ from app.runtime_health import (
     worker_heartbeat_path,
     write_worker_heartbeat,
 )
-from app.worker import _report, process_one_job, register_default_schedules
+from app.sync_retention import SyncRetentionReport
+from app.worker import _prune, _report, process_one_job, register_default_schedules
 
 
 T0 = datetime(2026, 9, 15, 12, 0, tzinfo=timezone.utc)
@@ -47,6 +48,18 @@ class WorkerRuntimeTests(unittest.TestCase):
         ) as versioned:
             self.assertEqual(_report()["status"], "already_published")
             versioned.assert_called_once()
+
+    def test_prune_fails_closed_when_snapshot_cleanup_refuses_a_path(self):
+        refused = SyncRetentionReport(
+            cutoff="2026-09-15T12:00:00Z", dry_run=False, candidates=1,
+            eligible=0, deleted=0, missing=0, refused=1, retained=0,
+        )
+        with patch(
+            "app.sync_retention.cleanup_expired_snapshot_files",
+            return_value=refused,
+        ):
+            with self.assertRaisesRegex(RuntimeError, "refused 1 path"):
+                _prune()
 
     def test_default_schedules_are_durable_and_restart_preserves_due_time(self):
         register_default_schedules(T0)

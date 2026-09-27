@@ -426,3 +426,18 @@ snapshot 高水位 H。`GET /api/v1/changes` 只接受该签名 cursor 与 1–1
 反复扫描同一区间。cursor 的 90 天上限不会因轮询续期，并且不会超过 API key 到期时间。key 互用、
 签名篡改返回 400，epoch 变化返回 409，到期返回 410，payload/hash 不一致返回 503。当前账本尚未执行
 物理 90 天清理；保留水位、清理任务及过期后重建演练属于下一单元。Windows 与生产未修改。
+
+## P19e：同步文件保留与安全清理
+
+过期快照的私有页面目录现在可由每日 `maintenance:prune` 任务清理，也可通过 maintenance 角色下的
+`python cli.py sync-retention` 先预览、再以 `--apply` 执行。清理严格使用不可变 `expires_at`，并在删除前
+验证派生目录名、存储边界、非符号链接清单和 manifest SHA-256；任何路径或内容异常都会拒绝并令维护
+任务失败，避免静默删除错误文件。重复运行时已不存在的目录按幂等状态报告。
+
+清理只删除短期传输文件，`sync_snapshot_requests`、`sync_snapshots`、资源和页账本全部保留。`change_log`
+当前也无限期保留，已经满足 cursor 至少 90 天的历史要求；由于多个正式发布账本以外键引用 change seq，
+物理压缩必须在未来独立设计和迁移，不能由本单元顺带删除。完整运行规则见
+[`SYNC_RETENTION.md`](SYNC_RETENTION.md)。真实 Mac 数据库的隔离副本从 legacy schema 升至 39，
+63,060 条 item 与 53,734 条 story 全部保留，完整性与外键检查通过，源库未修改；其正式快照账本为空，
+所以预览没有候选文件。Python 3.11 与 3.12 各 529 项回归测试通过；机器可读证据见
+[`p19e-sync-retention.json`](evidence/p19e-sync-retention.json)。Windows 与生产未修改。
