@@ -16,8 +16,10 @@ the implementation PR series proceeded. It was restored on 2026-09-27 after `mai
   the snapshot ledger, the worker builds immutable research snapshots from completed SQLite
   backups, and the default-off HTTP API creates, reports and reads verified snapshot pages. The
   snapshot resume cursor now drives bounded, hash-verified incremental change reads and rejects
-  key, authorization or epoch changes. Selected-projection policy, physical retention/pruning and
-  consumer drills are still absent; those remaining units keep the sync service pre-production.
+  key, authorization or epoch changes. Expired private snapshot files have a verified, idempotent
+  daily cleanup path while immutable database ledgers and change history remain retained. Selected-
+  projection policy, change-history compaction and consumer drills are still absent; those
+  remaining units keep the sync service pre-production.
 - P20 macro and sentiment outputs, the remaining portal cutover and final Windows consumer drills
   are later phases. A target endpoint in `openapi.yaml` is not proof that its route exists.
 

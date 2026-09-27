@@ -1,0 +1,49 @@
+{
+  "phase": "P19e",
+  "scope": "Conservative cleanup of expired reliable-sync snapshot files",
+  "recorded_at": "2026-09-27T22:57:40.143969Z",
+  "production_changed": false,
+  "validation": {
+    "python_3_11": {
+      "tests": 529,
+      "status": "passed"
+    },
+    "python_3_12": {
+      "tests": 529,
+      "status": "passed"
+    },
+    "real_database_isolated_rehearsal": {
+      "source_sha256_before": "3ad1668ad2ab212d066468403d80477f1352f4fa606c6cbe25d30b64b24d68fd",
+      "source_sha256_after": "3ad1668ad2ab212d066468403d80477f1352f4fa606c6cbe25d30b64b24d68fd",
+      "schema_from": 0,
+      "schema_to": 39,
+      "items_before": 63060,
+      "items_after": 63060,
+      "stories_before": 53734,
+      "stories_after": 53734,
+      "sync_snapshot_count": 0,
+      "change_log_count": 0,
+      "retention_dry_run": {
+        "candidates": 0,
+        "eligible": 0,
+        "deleted": 0,
+        "missing": 0,
+        "refused": 0,
+        "retained": 0
+      },
+      "integrity_check": "ok",
+      "foreign_key_violations": 0,
+      "source_unchanged": true
+    },
+    "integration_cases": [
+      "expired file deletion with immutable ledger retention",
+      "dry-run preview and idempotent repeated cleanup",
+      "unexpired snapshot retention",
+      "tampered manifest refusal",
+      "snapshot-root symlink refusal",
+      "manifest symlink refusal even with matching content",
+      "daily worker fails closed on refusal"
+    ]
+  },
+  "known_boundary": "The legacy database has no formal published changes or sync snapshots, so its real-data retention preview is correctly empty. change_log is retained indefinitely; physical history compaction requires a separate design because publication ledgers reference change sequence numbers."
+}

@@ -158,7 +158,13 @@ def _prune() -> dict:
     cutoff = format_utc(datetime.now(timezone.utc) - timedelta(days=14))
     with get_db() as db:
         deleted = db.execute("DELETE FROM fetch_log WHERE ran_at < ?", (cutoff,)).rowcount
-    return {"deleted": deleted}
+    from .sync_retention import cleanup_expired_snapshot_files
+    snapshots = cleanup_expired_snapshot_files(dry_run=False)
+    if snapshots.refused:
+        raise RuntimeError(
+            f"sync snapshot retention refused {snapshots.refused} path(s)"
+        )
+    return {"fetch_logs_deleted": deleted, "sync_snapshots": snapshots.to_dict()}
 
 
 def _curation_search_refresh() -> dict:
