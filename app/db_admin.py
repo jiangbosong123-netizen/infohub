@@ -3035,6 +3035,229 @@ def _event_dataset_release_foundation(db: sqlite3.Connection) -> None:
     _execute_script(db, EVENT_DATASET_RELEASE_SCHEMA_SQL)
 
 
+SYNC_SNAPSHOT_SCHEMA_SQL = """
+CREATE TABLE sync_snapshot_requests (
+    id TEXT PRIMARY KEY,
+    dataset_id TEXT NOT NULL,
+    dataset_epoch TEXT NOT NULL,
+    consumer_id TEXT NOT NULL REFERENCES api_consumers(id),
+    key_id TEXT NOT NULL REFERENCES api_keys(key_id),
+    authz_version INTEGER NOT NULL CHECK(authz_version>0),
+    idempotency_key TEXT NOT NULL CHECK(length(trim(idempotency_key)) BETWEEN 1 AND 500),
+    request_json TEXT NOT NULL CHECK(json_valid(request_json)),
+    request_sha256 TEXT NOT NULL CHECK(length(request_sha256)=64),
+    resources_json TEXT NOT NULL CHECK(json_valid(resources_json)
+        AND json_type(resources_json)='array'),
+    scopes_json TEXT NOT NULL CHECK(json_valid(scopes_json)
+        AND json_type(scopes_json)='array'),
+    projection_scope TEXT NOT NULL CHECK(projection_scope IN ('research','selected')),
+    state TEXT NOT NULL CHECK(state IN ('pending','running','ready','failed')),
+    job_id TEXT UNIQUE REFERENCES jobs(id),
+    error_code TEXT,
+    created_at TEXT NOT NULL,
+    started_at TEXT,
+    finished_at TEXT,
+    expires_at TEXT NOT NULL,
+    UNIQUE(key_id,authz_version,idempotency_key),
+    FOREIGN KEY(dataset_id,dataset_epoch) REFERENCES dataset_epochs(dataset_id,epoch),
+    CHECK((state='pending' AND started_at IS NULL AND finished_at IS NULL AND error_code IS NULL)
+       OR (state='running' AND started_at IS NOT NULL AND finished_at IS NULL AND error_code IS NULL)
+       OR (state='ready' AND started_at IS NOT NULL AND finished_at IS NOT NULL AND error_code IS NULL)
+       OR (state='failed' AND finished_at IS NOT NULL AND error_code IS NOT NULL))
+);
+CREATE INDEX idx_sync_snapshot_requests_owner
+    ON sync_snapshot_requests(key_id,authz_version,created_at DESC);
+CREATE INDEX idx_sync_snapshot_requests_state
+    ON sync_snapshot_requests(state,created_at);
+CREATE TRIGGER sync_snapshot_requests_valid_manifest
+BEFORE INSERT ON sync_snapshot_requests
+WHEN json_array_length(NEW.resources_json)=0
+  OR (SELECT COUNT(*) FROM json_each(NEW.resources_json))<>(
+       SELECT COUNT(DISTINCT value) FROM json_each(NEW.resources_json))
+  OR EXISTS(SELECT 1 FROM json_each(NEW.resources_json)
+            WHERE type<>'text' OR value NOT IN (
+                'items','events','entities','topics','sources','analyses','signals','reports','evidence'
+            ))
+  OR json_array_length(NEW.scopes_json)=0
+  OR (SELECT COUNT(*) FROM json_each(NEW.scopes_json))<>(
+       SELECT COUNT(DISTINCT value) FROM json_each(NEW.scopes_json))
+  OR EXISTS(SELECT 1 FROM json_each(NEW.scopes_json)
+            WHERE type<>'text' OR value NOT IN (
+                'read:catalog','read:items','read:events','read:analyses','read:evidence',
+                'read:signals','read:reports','read:sync','read:ops'
+            ))
+BEGIN SELECT RAISE(ABORT,'sync snapshot resource and scope manifests must be unique allowlists'); END;
+
+CREATE TABLE sync_snapshots (
+    id TEXT PRIMARY KEY REFERENCES sync_snapshot_requests(id),
+    dataset_id TEXT NOT NULL,
+    dataset_epoch TEXT NOT NULL,
+    consumer_id TEXT NOT NULL REFERENCES api_consumers(id),
+    key_id TEXT NOT NULL REFERENCES api_keys(key_id),
+    authz_version INTEGER NOT NULL CHECK(authz_version>0),
+    projection_scope TEXT NOT NULL CHECK(projection_scope IN ('research','selected')),
+    high_water INTEGER NOT NULL CHECK(high_water>=0),
+    knowledge_checkpoint_id TEXT NOT NULL REFERENCES knowledge_checkpoints(id),
+    backup_sha256 TEXT NOT NULL CHECK(length(backup_sha256)=64),
+    source_schema_version INTEGER NOT NULL CHECK(source_schema_version>0),
+    manifest_json TEXT NOT NULL CHECK(json_valid(manifest_json)),
+    manifest_sha256 TEXT NOT NULL CHECK(length(manifest_sha256)=64),
+    resource_count INTEGER NOT NULL CHECK(resource_count>0),
+    record_count INTEGER NOT NULL CHECK(record_count>=0),
+    snapshot_schema_version TEXT NOT NULL CHECK(snapshot_schema_version='sync-snapshot-v1'),
+    created_at TEXT NOT NULL,
+    ready_at TEXT NOT NULL,
+    expires_at TEXT NOT NULL,
+    FOREIGN KEY(dataset_id,dataset_epoch) REFERENCES dataset_epochs(dataset_id,epoch)
+);
+
+CREATE TABLE sync_snapshot_resources (
+    snapshot_id TEXT NOT NULL REFERENCES sync_snapshot_requests(id),
+    resource TEXT NOT NULL CHECK(resource IN (
+        'items','events','entities','topics','sources','analyses','signals','reports','evidence'
+    )),
+    record_count INTEGER NOT NULL CHECK(record_count>=0),
+    page_count INTEGER NOT NULL CHECK(page_count>=0),
+    content_sha256 TEXT NOT NULL CHECK(length(content_sha256)=64),
+    PRIMARY KEY(snapshot_id,resource),
+    CHECK((record_count=0 AND page_count=0) OR (record_count>0 AND page_count>0))
+);
+
+CREATE TABLE sync_snapshot_pages (
+    snapshot_id TEXT NOT NULL,
+    resource TEXT NOT NULL,
+    page_number INTEGER NOT NULL CHECK(page_number>0),
+    first_resource_id TEXT NOT NULL CHECK(length(first_resource_id)>0),
+    last_resource_id TEXT NOT NULL CHECK(length(last_resource_id)>0),
+    record_count INTEGER NOT NULL CHECK(record_count>0),
+    payload_ref TEXT NOT NULL CHECK(length(payload_ref)>0),
+    payload_sha256 TEXT NOT NULL CHECK(length(payload_sha256)=64),
+    size_bytes INTEGER NOT NULL CHECK(size_bytes>=0),
+    PRIMARY KEY(snapshot_id,resource,page_number),
+    FOREIGN KEY(snapshot_id,resource)
+        REFERENCES sync_snapshot_resources(snapshot_id,resource),
+    CHECK(first_resource_id<=last_resource_id)
+);
+
+CREATE TRIGGER sync_snapshot_requests_valid_transition
+BEFORE UPDATE ON sync_snapshot_requests
+WHEN NEW.id IS NOT OLD.id
+  OR NEW.dataset_id IS NOT OLD.dataset_id
+  OR NEW.dataset_epoch IS NOT OLD.dataset_epoch
+  OR NEW.consumer_id IS NOT OLD.consumer_id
+  OR NEW.key_id IS NOT OLD.key_id
+  OR NEW.authz_version IS NOT OLD.authz_version
+  OR NEW.idempotency_key IS NOT OLD.idempotency_key
+  OR NEW.request_json IS NOT OLD.request_json
+  OR NEW.request_sha256 IS NOT OLD.request_sha256
+  OR NEW.resources_json IS NOT OLD.resources_json
+  OR NEW.scopes_json IS NOT OLD.scopes_json
+  OR NEW.projection_scope IS NOT OLD.projection_scope
+  OR NEW.job_id IS NOT OLD.job_id
+  OR NEW.created_at IS NOT OLD.created_at
+  OR NEW.expires_at IS NOT OLD.expires_at
+  OR NOT ((OLD.state='pending' AND NEW.state IN ('running','failed'))
+       OR (OLD.state='running' AND NEW.state IN ('ready','failed')))
+BEGIN SELECT RAISE(ABORT,'invalid sync snapshot request transition'); END;
+CREATE TRIGGER sync_snapshot_requests_ready_complete
+BEFORE UPDATE OF state ON sync_snapshot_requests
+WHEN NEW.state='ready' AND NOT EXISTS(
+    SELECT 1 FROM sync_snapshots AS snapshot
+    WHERE snapshot.id=NEW.id
+      AND snapshot.dataset_id=NEW.dataset_id
+      AND snapshot.dataset_epoch=NEW.dataset_epoch
+      AND snapshot.consumer_id=NEW.consumer_id
+      AND snapshot.key_id=NEW.key_id
+      AND snapshot.authz_version=NEW.authz_version
+      AND snapshot.projection_scope=NEW.projection_scope
+      AND snapshot.expires_at=NEW.expires_at
+      AND snapshot.resource_count=(
+          SELECT COUNT(*) FROM sync_snapshot_resources WHERE snapshot_id=NEW.id)
+      AND snapshot.record_count=COALESCE((
+          SELECT SUM(record_count) FROM sync_snapshot_resources WHERE snapshot_id=NEW.id),0)
+      AND NOT EXISTS(
+          SELECT 1 FROM sync_snapshot_resources AS resource
+          WHERE resource.snapshot_id=NEW.id
+            AND (resource.page_count<>(SELECT COUNT(*) FROM sync_snapshot_pages AS page
+                                      WHERE page.snapshot_id=resource.snapshot_id
+                                        AND page.resource=resource.resource)
+              OR resource.record_count<>COALESCE((
+                    SELECT SUM(page.record_count) FROM sync_snapshot_pages AS page
+                    WHERE page.snapshot_id=resource.snapshot_id
+                      AND page.resource=resource.resource),0))
+      )
+)
+BEGIN SELECT RAISE(ABORT,'ready sync snapshot must have a complete immutable manifest'); END;
+CREATE TRIGGER sync_snapshot_requests_no_delete BEFORE DELETE ON sync_snapshot_requests
+BEGIN SELECT RAISE(ABORT,'sync snapshot requests are retained'); END;
+
+CREATE TRIGGER sync_snapshots_match_request
+BEFORE INSERT ON sync_snapshots
+WHEN NOT EXISTS(
+    SELECT 1 FROM sync_snapshot_requests AS request
+    WHERE request.id=NEW.id AND request.state='running'
+      AND request.dataset_id=NEW.dataset_id AND request.dataset_epoch=NEW.dataset_epoch
+      AND request.consumer_id=NEW.consumer_id AND request.key_id=NEW.key_id
+      AND request.authz_version=NEW.authz_version
+      AND request.projection_scope=NEW.projection_scope
+      AND request.expires_at=NEW.expires_at
+      AND NEW.resource_count=json_array_length(request.resources_json)
+) OR NOT EXISTS(
+    SELECT 1 FROM knowledge_checkpoints AS checkpoint
+    WHERE checkpoint.id=NEW.knowledge_checkpoint_id
+      AND checkpoint.dataset_id=NEW.dataset_id AND checkpoint.epoch=NEW.dataset_epoch
+      AND checkpoint.high_water=NEW.high_water
+) OR NEW.resource_count<>(
+    SELECT COUNT(*) FROM sync_snapshot_resources WHERE snapshot_id=NEW.id
+) OR NEW.record_count<>COALESCE((
+    SELECT SUM(record_count) FROM sync_snapshot_resources WHERE snapshot_id=NEW.id
+),0) OR EXISTS(
+    SELECT 1 FROM sync_snapshot_resources AS resource
+    WHERE resource.snapshot_id=NEW.id
+      AND (resource.page_count<>(SELECT COUNT(*) FROM sync_snapshot_pages AS page
+                                WHERE page.snapshot_id=resource.snapshot_id
+                                  AND page.resource=resource.resource)
+        OR resource.record_count<>COALESCE((
+              SELECT SUM(page.record_count) FROM sync_snapshot_pages AS page
+              WHERE page.snapshot_id=resource.snapshot_id
+                AND page.resource=resource.resource),0))
+)
+BEGIN SELECT RAISE(ABORT,'sync snapshot must match its running request and checkpoint'); END;
+CREATE TRIGGER sync_snapshots_no_update BEFORE UPDATE ON sync_snapshots
+BEGIN SELECT RAISE(ABORT,'sync snapshots are immutable'); END;
+CREATE TRIGGER sync_snapshots_no_delete BEFORE DELETE ON sync_snapshots
+BEGIN SELECT RAISE(ABORT,'sync snapshots are immutable'); END;
+
+CREATE TRIGGER sync_snapshot_resources_running_only
+BEFORE INSERT ON sync_snapshot_resources
+WHEN NOT EXISTS(
+    SELECT 1 FROM sync_snapshot_requests AS request
+    WHERE request.id=NEW.snapshot_id AND request.state='running'
+      AND EXISTS(SELECT 1 FROM json_each(request.resources_json)
+                 WHERE value=NEW.resource)
+)
+BEGIN SELECT RAISE(ABORT,'sync snapshot resources require a running request'); END;
+CREATE TRIGGER sync_snapshot_resources_no_update BEFORE UPDATE ON sync_snapshot_resources
+BEGIN SELECT RAISE(ABORT,'sync snapshot resources are immutable'); END;
+CREATE TRIGGER sync_snapshot_resources_no_delete BEFORE DELETE ON sync_snapshot_resources
+BEGIN SELECT RAISE(ABORT,'sync snapshot resources are immutable'); END;
+
+CREATE TRIGGER sync_snapshot_pages_running_only
+BEFORE INSERT ON sync_snapshot_pages
+WHEN NOT EXISTS(SELECT 1 FROM sync_snapshot_requests
+                WHERE id=NEW.snapshot_id AND state='running')
+BEGIN SELECT RAISE(ABORT,'sync snapshot pages require a running request'); END;
+CREATE TRIGGER sync_snapshot_pages_no_update BEFORE UPDATE ON sync_snapshot_pages
+BEGIN SELECT RAISE(ABORT,'sync snapshot pages are immutable'); END;
+CREATE TRIGGER sync_snapshot_pages_no_delete BEFORE DELETE ON sync_snapshot_pages
+BEGIN SELECT RAISE(ABORT,'sync snapshot pages are immutable'); END;
+"""
+
+
+def _sync_snapshot_foundation(db: sqlite3.Connection) -> None:
+    _execute_script(db, SYNC_SNAPSHOT_SCHEMA_SQL)
+
+
 # Migration 1 freezes the exact legacy schema at main@88a2a1e. Future schema
 # changes must append a new Migration instead of editing this definition.
 MIGRATIONS = (
@@ -3194,6 +3417,8 @@ MIGRATIONS = (
     Migration(38, "append-only event dataset release gate",
               EVENT_DATASET_RELEASE_SCHEMA_SQL,
               _event_dataset_release_foundation),
+    Migration(39, "immutable reliable-sync snapshot foundation",
+              SYNC_SNAPSHOT_SCHEMA_SQL, _sync_snapshot_foundation),
 )
 CURRENT_SCHEMA_VERSION = MIGRATIONS[-1].version
 REQUIRED_MIGRATION_COLUMNS = {
@@ -3249,6 +3474,8 @@ EXPECTED_TABLES = LEGACY_ANCHORS | {
     "event_review_sampling_members",
     "event_review_sample_evaluations",
     "event_dataset_release_reviews",
+    "sync_snapshot_requests", "sync_snapshots", "sync_snapshot_resources",
+    "sync_snapshot_pages",
 }
 EXPECTED_ITEM_COLUMNS = {
     "id", "source_id", "url", "title", "title_zh", "summary", "raw_summary",
@@ -3697,8 +3924,36 @@ EXPECTED_API_AUTH_COLUMNS = {
     "api_request_audit": {"id", "request_id", "event", "consumer_id", "key_id",
                           "method", "resource", "required_scope", "status_code",
                           "error_code", "duration_ms", "occurred_at"},
+    "sync_snapshot_requests": {
+        "id", "dataset_id", "dataset_epoch", "consumer_id", "key_id",
+        "authz_version", "idempotency_key", "request_json", "request_sha256",
+        "resources_json", "scopes_json", "projection_scope", "state", "job_id",
+        "error_code", "created_at", "started_at", "finished_at", "expires_at",
+    },
+    "sync_snapshots": {
+        "id", "dataset_id", "dataset_epoch", "consumer_id", "key_id",
+        "authz_version", "projection_scope", "high_water", "knowledge_checkpoint_id",
+        "backup_sha256", "source_schema_version", "manifest_json", "manifest_sha256",
+        "resource_count", "record_count", "snapshot_schema_version", "created_at",
+        "ready_at", "expires_at",
+    },
+    "sync_snapshot_resources": {
+        "snapshot_id", "resource", "record_count", "page_count", "content_sha256",
+    },
+    "sync_snapshot_pages": {
+        "snapshot_id", "resource", "page_number", "first_resource_id",
+        "last_resource_id", "record_count", "payload_ref", "payload_sha256",
+        "size_bytes",
+    },
 }
 EXPECTED_INGEST_TRIGGERS = {
+    "sync_snapshot_requests_valid_manifest",
+    "sync_snapshot_requests_valid_transition", "sync_snapshot_requests_ready_complete",
+    "sync_snapshot_requests_no_delete", "sync_snapshots_match_request",
+    "sync_snapshots_no_update", "sync_snapshots_no_delete",
+    "sync_snapshot_resources_running_only", "sync_snapshot_resources_no_update",
+    "sync_snapshot_resources_no_delete", "sync_snapshot_pages_running_only",
+    "sync_snapshot_pages_no_update", "sync_snapshot_pages_no_delete",
     "api_request_audit_no_update", "api_request_audit_no_delete",
     "api_key_audit_no_update", "api_key_audit_no_delete",
     "report_generation_reviews_valid_approval", "report_generation_reviews_no_update",
@@ -4933,6 +5188,52 @@ def _assert_current_schema(db: sqlite3.Connection) -> None:
             f", analysis_runs={invalid_analysis_runs}"
             f", analysis_attempts={invalid_analysis_attempts}"
             f", analysis_results={invalid_analysis_results}"
+        )
+    invalid_sync_snapshots = db.execute(
+        """SELECT COUNT(*)
+           FROM sync_snapshots AS snapshot
+           LEFT JOIN sync_snapshot_requests AS request ON request.id=snapshot.id
+           LEFT JOIN knowledge_checkpoints AS checkpoint
+             ON checkpoint.id=snapshot.knowledge_checkpoint_id
+           WHERE request.id IS NULL OR request.state NOT IN ('running','ready')
+              OR request.dataset_id<>snapshot.dataset_id
+              OR request.dataset_epoch<>snapshot.dataset_epoch
+              OR request.consumer_id<>snapshot.consumer_id
+              OR request.key_id<>snapshot.key_id
+              OR request.authz_version<>snapshot.authz_version
+              OR request.projection_scope<>snapshot.projection_scope
+              OR request.expires_at<>snapshot.expires_at
+              OR checkpoint.id IS NULL
+              OR checkpoint.dataset_id<>snapshot.dataset_id
+              OR checkpoint.epoch<>snapshot.dataset_epoch
+              OR checkpoint.high_water<>snapshot.high_water
+              OR snapshot.resource_count<>(
+                  SELECT COUNT(*) FROM sync_snapshot_resources
+                  WHERE snapshot_id=snapshot.id)
+              OR snapshot.record_count<>COALESCE((
+                  SELECT SUM(record_count) FROM sync_snapshot_resources
+                  WHERE snapshot_id=snapshot.id),0)
+              OR EXISTS(
+                  SELECT 1 FROM sync_snapshot_resources AS resource
+                  WHERE resource.snapshot_id=snapshot.id
+                    AND (resource.page_count<>(
+                          SELECT COUNT(*) FROM sync_snapshot_pages AS page
+                          WHERE page.snapshot_id=resource.snapshot_id
+                            AND page.resource=resource.resource)
+                      OR resource.record_count<>COALESCE((
+                          SELECT SUM(page.record_count) FROM sync_snapshot_pages AS page
+                          WHERE page.snapshot_id=resource.snapshot_id
+                            AND page.resource=resource.resource),0)))"""
+    ).fetchone()[0]
+    ready_without_snapshot = db.execute(
+        """SELECT COUNT(*) FROM sync_snapshot_requests AS request
+           WHERE request.state='ready'
+             AND NOT EXISTS(SELECT 1 FROM sync_snapshots WHERE id=request.id)"""
+    ).fetchone()[0]
+    if invalid_sync_snapshots or ready_without_snapshot:
+        raise DatabaseVerificationError(
+            "reliable-sync snapshot ledger is inconsistent: "
+            f"snapshots={invalid_sync_snapshots}, ready_requests={ready_without_snapshot}"
         )
     invalid_jobs = db.execute(
         """SELECT COUNT(*) FROM jobs AS job

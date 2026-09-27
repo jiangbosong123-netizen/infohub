@@ -1,0 +1,63 @@
+{
+  "captured_at": "2026-09-27T12:00:00Z",
+  "evidence_version": "p19a-sync-snapshot-foundation-migration-v1",
+  "source_commit": "4c82f42",
+  "scope": "Schema 39 reliable-sync snapshot request and immutable manifest foundation",
+  "isolated_real_data_rehearsal": {
+    "source": "Mac data/app.db copied with the SQLite backup API",
+    "source_schema_version": 0,
+    "target_schema_version": 39,
+    "source_database_modified": false,
+    "source_file_sha256_after_rehearsal": "3dcc8712fff755450148e15ce69a1a643f8b441e1d7ac5ceab18e08fb548ccc7",
+    "copy_sha256_before_migration": "076096c3d995a5289cb5ccd1aacdbc708dbc4615470b75765cf20a8f9eee6bfe",
+    "copy_sha256_after_migration": "1a81e9d85fac15444045638da0fe37615bd9024cc97ffac7f37849ad30831d1a",
+    "items_before": 62043,
+    "items_after": 62043,
+    "stories_before": 52929,
+    "stories_after": 52929,
+    "documents_after": 0,
+    "events_after": 0,
+    "analysis_results_after": 0,
+    "integrity": "ok",
+    "foreign_key_violations": 0,
+    "dataset_id": "dataset_7b181194a65c4bbd9b4b7a5941d5629e",
+    "dataset_epoch": "epoch_686ba88b07274caea089594e236a33e4",
+    "new_sync_tables_empty": true
+  },
+  "direct_upgrade_rehearsal": {
+    "source_schema_version": 38,
+    "target_schema_version": 39,
+    "existing_domain_row_preserved": true,
+    "new_sync_tables_empty": true
+  },
+  "contract_checks": {
+    "request_identity_bound_to_key_and_authorization_version": true,
+    "resource_and_scope_allowlists_validated": true,
+    "unrequested_resources_rejected": true,
+    "ready_requires_complete_immutable_manifest": true,
+    "identity_and_result_rows_immutable": true,
+    "strict_database_verification_enabled": true
+  },
+  "validation": {
+    "python_3_11": {
+      "tests": 510,
+      "status": "passed"
+    },
+    "python_3_12": {
+      "tests": 510,
+      "status": "passed"
+    },
+    "docker": "passed",
+    "github_actions_runs": [
+      "https://github.com/jiangbosong123-netizen/infohub/actions/runs/36317448996",
+      "https://github.com/jiangbosong123-netizen/infohub/actions/runs/36317450816"
+    ],
+    "git_diff_check": "passed"
+  },
+  "delivery_boundary": {
+    "snapshot_payload_worker_enabled": false,
+    "public_api_enabled": false,
+    "cleanup_enabled": false,
+    "windows_production_changed": false
+  }
+}

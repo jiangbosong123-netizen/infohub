@@ -362,3 +362,19 @@ duplicate alias 不作为公开引用。接口由独立且默认关闭的 `INFOH
 要求 `INFOHUB_API_ITEMS_ENABLED`。完整契约见 [`EVIDENCE_API.md`](EVIDENCE_API.md)。本单元无数据库迁移，
 Windows 与生产未修改。Python 3.11 与 3.12 各 505 项回归测试及 Docker 构建通过；机器可读证据见
 [`p18x-document-evidence-api-contract.json`](evidence/p18x-document-evidence-api-contract.json)。
+
+## P19a：可靠同步快照账本基础
+
+Schema 39 新增 `sync_snapshot_requests`、`sync_snapshots`、`sync_snapshot_resources` 和
+`sync_snapshot_pages`。请求身份固定绑定 dataset/epoch、consumer、具体 API key、授权版本、幂等键、
+资源集合、scope 集合与 research/selected 投影；资源与 scope 必须是非空、去重的允许列表。请求只允许
+`pending -> running -> ready|failed` 或 `pending -> failed`，过期状态由 `expires_at` 派生，不改历史。
+
+资源和页清单只追加；最终 snapshot 必须与 running 请求及同 epoch/high-water 的知识检查点完全一致，且
+资源数、记录数、页数和每页记录数全部闭合后才能插入。只有存在完整不可变结果，请求才能标为 ready。
+本单元不生成页面文件、不开放 API、不执行清理，也不改变 Windows 生产。完整规则见
+[`SYNC_SNAPSHOT_FOUNDATION.md`](SYNC_SNAPSHOT_FOUNDATION.md)。2026-09-27 的真实 Mac 数据库隔离副本
+从无版本 legacy schema 升至 schema 39，62,043 条 item 和 52,929 条 story 全部保留，完整性与外键检查
+通过，源数据库未修改；新增同步表按设计为空。Python 3.11 与 3.12 各 510 项回归测试及 Docker 构建
+通过。机器可读证据见
+[`p19a-sync-snapshot-foundation-migration.json`](evidence/p19a-sync-snapshot-foundation-migration.json)。
