@@ -12,8 +12,10 @@ the implementation PR series proceeded. It was restored on 2026-09-27 after `mai
 - Implemented v1 contracts remain default-off and Windows production has not been upgraded during
   the current build-out. Each implementation document under `docs/` and machine-readable record
   under `docs/evidence/` states its own validation and production status.
-- P19 snapshot plus reliable incremental synchronization is the next active phase. The existing
-  `change_log`, dataset epoch and knowledge checkpoints are prerequisites, not a finished sync API.
+- P19 snapshot plus reliable incremental synchronization is the active phase. Schema 39 contains
+  the snapshot ledger and the worker can build an immutable research snapshot from a completed
+  SQLite backup. Snapshot HTTP routes, selected-projection policy, changes, retention and consumer
+  drills are still absent; the existing pieces are not a finished sync API.
 - P20 macro and sentiment outputs, the remaining portal cutover and final Windows consumer drills
   are later phases. A target endpoint in `openapi.yaml` is not proof that its route exists.
 

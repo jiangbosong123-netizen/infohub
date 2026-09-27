@@ -378,3 +378,21 @@ Schema 39 新增 `sync_snapshot_requests`、`sync_snapshots`、`sync_snapshot_re
 通过，源数据库未修改；新增同步表按设计为空。Python 3.11 与 3.12 各 510 项回归测试及 Docker 构建
 通过。机器可读证据见
 [`p19a-sync-snapshot-foundation-migration.json`](evidence/p19a-sync-snapshot-foundation-migration.json)。
+
+## P19b：一致性快照生成 worker
+
+`sync-snapshot` 持久任务先核验 job lease、dataset epoch、API key、授权版本、冻结 scope 与过期时间，再用
+SQLite backup API 生成一致副本。epoch 与 change high-water 只从已经完成的副本读取；之后线上新增的
+change 不会混入本次输出。worker 对每种资源选择 `seq <= H` 的每个稳定 ID 最新公开 change，按 ID 的
+UTF-8 字节序输出 `resource_type/resource_id/version_id/payload` 记录。撤回、删除、合并和拆分 tombstone
+如果是最新发布状态仍会被同步。
+
+页文件的 `data` 数组、整资源记录流和最终 manifest 都使用 RFC 8785/JCS；文件先写入 staging、flush，
+原子改名并重新读取校验，之后资源/页清单、知识检查点、最终 snapshot 和 ready 状态才在一个事务内公开。
+任务 lease 过期、epoch 漂移、权限撤销或授权版本变化均 fail closed。完整规则见
+[`SYNC_SNAPSHOT_WORKER.md`](SYNC_SNAPSHOT_WORKER.md)。本单元还不开放 HTTP API，也不执行生产清理。
+`selected` 因尚无获批的选择策略而明确拒绝；Windows 与生产未修改。真实 Mac 数据库隔离副本从
+legacy schema 升至 39，保留 62,077 条 item 与 52,956 条 story，并生成覆盖九种资源的 ready 快照；
+由于该 legacy 库尚无正式发布的 change，九种公共资源均正确为空，没有绕过发布门导出内部表。
+Python 3.11 与 3.12 各 515 项回归测试及 Docker 构建通过；机器可读证据见
+[`p19b-sync-snapshot-worker.json`](evidence/p19b-sync-snapshot-worker.json)。

@@ -32,7 +32,7 @@ from .timeutil import format_utc, utc_now
 log = logging.getLogger(__name__)
 JOB_KINDS = (
     "crawl", "ai", "reconcile", "report", "prune", "curation-search",
-    "curation-hot", "topic-statistics",
+    "curation-hot", "topic-statistics", "sync-snapshot",
 )
 
 
@@ -203,6 +203,16 @@ def _topic_statistics_refresh() -> dict:
     return {"batches": batches, **report.to_dict()}
 
 
+def _sync_snapshot(job: JobRecord) -> dict:
+    from .sync_snapshots import build_sync_snapshot
+    snapshot_id = job.payload.get("snapshot_id")
+    if not isinstance(snapshot_id, str) or not snapshot_id:
+        raise ValueError("sync snapshot job requires snapshot_id")
+    return build_sync_snapshot(
+        snapshot_id, job_id=job.id, lease_token=job.lease_token or ""
+    ).to_dict()
+
+
 def default_handlers() -> dict[str, Callable[[], object]]:
     return {
         "crawl": _crawl,
@@ -246,6 +256,8 @@ def execute_claimed_job(
     now: datetime | str | None = None,
 ) -> JobRecord:
     handler = (handlers or default_handlers()).get(job.kind)
+    if handlers is None and job.kind == "sync-snapshot":
+        handler = lambda: _sync_snapshot(job)
     if handler is None:
         return fail_job(
             job.id, job.lease_token or "", error_code="unknown_job_kind",
@@ -264,13 +276,23 @@ def execute_claimed_job(
         raise
     except Exception as exc:  # noqa: BLE001
         log.error("job %s (%s) failed with %s", job.id, job.kind, type(exc).__name__)
-        return fail_job(
+        failed = fail_job(
             job.id,
             job.lease_token or "",
             error_code=f"handler_{type(exc).__name__.lower()}"[:100],
             error_detail=_safe_text(str(exc), 1000),
             now=now,
         )
+        if job.kind == "sync-snapshot" and failed.state in {"failed", "dead_letter"}:
+            from .sync_snapshots import fail_sync_snapshot
+            snapshot_id = job.payload.get("snapshot_id")
+            if isinstance(snapshot_id, str) and snapshot_id:
+                fail_sync_snapshot(
+                    snapshot_id,
+                    error_code=f"handler_{type(exc).__name__.lower()}"[:100],
+                    now=now if isinstance(now, str) else None,
+                )
+        return failed
 
 
 def process_one_job(

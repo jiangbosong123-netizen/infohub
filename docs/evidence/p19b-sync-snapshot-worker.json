@@ -1,0 +1,69 @@
+{
+  "captured_at": "2026-09-27T12:16:16Z",
+  "evidence_version": "p19b-sync-snapshot-worker-v1",
+  "source_commit": "8084701",
+  "scope": "Reliable-sync worker over an isolated copy of the current Mac database",
+  "database": {
+    "source_sha256_before": "aef892a103750f0c54d1f2c121907be836d40ca4bb59d5545cf842b7251c3e95",
+    "source_sha256_after": "aef892a103750f0c54d1f2c121907be836d40ca4bb59d5545cf842b7251c3e95",
+    "source_modified": false,
+    "isolated_copy_sha256_before_migration": "bfc9eb91b6551ac4c6556bc2746c160420b580a2b161d07b7a2cba9b9eb80775",
+    "isolated_copy_sha256_after_rehearsal": "248657f5d333b034e7b2a44a59cef51bd08c0256e6229d0b693e16dfb822e918",
+    "migration_from": 0,
+    "migration_to": 39,
+    "items_preserved": 62077,
+    "stories_preserved": 52956,
+    "change_log_records": 0,
+    "integrity": "ok",
+    "foreign_key_violations": 0
+  },
+  "snapshot": {
+    "resource_count": 9,
+    "record_count": 0,
+    "high_water": 0,
+    "clock_status": "unknown",
+    "manifest_sha256": "faba7362b2dc27aea5a867c27b091525d87ace0ccdd06d6cfb328b04e6fac269",
+    "all_resource_hashes": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "state": "ready"
+  },
+  "contract_checks": {
+    "high_water_read_from_completed_backup": true,
+    "concurrent_post_backup_write_excluded": true,
+    "latest_version_per_resource_id": true,
+    "stable_utf8_resource_order": true,
+    "jcs_page_and_resource_hashes": true,
+    "files_verified_before_atomic_publication": true,
+    "authorization_change_fails_closed": true,
+    "lost_or_expired_job_lease_fails_closed": true,
+    "ready_retry_is_idempotent": true,
+    "selected_projection_fails_closed_without_policy": true
+  },
+  "validation": {
+    "focused_tests": 10,
+    "python_3_11": {
+      "tests": 515,
+      "status": "passed"
+    },
+    "python_3_12": {
+      "tests": 515,
+      "status": "passed"
+    },
+    "docker": "passed",
+    "github_actions_runs": [
+      "https://github.com/jiangbosong123-netizen/infohub/actions/runs/36318201056",
+      "https://github.com/jiangbosong123-netizen/infohub/actions/runs/36318212510"
+    ],
+    "git_diff_check": "passed"
+  },
+  "interpretation": [
+    "The real legacy database has no published change_log records, so a correct public-projection snapshot contains nine empty resources even though legacy portal rows are preserved.",
+    "Populating reliable-sync resources requires the existing controlled backfill and publication gates; the worker does not silently export legacy internal tables."
+  ],
+  "delivery_boundary": {
+    "snapshot_http_api_enabled": false,
+    "changes_api_enabled": false,
+    "selected_projection_enabled": false,
+    "retention_cleanup_enabled": false,
+    "windows_production_changed": false
+  }
+}
