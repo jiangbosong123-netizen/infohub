@@ -1,0 +1,60 @@
+{
+  "captured_at": "2026-09-14T22:39:47.805910+00:00",
+  "kind": "HTTP smoke; not visual UI validation",
+  "results": [
+    {
+      "path": "/",
+      "http_status": "200",
+      "curl_exit": 0,
+      "duration_seconds": 0.99
+    },
+    {
+      "path": "/topics",
+      "http_status": "200",
+      "curl_exit": 0,
+      "duration_seconds": 1.6
+    },
+    {
+      "path": "/topics/openai",
+      "http_status": "200",
+      "curl_exit": 0,
+      "duration_seconds": 2.33
+    },
+    {
+      "path": "/hot",
+      "http_status": "200",
+      "curl_exit": 0,
+      "duration_seconds": 0.13
+    },
+    {
+      "path": "/daily",
+      "http_status": "200",
+      "curl_exit": 0,
+      "duration_seconds": 0.04
+    },
+    {
+      "path": "/search?q=OpenAI",
+      "http_status": "200",
+      "curl_exit": 0,
+      "duration_seconds": 0.25
+    },
+    {
+      "path": "/saved",
+      "http_status": "200",
+      "curl_exit": 0,
+      "duration_seconds": 0.04
+    },
+    {
+      "path": "/health",
+      "http_status": "200",
+      "curl_exit": 0,
+      "duration_seconds": 0.42
+    },
+    {
+      "path": "/api/v1/items",
+      "http_status": "404",
+      "curl_exit": 0,
+      "duration_seconds": 0.03
+    }
+  ]
+}
