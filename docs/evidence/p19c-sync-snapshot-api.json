@@ -1,0 +1,38 @@
+{
+  "phase": "P19c",
+  "scope": "Default-off principal-bound reliable-sync snapshot HTTP API",
+  "recorded_at": "2026-09-27T22:39:35.347756Z",
+  "feature_flag": "INFOHUB_API_SYNC_ENABLED",
+  "production_changed": false,
+  "validation": {
+    "python_3_11": {
+      "tests": 520,
+      "status": "passed"
+    },
+    "python_3_12": {
+      "tests": 520,
+      "status": "passed"
+    },
+    "real_database_isolated_rehearsal": {
+      "source_sha256_before": "8da138a00d97d046a8c4ae21cada2e823666ae6cdd71944c9feac8d8fbcc70be",
+      "source_sha256_after": "8da138a00d97d046a8c4ae21cada2e823666ae6cdd71944c9feac8d8fbcc70be",
+      "schema_from": 0,
+      "schema_to": 39,
+      "items_before": 63046,
+      "items_after": 63046,
+      "stories_before": 53720,
+      "stories_after": 53720,
+      "change_log_count": 0,
+      "snapshot_status": "ready",
+      "snapshot_high_water": 0,
+      "snapshot_manifest_count": 0,
+      "page_count": 0,
+      "page_sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+      "job_state": "succeeded",
+      "integrity_check": "ok",
+      "foreign_key_violations": 0,
+      "source_unchanged": true
+    }
+  },
+  "known_boundary": "Legacy rows are preserved but are not exported until they enter the formal publication change ledger; selected projection, incremental changes and retention remain later P19 units."
+}

@@ -40,7 +40,9 @@ scratch when no immutable rows were published.
 
 Only `research` projection is buildable. `selected` fails explicitly because no approved selection
 policy and selection-reason contract exist yet; returning research data under that label would be
-incorrect. P19c will create/status/download snapshots through authenticated APIs. P19d will add the
+incorrect. P19c creates, reports and reads snapshots through authenticated APIs behind the default-off
+`INFOHUB_API_SYNC_ENABLED` gate. Stored payload references remain private and every page is verified
+against the immutable ledger before delivery. P19d will add the
 change stream and signed resume cursor. Retention cleanup and end-to-end restore drills remain
 later P19 units. Windows production is unchanged.
 

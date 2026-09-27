@@ -18,6 +18,10 @@ _MESSAGES = {
     "epoch_changed": "The dataset epoch changed; restart this listing.",
     "invalid_parameter": "One or more query parameters are invalid.",
     "not_ready": "This API resource is not ready.",
+    "idempotency_conflict": "This idempotency key belongs to a different request.",
+    "snapshot_not_ready": "The snapshot is not ready.",
+    "snapshot_expired": "The snapshot has expired.",
+    "snapshot_limit_reached": "The snapshot creation limit has been reached.",
     "restricted_content": "The requested content is restricted.",
     "unsupported_history": "This historical read mode is not supported yet.",
 }
