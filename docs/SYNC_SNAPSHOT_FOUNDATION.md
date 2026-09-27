@@ -37,3 +37,6 @@ Migration 39 only creates empty tables, indexes and triggers. Existing `change_l
 identity, API consumers and knowledge checkpoints are unchanged. No route or worker is enabled,
 and Windows production remains unchanged until the full sync path passes consumer and restore
 drills.
+
+The isolated real-data migration and supported-runtime validation are recorded in
+[`p19a-sync-snapshot-foundation-migration.json`](evidence/p19a-sync-snapshot-foundation-migration.json).
