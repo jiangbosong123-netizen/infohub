@@ -1,0 +1,39 @@
+{
+  "phase": "P19d",
+  "scope": "Snapshot handoff to bounded reliable change feed",
+  "recorded_at": "2026-09-27T22:46:54.758363Z",
+  "production_changed": false,
+  "validation": {
+    "python_3_11": {
+      "tests": 524,
+      "status": "passed"
+    },
+    "python_3_12": {
+      "tests": 524,
+      "status": "passed"
+    },
+    "real_database_isolated_rehearsal": {
+      "source_sha256_before": "328cb768571bc3952670d4f770bc22f02e2b29d8878ef680cbbe4f584951b775",
+      "source_sha256_after": "328cb768571bc3952670d4f770bc22f02e2b29d8878ef680cbbe4f584951b775",
+      "schema_from": 0,
+      "schema_to": 39,
+      "items_before": 63046,
+      "items_after": 63046,
+      "stories_before": 53720,
+      "stories_after": 53720,
+      "change_log_count": 0,
+      "snapshot_status": "ready",
+      "snapshot_high_water": 0,
+      "resume_cursor_present": true,
+      "changes_returned": 0,
+      "changes_high_water": 0,
+      "has_more": false,
+      "next_cursor_present": true,
+      "job_state": "succeeded",
+      "integrity_check": "ok",
+      "foreign_key_violations": 0,
+      "source_unchanged": true
+    }
+  },
+  "known_boundary": "The current legacy database has no formal public changes, so the real-data feed is correctly empty. Physical 90-day retention and pruning are not implemented in this unit."
+}

@@ -16,6 +16,7 @@ from pydantic import BaseModel, ConfigDict, Field, JsonValue, field_validator
 
 from . import config
 from .api_auth import ApiPrincipal
+from .api_change_cursor import encode_change_cursor
 from .api_cursor import decode_cursor, encode_cursor
 from .jobs import _enqueue
 from .timeutil import format_utc, parse_utc
@@ -308,7 +309,7 @@ def get_snapshot(
     current = _now(now)
     if begin:
         db.execute("BEGIN")
-    _principal_row(db, principal, current)
+    key_expiry = _principal_row(db, principal, current)
     request = _owned_request(db, principal, snapshot_id)
     resources = json.loads(request["resources_json"])
     expired = parse_utc(request["expires_at"]) <= current
@@ -316,6 +317,7 @@ def get_snapshot(
     high_water = None
     cutoff = None
     entries: list[SnapshotManifestEntry] = []
+    resume_cursor = None
     if request["state"] == "ready":
         snapshot = db.execute("SELECT * FROM sync_snapshots WHERE id=?", (snapshot_id,)).fetchone()
         if snapshot is None:
@@ -328,11 +330,21 @@ def get_snapshot(
         cutoff = manifest.get("knowledge_cutoff")
         if not isinstance(cutoff, dict):
             raise SnapshotUnavailable("snapshot knowledge cutoff is invalid")
+        if not expired:
+            resume_cursor = encode_change_cursor(
+                db, principal, dataset_id=request["dataset_id"],
+                dataset_epoch=request["dataset_epoch"], resources=resources,
+                seq=high_water, now=current.timestamp(),
+                expires_at=min(
+                    int(key_expiry.timestamp()),
+                    int(current.timestamp()) + 90 * 24 * 60 * 60,
+                ),
+            )
     view = SnapshotView(
         id=request["id"], status=state, resources=resources,
         scope=request["projection_scope"], dataset_epoch=request["dataset_epoch"],
         high_water=high_water, knowledge_cutoff=cutoff, expires_at=request["expires_at"],
-        resume_cursor=None, manifest=entries, error_code=request["error_code"],
+        resume_cursor=resume_cursor, manifest=entries, error_code=request["error_code"],
         created_at=request["created_at"],
     )
     return SnapshotResponse(

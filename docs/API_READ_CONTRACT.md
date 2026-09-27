@@ -413,3 +413,16 @@ snapshot 和 resource；服务读取私有文件后核对路径边界、字节�
 过期页面返回 410，未 ready 返回 409，文件或账本不一致返回 503。`selected` 投影仍因没有获批
 选择策略而 fail closed。Windows 与生产未修改；正式发布账本为空时 API 会返回经过验证的空资源，
 不会把 legacy 内部表绕过发布流程导出。
+
+## P19d：可靠增量 changes API
+
+ready snapshot 的 `resume_cursor` 固定 key、consumer、`authz_version`、dataset/epoch、资源集合和
+snapshot 高水位 H。`GET /api/v1/changes` 只接受该签名 cursor 与 1–100 的 limit，逐条复核
+`payload_json` 的 RFC 8785/JCS SHA-256 后按 seq 升序返回。资源集合来自 snapshot，不接受临时筛选；
+每次读取仍核验所有对应资源 scope。
+
+返回始终包含新的 cursor、读取事务开始时的 high-water 和 `has_more`。达到本批末尾时 cursor 推进到
+最后返回 seq；已扫描完订阅资源时推进到当前 high-water，所以其他未订阅资源的 change 不会让客户端
+反复扫描同一区间。cursor 的 90 天上限不会因轮询续期，并且不会超过 API key 到期时间。key 互用、
+签名篡改返回 400，epoch 变化返回 409，到期返回 410，payload/hash 不一致返回 503。当前账本尚未执行
+物理 90 天清理；保留水位、清理任务及过期后重建演练属于下一单元。Windows 与生产未修改。
