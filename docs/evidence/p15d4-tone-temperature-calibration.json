@@ -1,0 +1,21 @@
+{
+  "phase": "P15d-4",
+  "scope": "Dev-fitted, versioned multiclass temperature calibration with independent test evaluation",
+  "recorded_at": "2026-09-28T22:30:00Z",
+  "production_changed": false,
+  "database_changed": false,
+  "paid_model_calls": 0,
+  "validated_behaviors": [
+    "Temperature is fitted only from a complete dev probability set.",
+    "An independent complete test run evaluates the frozen mapping.",
+    "Dev and test runs must share the exact model and configuration identity.",
+    "The content-addressed calibration version excludes all test inputs.",
+    "Test Brier, ECE and fixed reliability bins are reported before admission.",
+    "Admission requires publishable private gold, at least 200 dev and 200 test cases, non-regression and test ECE at most 0.10."
+  ],
+  "real_fit_cases": 0,
+  "real_test_cases": 0,
+  "real_calibration_version": null,
+  "admission_ready": false,
+  "known_boundary": "This creates and evaluates a mapping contract only. It does not run a model, enable calibrated confidence, change a publication pointer or deploy production."
+}
