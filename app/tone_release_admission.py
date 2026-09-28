@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import math
 from dataclasses import asdict, dataclass
 from pathlib import Path
 
@@ -30,6 +31,38 @@ ARTIFACT_KEYS = {
     "candidate_test_calibration_input",
     "candidate_test_operations",
     "candidate_security_run",
+}
+BUNDLE_CHECK_KEYS = {
+    "publishable_private_gold",
+    "test_reviewer_pair_complete",
+    "review_agreement_gate_eligible",
+    "polarity_kappa_at_least_0_70",
+    "candidate_model_comparison_passed",
+    "candidate_has_no_unreviewed_regression",
+    "temperature_calibration_admitted",
+    "operational_readiness_admitted",
+    "security_gate_passed",
+}
+BUNDLE_MEASUREMENT_KEYS = {
+    "test_cases",
+    "security_cases",
+    "polarity_cohen_kappa",
+    "candidate_macro_f1",
+    "candidate_unknown_recall",
+    "calibrated_test_ece",
+    "calibrated_test_brier",
+    "first_attempt_schema_rate",
+    "final_schema_rate",
+    "cost_microusd_per_100_cases",
+    "latency_ms_p95",
+    "policy_id",
+}
+BUNDLE_FIELDS = {
+    "bundle_version", "bundle_id", "dataset_version", "baseline_test_run_id",
+    "candidate_dev_run_id", "candidate_test_run_id", "candidate_security_run_id",
+    "calibration_version", "operational_run_id", "reviewer_a", "reviewer_b",
+    "artifact_sha256", "checks", "measurements",
+    "evidence_ready_for_human_review", "warnings",
 }
 
 
@@ -60,6 +93,107 @@ def _sha(path: Path) -> str:
     return hashlib.sha256(path.read_bytes()).hexdigest()
 
 
+def _valid_hashes(values: object) -> bool:
+    return isinstance(values, dict) and set(values) == ARTIFACT_KEYS and all(
+        isinstance(value, str)
+        and len(value) == 64
+        and all(character in "0123456789abcdef" for character in value)
+        for value in values.values()
+    )
+
+
+def _bundle_identity(payload: dict) -> dict:
+    return {
+        key: payload[key]
+        for key in (
+            "bundle_version", "dataset_version", "baseline_test_run_id",
+            "candidate_dev_run_id", "candidate_test_run_id", "candidate_security_run_id",
+            "calibration_version", "operational_run_id", "reviewer_a", "reviewer_b",
+            "artifact_sha256", "checks", "measurements",
+        )
+    }
+
+
+def _bundle_id(identity: dict) -> str:
+    digest = hashlib.sha256(
+        json.dumps(identity, sort_keys=True, separators=(",", ":"), allow_nan=False).encode()
+    ).hexdigest()
+    return f"tone-release-evidence-{digest[:24]}"
+
+
+def validate_tone_release_bundle(path: Path | str) -> dict:
+    try:
+        bundle = json.loads(Path(path).read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as exc:
+        raise EvaluationDatasetError("cannot read tone release evidence bundle") from exc
+    if (
+        not isinstance(bundle, dict)
+        or set(bundle) != BUNDLE_FIELDS
+        or bundle.get("bundle_version") != BUNDLE_VERSION
+        or not _valid_hashes(bundle.get("artifact_sha256"))
+        or not isinstance(bundle.get("checks"), dict)
+        or set(bundle["checks"]) != BUNDLE_CHECK_KEYS
+        or any(type(value) is not bool for value in bundle["checks"].values())
+        or not isinstance(bundle.get("measurements"), dict)
+        or set(bundle["measurements"]) != BUNDLE_MEASUREMENT_KEYS
+        or not isinstance(bundle.get("warnings"), list)
+        or any(not isinstance(item, str) or not item for item in bundle["warnings"])
+    ):
+        raise EvaluationDatasetError("invalid tone release evidence bundle")
+    for field in (
+        "dataset_version", "baseline_test_run_id", "candidate_dev_run_id",
+        "candidate_test_run_id", "candidate_security_run_id", "calibration_version",
+        "operational_run_id", "reviewer_a", "reviewer_b",
+    ):
+        if not isinstance(bundle.get(field), str) or not bundle[field].strip():
+            raise EvaluationDatasetError("invalid tone release evidence bundle identity")
+    measurements = bundle["measurements"]
+    for field in ("test_cases", "security_cases", "latency_ms_p95"):
+        value = measurements.get(field)
+        if isinstance(value, bool) or not isinstance(value, int) or value < 0:
+            raise EvaluationDatasetError("invalid tone release evidence measurements")
+    if measurements["test_cases"] <= 0 or measurements["security_cases"] <= 0:
+        raise EvaluationDatasetError("invalid tone release evidence measurements")
+    bounded = {
+        "polarity_cohen_kappa": (-1.0, 1.0),
+        "candidate_macro_f1": (0.0, 1.0),
+        "candidate_unknown_recall": (0.0, 1.0),
+        "calibrated_test_ece": (0.0, 1.0),
+        "calibrated_test_brier": (0.0, 2.0),
+        "first_attempt_schema_rate": (0.0, 1.0),
+        "final_schema_rate": (0.0, 1.0),
+    }
+    for field, (lower, upper) in bounded.items():
+        value = measurements.get(field)
+        if (
+            isinstance(value, bool)
+            or not isinstance(value, (int, float))
+            or not math.isfinite(value)
+            or not lower <= value <= upper
+        ):
+            raise EvaluationDatasetError("invalid tone release evidence measurements")
+    cost = measurements.get("cost_microusd_per_100_cases")
+    if (
+        isinstance(cost, bool)
+        or not isinstance(cost, (int, float))
+        or not math.isfinite(cost)
+        or cost < 0
+        or not isinstance(measurements.get("policy_id"), str)
+        or not measurements["policy_id"].strip()
+    ):
+        raise EvaluationDatasetError("invalid tone release evidence measurements")
+    ready = all(bundle["checks"].values())
+    if bundle.get("evidence_ready_for_human_review") is not ready:
+        raise EvaluationDatasetError("tone release evidence readiness differs from checks")
+    try:
+        expected_id = _bundle_id(_bundle_identity(bundle))
+    except (TypeError, ValueError) as exc:
+        raise EvaluationDatasetError("tone release evidence contains non-finite measurements") from exc
+    if bundle.get("bundle_id") != expected_id:
+        raise EvaluationDatasetError("tone release evidence bundle_id mismatch")
+    return bundle
+
+
 def assess_tone_release_evidence(
     dataset: ToneEvaluationReport,
     agreement: ToneAgreementReport,
@@ -70,12 +204,7 @@ def assess_tone_release_evidence(
     *,
     artifact_sha256: dict[str, str],
 ) -> ToneReleaseEvidenceBundle:
-    if set(artifact_sha256) != ARTIFACT_KEYS or any(
-        not isinstance(value, str)
-        or len(value) != 64
-        or any(character not in "0123456789abcdef" for character in value)
-        for value in artifact_sha256.values()
-    ):
+    if not _valid_hashes(artifact_sha256):
         raise EvaluationDatasetError("tone release evidence requires exact artifact hashes")
     versions = {
         dataset.dataset_version,
@@ -151,11 +280,7 @@ def assess_tone_release_evidence(
         "checks": checks,
         "measurements": measurements,
     }
-    digest = hashlib.sha256(
-        json.dumps(
-            identity, sort_keys=True, separators=(",", ":"), allow_nan=False
-        ).encode()
-    ).hexdigest()
+    bundle_id = _bundle_id(identity)
     warnings = []
     if not ready:
         warnings.append("tone evidence bundle is incomplete; valid publication remains blocked")
@@ -163,7 +288,7 @@ def assess_tone_release_evidence(
     warnings.append("this bundle does not write analysis results or move a publication pointer")
     return ToneReleaseEvidenceBundle(
         BUNDLE_VERSION,
-        f"tone-release-evidence-{digest[:24]}",
+        bundle_id,
         dataset.dataset_version,
         comparison.baseline_run_id,
         calibration.fit_prediction_run_id,
