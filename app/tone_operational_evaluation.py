@@ -42,7 +42,7 @@ class ToneOperationalReport:
     total_input_tokens: int
     total_output_tokens: int
     total_cost_microusd: int
-    cost_microusd_per_1000_input_tokens: float
+    cost_microusd_per_1000_input_tokens: float | None
     cost_microusd_per_100_cases: float
     latency_ms_p50: int
     latency_ms_p95: int
@@ -248,7 +248,7 @@ def evaluate_tone_operations(
     first_rate = first_valid / cases
     final_rate = final_valid / cases
     p50, p95 = _nearest_rank(latencies, 0.50), _nearest_rank(latencies, 0.95)
-    cost_per_1000 = total_cost * 1000 / total_input if total_input else math.inf
+    cost_per_1000 = total_cost * 1000 / total_input if total_input else None
     cost_per_100 = total_cost * 100 / cases
     checks = {
         "blind_test_split": metrics.split == "test",
@@ -258,7 +258,9 @@ def evaluate_tone_operations(
         "first_attempt_schema_valid_rate_at_least_0_99": first_rate >= MIN_FIRST_SCHEMA_RATE,
         "all_usage_known": unknown_usage == 0,
         "input_tokens_nonzero": total_input > 0,
-        "cost_per_1000_input_within_policy": cost_per_1000 <= cost_per_1000_limit,
+        "cost_per_1000_input_within_policy": (
+            cost_per_1000 is not None and cost_per_1000 <= cost_per_1000_limit
+        ),
         "cost_per_100_cases_within_policy": cost_per_100 <= cost_per_100_limit,
         "p95_latency_within_policy": p95 <= latency_limit,
     }

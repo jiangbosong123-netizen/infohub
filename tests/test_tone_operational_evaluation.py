@@ -153,6 +153,17 @@ class ToneOperationalEvaluationTests(unittest.TestCase):
         self.assertEqual(report.total_input_tokens, 100)
         self.assertFalse(report.checks["all_usage_known"])
 
+    def test_all_unknown_usage_emits_null_cost_rate_not_infinity(self):
+        rows = [
+            self.attempt(case["case_id"], 1, usage_status="unknown")
+            for case in self.cases
+        ]
+        report = evaluate_tone_operations(DATASET, self.run_path, self.write_operations(rows))
+        self.assertIsNone(report.cost_microusd_per_1000_input_tokens)
+        self.assertFalse(report.checks["input_tokens_nonzero"])
+        self.assertFalse(report.checks["cost_per_1000_input_within_policy"])
+        self.assertNotIn("Infinity", json.dumps(report.to_dict(), allow_nan=False))
+
     def test_rejects_bad_sequences_fields_timestamps_and_hashes(self):
         cases = []
         rows = json.loads(json.dumps(self.rows))

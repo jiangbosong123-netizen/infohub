@@ -98,6 +98,8 @@ raw_confidence 是未校准模型自报值，可为 null。P15a 拒绝任何非�
    retry 和 repair 纳入结构成功率、token、费用与延迟门槛；P15d-6 将同候选的 security split 独立评估，任何
    已知安全错误都不能由 test 平均分抵消。尚未运行真实模型、生成真实 calibration version、审批实际预算或
    形成质量/安全结论。
-4. P15e：达到 SPEC 门槛后，以新 admission 记录开放 `valid`；shadow 切换，不覆盖旧结果。
+4. P15e：P15e-1 已建立从冻结原始材料重算 agreement、comparison、calibration、operations 和 security 的
+   content-bound evidence bundle；材料齐备仍不等于批准。后续由独立授权人绑定 exact bundle 作 admission 决定，
+   再以新记录开放 `valid` 并 shadow 切换，不覆盖旧结果。
 
 任何阶段失败都只关闭新的 tone publication；不可变输入、attempt、旧结果和人工修正继续保留。
