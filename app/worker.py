@@ -209,13 +209,14 @@ def _topic_statistics_refresh() -> dict:
     return {"batches": batches, **report.to_dict()}
 
 
-def _sync_snapshot(job: JobRecord) -> dict:
+def _sync_snapshot(job: JobRecord, *, now: datetime | str | None = None) -> dict:
     from .sync_snapshots import build_sync_snapshot
     snapshot_id = job.payload.get("snapshot_id")
     if not isinstance(snapshot_id, str) or not snapshot_id:
         raise ValueError("sync snapshot job requires snapshot_id")
+    current = format_utc(now) if isinstance(now, datetime) else now
     return build_sync_snapshot(
-        snapshot_id, job_id=job.id, lease_token=job.lease_token or ""
+        snapshot_id, job_id=job.id, lease_token=job.lease_token or "", now=current
     ).to_dict()
 
 
@@ -263,7 +264,7 @@ def execute_claimed_job(
 ) -> JobRecord:
     handler = (handlers or default_handlers()).get(job.kind)
     if handlers is None and job.kind == "sync-snapshot":
-        handler = lambda: _sync_snapshot(job)
+        handler = lambda: _sync_snapshot(job, now=now)
     if handler is None:
         return fail_job(
             job.id, job.lease_token or "", error_code="unknown_job_kind",
