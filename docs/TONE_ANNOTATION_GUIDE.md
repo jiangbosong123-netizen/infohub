@@ -83,7 +83,8 @@ HTML/PDF 必须先产生版本化规范文本 artifact，offset 指向该 artifa
 `app.tone_review_intake`，对第一、第二名人工 reviewer 使用完整 tone 契约并始终保留 provisional 状态；详见
 `TONE_REVIEW_INTAKE.md`。P15c-3 的 `app.tone_review_agreement` 按固定 reviewer pair 报 polarity κ 和各结构
 组件的一致率；详见 `TONE_REVIEW_AGREEMENT.md`。tone 专用第三人裁定工具仍留给后续独立 PR。
-`app.tone_evaluation` 对 provisional review 和最终 labels 使用同一结构校验。
+P15c-4 的 `app.tone_adjudication` 要求与两名 reviewer 不同的第三人冻结最终标签；详见
+`TONE_ADJUDICATION.md`。`app.tone_evaluation` 对 provisional review 和最终 labels 使用同一结构校验。
 
 ## 6. 正式数据集放行
 

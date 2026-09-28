@@ -1,0 +1,44 @@
+{
+  "phase": "P15c-4",
+  "scope": "Third-person human tone adjudication into an immutable private dataset version",
+  "recorded_at": "2026-09-28T16:53:02Z",
+  "production_changed": false,
+  "database_changed": false,
+  "paid_model_calls": 0,
+  "validation": {
+    "python_3_11": {
+      "tests": 585,
+      "status": "passed_serially"
+    },
+    "python_3_12": {
+      "tests": 585,
+      "status": "passed_serially"
+    },
+    "synthetic_private_adjudication_drill": {
+      "batch_schema": "human-tone-adjudication-batch-v1",
+      "source_manifest_hash_binding": "passed",
+      "source_cases_hash_binding": "passed",
+      "content_hash_binding": "passed",
+      "two_distinct_reviews_required": "passed",
+      "third_person_required": "passed",
+      "decision_after_reviews_required": "passed",
+      "complete_tone_label_validation": "passed",
+      "human_no_model_attestation": "passed",
+      "reason_required": "passed",
+      "original_reviews_preserved": "passed",
+      "old_private_evidence_signature_removed": "passed",
+      "failure_leaves_no_output": "passed",
+      "publishable_tone_gold": false
+    },
+    "github_ci": {
+      "status": "required_pr_gate",
+      "required_jobs": [
+        "docker",
+        "regression_python_3_11",
+        "regression_python_3_12"
+      ],
+      "note": "Verify the checks attached to the final PR head before merge."
+    }
+  },
+  "known_boundary": "Adjudication creates a final human label but does not by itself create a publishable gold corpus. Real restricted-text sampling, exact private evidence review, sufficient slice support, model baselines, calibration, release admission and Windows production remain separate."
+}

@@ -28,6 +28,8 @@ python -c "from app.tone_evaluation import validate_tone_evaluation_dataset as v
 [`docs/TONE_REVIEW_INTAKE.md`](../docs/TONE_REVIEW_INTAKE.md)。两份意见仍不是最终 gold。
 固定 reviewer pair 的 polarity κ 与结构组件一致性报告见
 [`docs/TONE_REVIEW_AGREEMENT.md`](../docs/TONE_REVIEW_AGREEMENT.md)。
+第三名独立 adjudicator 冻结最终标签的流程见
+[`docs/TONE_ADJUDICATION.md`](../docs/TONE_ADJUDICATION.md)。裁定后仍须重新做私有 evidence review。
 
 标注定义见 [ANNOTATION_GUIDE_V1.md](ANNOTATION_GUIDE_V1.md)。分类基线报告必须同时输出 confusion、逐类 support、macro F1、coverage、abstain、missing 和 Wilson 95% 区间。
 
