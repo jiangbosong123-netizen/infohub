@@ -1,0 +1,18 @@
+{
+  "phase": "P15d-6",
+  "scope": "Separate fail-closed security-split gate for a frozen tone candidate",
+  "recorded_at": "2026-09-28T23:40:00Z",
+  "production_changed": false,
+  "database_changed": false,
+  "paid_model_calls": 0,
+  "validated_behaviors": [
+    "Test and security runs require the same exact candidate method identity and distinct run IDs.",
+    "Security cases remain separate from natural-distribution quality metrics.",
+    "At least 50 complete, non-abstained security predictions are required.",
+    "Any security error blocks the gate and cannot be offset by average test quality.",
+    "Prompt-injection support and perfect performance for every present security phenomenon are explicit checks."
+  ],
+  "real_security_cases": 0,
+  "security_gate_passed": false,
+  "known_boundary": "This checks a frozen known security set only. It does not prove resistance to unknown attacks, call a model, enable publication or deploy production."
+}

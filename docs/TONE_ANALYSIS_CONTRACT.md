@@ -95,8 +95,9 @@ raw_confidence 是未校准模型自报值，可为 null。P15a 拒绝任何非�
    hash-bound prediction run 与确定性指标/切片契约；P15d-2 已建立同数据集的基线/候选绝对门槛和 2 个百分点
    退化检查；P15d-3 已建立完整五分类概率的 Brier/ECE/reliability 评估与 200 条 held-out 门槛；P15d-4
    只用 dev 拟合版本化 temperature mapping，再在独立 test 上复评且 test 不进入版本；P15d-5 把全部失败、
-   retry 和 repair 纳入结构成功率、token、费用与延迟门槛。尚未运行真实模型、生成真实 calibration version、
-   审批实际预算或形成质量结论。
+   retry 和 repair 纳入结构成功率、token、费用与延迟门槛；P15d-6 将同候选的 security split 独立评估，任何
+   已知安全错误都不能由 test 平均分抵消。尚未运行真实模型、生成真实 calibration version、审批实际预算或
+   形成质量/安全结论。
 4. P15e：达到 SPEC 门槛后，以新 admission 记录开放 `valid`；shadow 切换，不覆盖旧结果。
 
 任何阶段失败都只关闭新的 tone publication；不可变输入、attempt、旧结果和人工修正继续保留。
