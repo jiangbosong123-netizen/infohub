@@ -11,6 +11,7 @@ review 中核实；候选模型不能靠提交一份宽松 policy 自行批准�
 provider 调用失败后只能 retry，调用成功但 schema 不合格后只能 repair；尝试不能重叠，得到有效结果后不能继续调用。
 每条 attempt 保存带时区的毫秒时间、状态、schema_valid、usage 状态、input/output token 和微美元费用。unknown
 usage 的三个数值必须全部为 null，并阻断放行。p50/p95 使用包括失败调用在内的 attempt 延迟 nearest-rank。
+当所有 input usage 都未知时，每 1000 input token 的费用率输出 null，不输出非标准 JSON Infinity。
 
 ```bash
 python -m app.tone_operational_evaluation \

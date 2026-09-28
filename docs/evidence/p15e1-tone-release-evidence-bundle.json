@@ -1,0 +1,19 @@
+{
+  "phase": "P15e-1",
+  "scope": "Recomputed, content-bound tone release evidence bundle",
+  "recorded_at": "2026-09-29T00:20:00Z",
+  "production_changed": false,
+  "database_changed": false,
+  "paid_model_calls": 0,
+  "validated_behaviors": [
+    "Agreement, comparison, calibration, operations and security gates are recomputed from frozen source artifacts.",
+    "Every report must use the same dataset version and exact candidate test run.",
+    "Agreement, calibration and operations must share the test denominator.",
+    "The deterministic bundle ID binds dataset, run, calibration-input and operations-manifest SHA-256 values.",
+    "Any failed prerequisite keeps evidence readiness closed.",
+    "Evidence readiness remains separate from an authorized human release decision."
+  ],
+  "real_bundle_id": null,
+  "evidence_ready_for_human_review": false,
+  "known_boundary": "This assembles release evidence only. It does not constitute approval, enable valid tone publication, call a model, change the database or deploy production."
+}
