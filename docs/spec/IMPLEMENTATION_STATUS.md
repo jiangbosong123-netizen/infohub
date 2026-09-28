@@ -27,6 +27,10 @@ the implementation PR series proceeded. It was restored on 2026-09-27 after `mai
   review-only: `valid` is rejected until CAS quote verification and the fixed evaluation admission
   are implemented. Declared target/speaker IDs are checked against the entity catalog in the same
   publication transaction. No model, historical tone output or production task has been enabled.
+- P15b advances new tone runs to `infohub.tone/1.1`. Its JSON Pointer locators are verified against
+  hash-checked UTF-8 raw CAS payloads before publication writes, and the verification hashes are retained in
+  the result report. Version 1.0 stays readable but is not eligible for new runs or quote-verification
+  claims. HTML/PDF normalized text locators and the P15 evaluation dataset remain absent.
 - P16 impact, P20 macro and sentiment outputs, the remaining portal cutover and final Windows
   consumer drills are later phases. A target endpoint in `openapi.yaml` is not proof that its route
   exists.

@@ -1,3 +1,4 @@
+import json
 import tempfile
 import unittest
 from datetime import datetime, timezone
@@ -8,7 +9,7 @@ from app import config, database
 from app.analysis_runs import AnalysisInput, AnalysisRunError, prepare_analysis_run
 from app.analysis_attempts import authorize_attempt, record_attempt, register_budget_policy
 from app.analysis_results import publish_analysis_result
-from app.tone_contracts import TONE_SCHEMA_VERSION
+from app.tone_contracts import TONE_SCHEMA_V1, TONE_SCHEMA_VERSION
 from app.ingest import audit_evidence_payloads, begin_ingest_run, observe_candidate, store_payload
 from app.jobs import claim_job, enqueue_job
 
@@ -25,7 +26,7 @@ class AnalysisRunTests(unittest.TestCase):
   with database.get_db() as db:
    db.execute("INSERT INTO sources(key,name,channel,tier,type,url) VALUES('fixture','Fixture','ai','media','rss','https://example.com/feed')")
   source={"key":"fixture","name":"Fixture","channel":"ai","tier":"media","type":"rss","url":"https://example.com/feed","interval_minutes":30}
-  candidate={"url":"https://example.com/a","title":"A","summary":"Evidence","published_at":T0.isoformat(),"observed_at":T0.isoformat(),"source_record":{"id":"a"},"payload_kind":"feed_entry"}
+  candidate={"url":"https://example.com/a","title":"A","summary":"Evidence","published_at":T0.isoformat(),"observed_at":T0.isoformat(),"source_record":{"id":"a","summary":"Evidence"},"payload_kind":"feed_entry"}
   run=begin_ingest_run(source,started_at=T0.isoformat()); observation=observe_candidate(run,candidate,ordinal=0,observed_at=T0.isoformat())
   from app.crawler.runner import insert_item
   self.assertTrue(insert_item("fixture",candidate,observation=observation))
@@ -76,6 +77,8 @@ class AnalysisRunTests(unittest.TestCase):
   job=self.job("tone-contract")
   with self.assertRaisesRegex(AnalysisRunError,"registered output schema"):
    self.prepare(job,task_type="tone",output_schema_version="tone-draft/0.1",idempotency_key="analysis:tone-bad")
+  with self.assertRaisesRegex(AnalysisRunError,"registered output schema"):
+   self.prepare(job,task_type="tone",output_schema_version=TONE_SCHEMA_V1,idempotency_key="analysis:tone-old")
   with self.assertRaisesRegex(AnalysisRunError,"document version subject"):
    self.prepare(job,task_type="tone",output_schema_version=TONE_SCHEMA_VERSION,
                 subject_type="event",subject_version_id="event-v1",idempotency_key="analysis:tone-event")
@@ -125,23 +128,32 @@ class AnalysisRunTests(unittest.TestCase):
     "speaker":{"kind":"author","entity_id":None,"label":"Publisher"},
     "target":{"entity_id":"organization:example","type":"organization"},
     "aspect":"business_outlook","polarity":"positive","intensity":0.6,
-    "evidence":[{"evidence_id":self.raw,"quote":"Evidence","start_offset":0,"end_offset":8}],
+    "evidence":[{"evidence_id":self.raw,"quote":"Evidence","locator":{"type":"json_pointer","json_pointer":"/source_record/summary","start_offset":0,"end_offset":8,"offset_unit":"unicode_code_point"}}],
     "confidence":{"raw_confidence":0.7,"calibrated_confidence":None,
                   "calibration_version":None,"uncertainty_reason":None}}]}}
   with database.get_db() as db:
    dataset_id=db.execute("SELECT dataset_id FROM dataset_state WHERE singleton=1").fetchone()[0]
    db.execute("INSERT INTO entities(id,dataset_id,type,status,created_at) VALUES(?,?,?,?,?)",
               ("organization:example",dataset_id,"organization","active",T0.isoformat()))
+  bad=json.loads(json.dumps(output)); bad["data"]["assessments"][0]["evidence"][0]["quote"]="Fabricat"
+  with self.assertRaisesRegex(AnalysisRunError,"does not match the frozen payload"):
+   publish_analysis_result(job_id=job.id,lease_token=job.lease_token,
+    expected_input_version=self.doc,run_id=run.id,attempt_id=attempt.id,
+    validated_output=bad,review_status="unreviewed",evidence_status="partial",
+    idempotency_key="result:tone-bad-quote",now=T0)
   publish_analysis_result(job_id=job.id,lease_token=job.lease_token,
    expected_input_version=self.doc,run_id=run.id,attempt_id=attempt.id,
    validated_output=output,review_status="unreviewed",evidence_status="partial",
    idempotency_key="result:tone-result",now=T0)
   with database.get_db() as db:
-   result=db.execute("SELECT result_status,validated_output_json FROM analysis_results").fetchone()
+   result=db.execute("SELECT result_status,validated_output_json,validation_report_json FROM analysis_results").fetchone()
    publication=db.execute("SELECT review_status,evidence_status FROM analysis_publication_versions").fetchone()
   self.assertEqual((result["result_status"],publication["review_status"],publication["evidence_status"]),
                    ("needs_review","unreviewed","partial"))
   self.assertIn('"vocabulary_version":"tone-vocabulary-v1"',result["validated_output_json"])
+  report=json.loads(result["validation_report_json"])
+  self.assertEqual(report["task_validation"]["status"],"passed")
+  self.assertEqual(len(report["task_validation"]["spans"]),1)
 
  def test_tone_result_rejects_unknown_or_mistyped_catalog_entities(self):
   job,run,attempt=self.completed_attempt(
@@ -153,7 +165,7 @@ class AnalysisRunTests(unittest.TestCase):
     "speaker":{"kind":"author","entity_id":None,"label":"Publisher"},
     "target":{"entity_id":"organization:missing","type":"organization"},
     "aspect":"business_outlook","polarity":"positive","intensity":0.6,
-    "evidence":[{"evidence_id":self.raw,"quote":"Evidence","start_offset":0,"end_offset":8}],
+    "evidence":[{"evidence_id":self.raw,"quote":"Evidence","locator":{"type":"json_pointer","json_pointer":"/source_record/summary","start_offset":0,"end_offset":8,"offset_unit":"unicode_code_point"}}],
     "confidence":{"raw_confidence":0.7,"calibrated_confidence":None,
                   "calibration_version":None,"uncertainty_reason":None}}]}}
   with self.assertRaisesRegex(AnalysisRunError,"does not exist in the entity catalog"):

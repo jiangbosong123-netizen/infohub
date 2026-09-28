@@ -10,6 +10,7 @@ raw/calibrated confidence 和 intensity 必须位于 0..1。NaN、坏 JSON、伪
 与 durable job 完成由一个事务提交。同一 run 不覆盖旧结果；模型比较应创建不同 run。
 
 本阶段验证通用信封与证据安全。translation、relevance、summarization、importance 已有专用
-策展契约；tone 从 P15a 起使用 `infohub.tone/1.0` 严格契约，具体边界见
-[TONE_ANALYSIS_CONTRACT.md](TONE_ANALYSIS_CONTRACT.md)。impact 等其余任务的专用字段约束随对应
+策展契约；tone 从 P15b 起新 run 使用 `infohub.tone/1.1` 严格契约并逐字核验 raw CAS 引用，1.0
+仅保留兼容读取；具体边界见 [TONE_ANALYSIS_CONTRACT.md](TONE_ANALYSIS_CONTRACT.md) 和
+[TONE_EVIDENCE_VERIFICATION.md](TONE_EVIDENCE_VERIFICATION.md)。impact 等其余任务的专用字段约束随对应
 能力 PR 增加。未通过固定评估集前，出现结构合法结果也不表示模型质量已达标。

@@ -6,7 +6,9 @@ from collections.abc import Mapping
 
 from .analysis_runs import AnalysisRunError
 
-TONE_SCHEMA_VERSION = "infohub.tone/1.0"
+TONE_SCHEMA_V1 = "infohub.tone/1.0"
+TONE_SCHEMA_VERSION = "infohub.tone/1.1"
+TONE_SCHEMA_VERSIONS = {TONE_SCHEMA_V1, TONE_SCHEMA_VERSION}
 TONE_VOCABULARY_VERSION = "tone-vocabulary-v1"
 
 POLARITIES = {"positive", "negative", "neutral", "mixed", "unknown"}
@@ -112,14 +114,7 @@ def _target(value: object) -> dict | None:
     }
 
 
-def _evidence(value: object, allowed_evidence: set[str]) -> dict:
-    if not isinstance(value, Mapping):
-        raise AnalysisRunError("tone evidence span must be an object")
-    _exact_keys(value, {"evidence_id", "quote", "start_offset", "end_offset"})
-    evidence_id = _text(value["evidence_id"], "tone evidence_id", 128)
-    if evidence_id not in allowed_evidence:
-        raise AnalysisRunError(f"tone assessment references unknown evidence ID: {evidence_id}")
-    quote = _verbatim(value["quote"], "tone evidence quote", 2_000)
+def _offsets(value: Mapping[str, object], quote: str) -> tuple[int, int]:
     start = value["start_offset"]
     end = value["end_offset"]
     if isinstance(start, bool) or not isinstance(start, int) or start < 0:
@@ -128,11 +123,55 @@ def _evidence(value: object, allowed_evidence: set[str]) -> dict:
         raise AnalysisRunError("tone evidence end_offset must be greater than start_offset")
     if end - start != len(quote):
         raise AnalysisRunError("tone evidence offsets must match quote length")
+    return start, end
+
+
+def _json_locator(value: object, quote: str) -> dict:
+    if not isinstance(value, Mapping):
+        raise AnalysisRunError("tone evidence locator must be an object")
+    _exact_keys(
+        value, {"type", "json_pointer", "start_offset", "end_offset", "offset_unit"}
+    )
+    if value["type"] != "json_pointer":
+        raise AnalysisRunError("tone evidence locator type must be json_pointer")
+    if value["offset_unit"] != "unicode_code_point":
+        raise AnalysisRunError("tone evidence offset_unit must be unicode_code_point")
+    pointer = _text(value["json_pointer"], "tone evidence json_pointer", 1_000)
+    if not pointer.startswith("/"):
+        raise AnalysisRunError("tone evidence json_pointer must start with /")
+    start, end = _offsets(value, quote)
+    return {
+        "type": "json_pointer",
+        "json_pointer": pointer,
+        "start_offset": start,
+        "end_offset": end,
+        "offset_unit": "unicode_code_point",
+    }
+
+
+def _evidence(value: object, allowed_evidence: set[str], schema_version: str) -> dict:
+    if not isinstance(value, Mapping):
+        raise AnalysisRunError("tone evidence span must be an object")
+    if schema_version == TONE_SCHEMA_V1:
+        _exact_keys(value, {"evidence_id", "quote", "start_offset", "end_offset"})
+    else:
+        _exact_keys(value, {"evidence_id", "quote", "locator"})
+    evidence_id = _text(value["evidence_id"], "tone evidence_id", 128)
+    if evidence_id not in allowed_evidence:
+        raise AnalysisRunError(f"tone assessment references unknown evidence ID: {evidence_id}")
+    quote = _verbatim(value["quote"], "tone evidence quote", 2_000)
+    if schema_version == TONE_SCHEMA_V1:
+        start, end = _offsets(value, quote)
+        return {
+            "evidence_id": evidence_id,
+            "quote": quote,
+            "start_offset": start,
+            "end_offset": end,
+        }
     return {
         "evidence_id": evidence_id,
         "quote": quote,
-        "start_offset": start,
-        "end_offset": end,
+        "locator": _json_locator(value["locator"], quote),
     }
 
 
@@ -167,7 +206,7 @@ def _confidence(value: object) -> dict:
     }
 
 
-def _assessment(value: object, allowed_evidence: set[str]) -> dict:
+def _assessment(value: object, allowed_evidence: set[str], schema_version: str) -> dict:
     if not isinstance(value, Mapping):
         raise AnalysisRunError("tone assessment must be an object")
     _exact_keys(
@@ -192,8 +231,16 @@ def _assessment(value: object, allowed_evidence: set[str]) -> dict:
     evidence = value["evidence"]
     if not isinstance(evidence, list) or not evidence:
         raise AnalysisRunError("tone assessment evidence must be a non-empty list")
-    clean_evidence = [_evidence(item, allowed_evidence) for item in evidence]
-    keys = [(item["evidence_id"], item["start_offset"], item["end_offset"]) for item in clean_evidence]
+    clean_evidence = [_evidence(item, allowed_evidence, schema_version) for item in evidence]
+    keys = [
+        (
+            item["evidence_id"],
+            item.get("locator", {}).get("json_pointer"),
+            item.get("start_offset", item.get("locator", {}).get("start_offset")),
+            item.get("end_offset", item.get("locator", {}).get("end_offset")),
+        )
+        for item in clean_evidence
+    ]
     if len(keys) != len(set(keys)):
         raise AnalysisRunError("tone assessment contains duplicate evidence spans")
     target = _target(value["target"])
@@ -210,7 +257,9 @@ def _assessment(value: object, allowed_evidence: set[str]) -> dict:
     }
 
 
-def validate_tone_data(*, status: str, data: object, allowed_evidence: set[str]) -> dict:
+def validate_tone_data(
+    *, schema_version: str, status: str, data: object, allowed_evidence: set[str]
+) -> dict:
     """Validate tone output while the task remains review-only and uncalibrated."""
     if not isinstance(data, Mapping):
         raise AnalysisRunError("tone data must be an object")
@@ -227,7 +276,7 @@ def validate_tone_data(*, status: str, data: object, allowed_evidence: set[str])
     assessments = data["assessments"]
     if not isinstance(assessments, list) or not assessments:
         raise AnalysisRunError("tone assessments must be a non-empty list")
-    clean = [_assessment(item, allowed_evidence) for item in assessments]
+    clean = [_assessment(item, allowed_evidence, schema_version) for item in assessments]
     return {"vocabulary_version": TONE_VOCABULARY_VERSION, "assessments": clean}
 
 

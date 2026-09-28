@@ -3,7 +3,7 @@ import unittest
 from app.analysis_results import _validate_output
 from app.analysis_runs import AnalysisRunError
 from app.analysis_contracts import validate_analysis_data
-from app.tone_contracts import TONE_SCHEMA_VERSION, TONE_VOCABULARY_VERSION
+from app.tone_contracts import TONE_SCHEMA_V1, TONE_SCHEMA_VERSION, TONE_VOCABULARY_VERSION
 
 
 def tone_data(**assessment_changes):
@@ -16,8 +16,13 @@ def tone_data(**assessment_changes):
         "evidence": [{
             "evidence_id": "raw-1",
             "quote": "Demand improved.",
-            "start_offset": 10,
-            "end_offset": 26,
+            "locator": {
+                "type": "json_pointer",
+                "json_pointer": "/source_record/summary",
+                "start_offset": 10,
+                "end_offset": 26,
+                "offset_unit": "unicode_code_point",
+            },
         }],
         "confidence": {
             "raw_confidence": 0.8,
@@ -41,13 +46,17 @@ class ToneContractTests(unittest.TestCase):
         )
         assessment = clean["assessments"][0]
         self.assertEqual(assessment["polarity"], "positive")
-        self.assertEqual(assessment["evidence"][0]["start_offset"], 10)
+        self.assertEqual(assessment["evidence"][0]["locator"]["start_offset"], 10)
         self.assertEqual(assessment["confidence"]["raw_confidence"], 0.8)
 
     def test_verbatim_quote_whitespace_is_preserved(self):
         evidence = [{
             "evidence_id": "raw-1", "quote": " Demand improved. ",
-            "start_offset": 9, "end_offset": 27,
+            "locator": {
+                "type": "json_pointer", "json_pointer": "/source_record/summary",
+                "start_offset": 9, "end_offset": 27,
+                "offset_unit": "unicode_code_point",
+            },
         }]
         clean = validate_analysis_data(
             task_type="tone", schema_version=TONE_SCHEMA_VERSION, status="needs_review",
@@ -102,12 +111,20 @@ class ToneContractTests(unittest.TestCase):
             validate_analysis_data(
                 task_type="tone", schema_version=TONE_SCHEMA_VERSION, status="needs_review",
                 data=tone_data(evidence=[{
-                    "evidence_id": "raw-2", "quote": "A", "start_offset": 0, "end_offset": 1,
+                    "evidence_id": "raw-2", "quote": "A", "locator": {
+                        "type": "json_pointer", "json_pointer": "/source_record/summary",
+                        "start_offset": 0, "end_offset": 1,
+                        "offset_unit": "unicode_code_point",
+                    },
                 }]), allowed_evidence={"raw-1"},
             )
         bad_span = [{
             "evidence_id": "raw-1", "quote": "Demand improved.",
-            "start_offset": 10, "end_offset": 25,
+            "locator": {
+                "type": "json_pointer", "json_pointer": "/source_record/summary",
+                "start_offset": 10, "end_offset": 25,
+                "offset_unit": "unicode_code_point",
+            },
         }]
         with self.assertRaisesRegex(AnalysisRunError, "match quote length"):
             validate_analysis_data(
@@ -153,6 +170,18 @@ class ToneContractTests(unittest.TestCase):
                 task_type="impact", schema_version=TONE_SCHEMA_VERSION,
                 status="needs_review", data=tone_data(), allowed_evidence={"raw-1"},
             )
+
+    def test_v1_review_shape_remains_readable_but_cannot_be_prepared_for_new_runs(self):
+        legacy = tone_data()
+        legacy["assessments"][0]["evidence"] = [{
+            "evidence_id": "raw-1", "quote": "Demand improved.",
+            "start_offset": 10, "end_offset": 26,
+        }]
+        clean = validate_analysis_data(
+            task_type="tone", schema_version=TONE_SCHEMA_V1, status="needs_review",
+            data=legacy, allowed_evidence={"raw-1"},
+        )
+        self.assertEqual(clean["assessments"][0]["evidence"][0]["start_offset"], 10)
         with self.assertRaisesRegex(AnalysisRunError, "tone schema does not match"):
             validate_analysis_data(
                 task_type="tone", schema_version="tone-draft/0.1",

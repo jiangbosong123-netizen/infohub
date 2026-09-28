@@ -11,7 +11,11 @@ from .analysis_runs import AnalysisRunError
 from .database import get_db
 from .event_relations import _existing_change, _retry_persist_should_not_run, _stable_id
 from .publication import ChangeRequest, PublishedChange, PublicationResult, publish_job_result
-from .analysis_contracts import referenced_analysis_entities, validate_analysis_data
+from .analysis_contracts import (
+    referenced_analysis_entities,
+    validate_analysis_data,
+    verify_analysis_evidence,
+)
 
 CONFIDENCE_KEYS={"confidence","raw_confidence","calibrated_confidence","intensity"}
 RESULT_STATUSES={"valid","needs_review","insufficient_evidence","refused"}
@@ -67,6 +71,16 @@ def _validate_output(run,output:Mapping[str,object],allowed_evidence:set[str]):
  return clean,sorted(referenced),status
 
 
+def _validate_entity_references(db, *, task_type: str, data: dict) -> None:
+ for entity_id,expected_type,field in referenced_analysis_entities(
+     task_type=task_type,data=data
+ ):
+  entity=db.execute("SELECT type FROM entities WHERE id=?",(entity_id,)).fetchone()
+  if entity is None: raise AnalysisRunError(f"{field} does not exist in the entity catalog")
+  if expected_type is not None and entity["type"]!=expected_type:
+   raise AnalysisRunError(f"{field} does not match the entity catalog type")
+
+
 def publish_analysis_result(*,job_id:str,lease_token:str,expected_input_version:str|None,
  run_id:str,attempt_id:str,validated_output:Mapping[str,object],review_status:str,
  evidence_status:str,idempotency_key:str,now:datetime|str|None=None)->PublicationResult:
@@ -81,16 +95,15 @@ def publish_analysis_result(*,job_id:str,lease_token:str,expected_input_version:
   if not attempt or attempt["status"] not in {"succeeded","refused"}: raise AnalysisRunError("only a successful or refused attempt can publish a result")
   allowed={row[0] for row in db.execute("SELECT evidence_id FROM analysis_inputs WHERE run_id=? AND evidence_id IS NOT NULL",(run_id,))}
   clean,referenced,result_status=_validate_output(run,validated_output,allowed)
-  for entity_id,expected_type,field in referenced_analysis_entities(
-      task_type=run["task_type"],data=clean["data"]
-  ):
-   entity=db.execute("SELECT type FROM entities WHERE id=?",(entity_id,)).fetchone()
-   if entity is None: raise AnalysisRunError(f"{field} does not exist in the entity catalog")
-   if expected_type is not None and entity["type"]!=expected_type:
-    raise AnalysisRunError(f"{field} does not match the entity catalog type")
+  task_validation=verify_analysis_evidence(
+      db,task_type=run["task_type"],schema_version=run["output_schema_version"],
+      data=clean["data"],
+  )
+  _validate_entity_references(db,task_type=run["task_type"],data=clean["data"])
   if result_status=="refused" and evidence_status!="refused": raise AnalysisRunError("refused output requires refused evidence status")
   if result_status=="insufficient_evidence" and evidence_status not in {"insufficient","partial"}: raise AnalysisRunError("insufficient output requires insufficient evidence status")
   request={"run_id":run_id,"attempt_id":attempt_id,"output":clean,"review_status":review_status,"evidence_status":evidence_status}
+  if task_validation.get("status")=="passed": request["task_validation"]=task_validation
   request_sha=_sha({"validator_version":VALIDATOR_VERSION,"request":request})
   if existing:
    if existing.payload.get("request_sha256")!=request_sha: raise AnalysisRunError("analysis result retry inputs do not match")
@@ -108,10 +121,13 @@ def publish_analysis_result(*,job_id:str,lease_token:str,expected_input_version:
   if db.execute("SELECT 1 FROM analysis_results WHERE run_id=?",(run_id,)).fetchone(): raise AnalysisRunError("analysis run already has a result")
   fresh=db.execute("SELECT * FROM analysis_attempts WHERE id=? AND run_id=?",(attempt_id,run_id)).fetchone()
   if not fresh or fresh["status"]!=attempt["status"]: raise AnalysisRunError("analysis attempt changed before publication")
+  _validate_entity_references(db,task_type=run["task_type"],data=clean["data"])
+  validation_report={"validator_version":VALIDATOR_VERSION,"status":"passed","referenced_evidence_ids":referenced}
+  if task_validation.get("status")=="passed": validation_report["task_validation"]=task_validation
   db.execute("""INSERT INTO analysis_results(id,run_id,attempt_id,schema_version,raw_output_ref,raw_output_sha256,
    validated_output_json,validation_report_json,result_status,created_at,available_at) VALUES(?,?,?,?,?,?,?,?,?,?,?)""",
    (result_id,run_id,attempt_id,run["output_schema_version"],fresh["raw_response_ref"],fresh["raw_response_sha256"],_json(clean),
-    _json({"validator_version":VALIDATOR_VERSION,"status":"passed","referenced_evidence_ids":referenced}),result_status,fresh["finished_at"],changes[0].available_at))
+    _json(validation_report),result_status,fresh["finished_at"],changes[0].available_at))
   db.execute("""INSERT INTO analysis_publication_versions(id,subject_type,subject_version_id,task_type,result_id,version,
    review_status,evidence_status,available_at,supersedes_id,publication_seq) VALUES(?,?,?,?,?,?,?,?,?,?,?)""",
    (publication_id,run["subject_type"],run["subject_version_id"],run["task_type"],result_id,version,review_status,evidence_status,changes[0].available_at,supersedes,changes[0].seq))
