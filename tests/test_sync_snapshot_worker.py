@@ -208,7 +208,9 @@ class SyncSnapshotWorkerTests(unittest.TestCase):
     def test_regular_worker_completes_snapshot_job_and_references_result(self):
         self._change("item", "item-a", "item-a-v1", {"id": "item-a"})
         snapshot_id, _job = self._request(claim=False)
-        result = process_one_job(worker_id="regular-worker")
+        result = process_one_job(
+            worker_id="regular-worker", now=T0 + timedelta(minutes=1)
+        )
         self.assertEqual(result.state, "succeeded")
         self.assertIn(snapshot_id, result.result_ref)
         with database.get_db() as db:

@@ -33,7 +33,9 @@ the implementation PR series proceeded. It was restored on 2026-09-27 after `mai
   claims. P15c adds the separate `infohub.tone-evaluation/1.0` annotation contract and a 16-case bilingual
   synthetic fixture covering negation, quotation, reported speech, sarcasm, mixed, unresolved targets and
   prompt injection. The fixture validates tooling only and explicitly fails the private-gold admission plan.
-  Real restricted-text sampling, tone-specific review/adjudication commands, HTML/PDF normalized text
+  P15c-2 adds hash-bound, no-model human tone review intake for a first and second independent reviewer;
+  two opinions remain provisional and any prior private-evidence signature is invalidated by the new cases
+  hash. Real restricted-text sampling, tone-specific agreement/adjudication, HTML/PDF normalized text
   locators, model baselines and quality admission remain absent.
 - P16 impact, P20 macro and sentiment outputs, the remaining portal cutover and final Windows
   consumer drills are later phases. A target endpoint in `openapi.yaml` is not proof that its route

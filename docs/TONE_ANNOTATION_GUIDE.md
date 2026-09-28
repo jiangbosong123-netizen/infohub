@@ -79,8 +79,10 @@ HTML/PDF 必须先产生版本化规范文本 artifact，offset 指向该 artifa
 4. 第三名、且不同于两名标注者的裁定者处理分歧，最终状态才是 `adjudicated`。
 5. AI 可以生成独立的候选预测，但 `generated_by_model=true` 的内容不能成为人工 gold。
 
-当前通用 review intake / adjudication 命令只支持 relevance。P15c 不复用它们伪造 tone 工作流；tone 专用 intake、
-一致性与裁定工具留给后续独立 PR。`app.tone_evaluation` 已经对 provisional review 和最终 labels 使用同一结构校验。
+当前通用 review intake / adjudication 命令只支持 relevance，不能复用来伪造 tone 工作流。P15c-2 已增加
+`app.tone_review_intake`，对第一、第二名人工 reviewer 使用完整 tone 契约并始终保留 provisional 状态；详见
+`TONE_REVIEW_INTAKE.md`。tone 专用一致性与第三人裁定工具仍留给后续独立 PR。
+`app.tone_evaluation` 对 provisional review 和最终 labels 使用同一结构校验。
 
 ## 6. 正式数据集放行
 

@@ -24,6 +24,8 @@ python -c "from app.tone_evaluation import validate_tone_evaluation_dataset as v
 
 正式定义、人工边界和仍未实现的私有流程见
 [`docs/TONE_ANNOTATION_GUIDE.md`](../docs/TONE_ANNOTATION_GUIDE.md)。
+第一、第二名独立人工 reviewer 的 hash 绑定导入流程见
+[`docs/TONE_REVIEW_INTAKE.md`](../docs/TONE_REVIEW_INTAKE.md)。两份意见仍不是最终 gold。
 
 标注定义见 [ANNOTATION_GUIDE_V1.md](ANNOTATION_GUIDE_V1.md)。分类基线报告必须同时输出 confusion、逐类 support、macro F1、coverage、abstain、missing 和 Wilson 95% 区间。
 

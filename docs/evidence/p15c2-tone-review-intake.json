@@ -1,0 +1,56 @@
+{
+  "phase": "P15c-2",
+  "scope": "Hash-bound import of first and second independent human tone reviews",
+  "recorded_at": "2026-09-28T16:19:58Z",
+  "production_changed": false,
+  "database_changed": false,
+  "paid_model_calls": 0,
+  "validation": {
+    "python_3_11": {
+      "tests": 577,
+      "status": "passed_serially"
+    },
+    "python_3_12": {
+      "tests": 577,
+      "status": "passed_serially"
+    },
+    "synthetic_private_intake_drill": {
+      "batch_schema": "human-tone-review-batch-v1",
+      "source_manifest_hash_binding": "passed",
+      "source_cases_hash_binding": "passed",
+      "content_hash_binding": "passed",
+      "first_reviewer_import": "passed",
+      "second_distinct_reviewer_import": "passed",
+      "final_gold_after_two_reviews": false,
+      "model_assisted_human_review_rejected": "passed",
+      "restricted_quote_non_disclosure": "passed",
+      "stale_private_evidence_signature_removed": "passed",
+      "failure_leaves_no_output": "passed"
+    },
+    "clock_regression_repair": {
+      "scope": "sync snapshot worker test and execution-time propagation",
+      "failure": "The worker claim used the supplied now value but snapshot construction used wall-clock time, so a fixed request became expired after its test date.",
+      "repair": "Pass the same optional now value through the sync-snapshot handler into build_sync_snapshot.",
+      "isolated_regression": "passed"
+    },
+    "local_database_read_only_check": {
+      "sha256_at_check": "66169dbc8126484232a9608fa4522e8b151847601657eecad2706116f98cdb6c",
+      "schema_version": 0,
+      "items_at_check": 67854,
+      "stories_at_check": 57939,
+      "integrity_check": "ok",
+      "foreign_key_violations": 0,
+      "note": "The legacy development database was inspected read-only and may be changing under a separately running local collector."
+    },
+    "github_ci": {
+      "status": "required_pr_gate",
+      "required_jobs": [
+        "docker",
+        "regression_python_3_11",
+        "regression_python_3_12"
+      ],
+      "note": "Verify the checks attached to the final PR head before merge."
+    }
+  },
+  "known_boundary": "This unit imports independent human opinions but deliberately leaves final labels empty. It does not create real samples, measure agreement, adjudicate disagreements, verify private quote contents, run a model, claim accuracy, enable valid tone publication or change Windows production."
+}
