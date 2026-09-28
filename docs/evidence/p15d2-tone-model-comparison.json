@@ -1,0 +1,21 @@
+{
+  "phase": "P15d-2",
+  "scope": "Same-dataset tone baseline and candidate comparison",
+  "recorded_at": "2026-09-28T19:30:00Z",
+  "production_changed": false,
+  "database_changed": false,
+  "paid_model_calls": 0,
+  "validated_behaviors": [
+    "Baseline and candidate are independently revalidated from exact prediction runs.",
+    "Dataset, split, denominator, class support and slice support must match.",
+    "Absolute macro F1, unknown recall and coverage are reported with deltas.",
+    "Per-class recall and per-slice macro F1 regressions are reported.",
+    "Any comparable regression greater than two percentage points requires explicit review.",
+    "Synthetic or otherwise non-publishable gold cannot produce an eligible comparison."
+  ],
+  "real_baseline_runs": 0,
+  "real_candidate_runs": 0,
+  "comparison_eligible": false,
+  "candidate_gate_passed": false,
+  "known_boundary": "This unit compares frozen outputs; it does not run models, calibrate confidence, approve cost or latency, or admit production publication."
+}
