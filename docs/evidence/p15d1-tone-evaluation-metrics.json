@@ -1,0 +1,20 @@
+{
+  "phase": "P15d-1",
+  "scope": "Deterministic tone polarity metrics over a frozen prediction run",
+  "recorded_at": "2026-09-28T19:00:00Z",
+  "production_changed": false,
+  "database_changed": false,
+  "paid_model_calls": 0,
+  "validated_behaviors": [
+    "Run, dataset, cases, method configuration and predictions are hash-bound.",
+    "Five fixed polarity classes remain in macro F1 and support reporting.",
+    "Missing predictions and explicit abstentions remain in the denominator.",
+    "Unknown recall, coverage, confusion and Wilson accuracy interval are reported.",
+    "Language, source-kind and difficult-phenomenon slices include support warnings.",
+    "Cross-split cases, stale content, bad confidence and open prediction rows fail closed."
+  ],
+  "real_private_gold_runs": 0,
+  "real_model_evaluations": 0,
+  "quality_claim_allowed": false,
+  "known_boundary": "Synthetic fixture scores only test metric mechanics. A real baseline, candidate comparison, calibration and release admission remain separate."
+}
