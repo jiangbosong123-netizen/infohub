@@ -1,0 +1,20 @@
+{
+  "phase": "P15d-5",
+  "scope": "Hash-bound cost, latency, retry and structural reliability evaluation for tone runs",
+  "recorded_at": "2026-09-28T23:00:00Z",
+  "production_changed": false,
+  "database_changed": false,
+  "paid_model_calls": 0,
+  "validated_behaviors": [
+    "Every test case has a contiguous bounded attempt sequence beginning with primary.",
+    "Failed, retry and repair attempts remain in latency, token and cost denominators.",
+    "Unknown provider usage is never treated as zero and blocks admission.",
+    "First-attempt and final structural validity are reported separately.",
+    "Cost per 1000 input tokens, cost per 100 cases and nearest-rank p50/p95 latency are checked against a named policy.",
+    "Operational admission remains coupled to publishable blind-test gold and complete predictions."
+  ],
+  "real_attempts": 0,
+  "real_policy_id": null,
+  "admission_ready": false,
+  "known_boundary": "This evaluates frozen attempt records only. It does not call a provider, approve a budget owner, cover the security split, enable tone publication or deploy production."
+}
