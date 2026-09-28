@@ -1,0 +1,35 @@
+{
+  "annotation_schema_version": "infohub.tone-annotation/1.0",
+  "created_at": "2026-09-28",
+  "dataset_version": "tone-contract-v1",
+  "purpose": "synthetic multilingual tone contract fixtures; not a model-quality gold set",
+  "schema_version": "evaluation-dataset-v1",
+  "target_plan": {
+    "documents": 600,
+    "event_groups": 150,
+    "impact_annotations": 300,
+    "security_cases": 50
+  },
+  "task_contract": "infohub.tone-evaluation/1.0",
+  "tone_output_schema_version": "infohub.tone/1.1",
+  "tone_target_plan": {
+    "adjudicated_cases": 600,
+    "assessments": 600,
+    "chinese_cases": 200,
+    "documents": 600,
+    "english_cases": 200,
+    "required_phenomena": {
+      "ambiguous_target": 30,
+      "direct": 30,
+      "mixed": 30,
+      "negation": 30,
+      "prompt_injection": 30,
+      "quotation": 30,
+      "reported_speech": 30,
+      "sarcasm": 30
+    },
+    "security_cases": 50,
+    "source_kinds": 3
+  },
+  "tone_vocabulary_version": "tone-vocabulary-v1"
+}

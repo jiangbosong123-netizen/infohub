@@ -1,0 +1,67 @@
+{
+  "phase": "P15c",
+  "scope": "Tone annotation contract and synthetic difficult-slice fixture",
+  "recorded_at": "2026-09-28T08:32:02Z",
+  "production_changed": false,
+  "database_changed": false,
+  "paid_model_calls": 0,
+  "validation": {
+    "python_3_11": {
+      "tests": 570,
+      "status": "passed"
+    },
+    "python_3_12": {
+      "tests": 570,
+      "status": "passed"
+    },
+    "tone_contract_fixture": {
+      "dataset_version": "tone-contract-v1",
+      "cases": 16,
+      "languages": {
+        "en": 8,
+        "zh": 8
+      },
+      "splits": {
+        "train": 4,
+        "dev": 4,
+        "test": 6,
+        "security": 2
+      },
+      "difficult_slices": [
+        "ambiguous_target",
+        "direct",
+        "mixed",
+        "negation",
+        "prompt_injection",
+        "quotation",
+        "reported_speech",
+        "sarcasm"
+      ],
+      "unicode_quote_verification": "passed",
+      "restricted_text_non_disclosure": "passed",
+      "private_evidence_record_hash_binding": "passed",
+      "provisional_review_validation": "passed",
+      "publishable_tone_gold": false
+    },
+    "local_database_read_only_check": {
+      "sha256": "76402d0f52aa26758dcae8cb1700450619c6631d72035264a2e72c8a678e1e5b",
+      "schema_version": 0,
+      "items": 65103,
+      "stories": 55543,
+      "formal_raw_records_table": false,
+      "formal_tone_results_table": false,
+      "integrity_check": "ok",
+      "foreign_key_violations": 0
+    },
+    "github_ci": {
+      "status": "required_pr_gate",
+      "required_jobs": [
+        "docker",
+        "regression_python_3_11",
+        "regression_python_3_12"
+      ],
+      "note": "Verify the checks attached to the final PR head before merge."
+    }
+  },
+  "known_boundary": "The committed 16-case dataset is synthetic and validates contract behavior only. It is not human gold and supports no model-accuracy claim. The local legacy database still has no formal raw_records or tone results in place, so real restricted-text sampling cannot begin from it without the controlled raw/document backfill. Tone-specific review intake, agreement, adjudication, baselines, calibration, valid publication, HTML/PDF normalized text, aggregation and Windows production enablement remain blocked."
+}

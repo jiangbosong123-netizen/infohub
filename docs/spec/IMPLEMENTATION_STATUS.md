@@ -30,7 +30,11 @@ the implementation PR series proceeded. It was restored on 2026-09-27 after `mai
 - P15b advances new tone runs to `infohub.tone/1.1`. Its JSON Pointer locators are verified against
   hash-checked UTF-8 raw CAS payloads before publication writes, and the verification hashes are retained in
   the result report. Version 1.0 stays readable but is not eligible for new runs or quote-verification
-  claims. HTML/PDF normalized text locators and the P15 evaluation dataset remain absent.
+  claims. P15c adds the separate `infohub.tone-evaluation/1.0` annotation contract and a 16-case bilingual
+  synthetic fixture covering negation, quotation, reported speech, sarcasm, mixed, unresolved targets and
+  prompt injection. The fixture validates tooling only and explicitly fails the private-gold admission plan.
+  Real restricted-text sampling, tone-specific review/adjudication commands, HTML/PDF normalized text
+  locators, model baselines and quality admission remain absent.
 - P16 impact, P20 macro and sentiment outputs, the remaining portal cutover and final Windows
   consumer drills are later phases. A target endpoint in `openapi.yaml` is not proof that its route
   exists.

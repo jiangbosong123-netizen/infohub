@@ -2,7 +2,7 @@
 
 P15a 只建立可审计的输出结构，不调用模型、不生成历史情绪、不启用生产任务，也不改变 Windows
 生产环境。当前任务仍处于实验期：结构合法的结果只能写成 `needs_review`；`valid` 会被验证器拒绝。
-逐字引用核验、固定评估集和质量放行将在后续小 PR 完成。
+逐字引用核验和固定评估集契约已经分别由 P15b/P15c 建立；真实私有 gold、模型基线和质量放行仍将在后续小 PR 完成。
 
 ## 1. 语义边界
 
@@ -87,7 +87,9 @@ raw_confidence 是未校准模型自报值，可为 null。P15a 拒绝任何非�
 ## 4. 后续放行顺序
 
 1. P15b（已实现）：从冻结 JSON evidence payload 逐字核验 quote/span；HTML/PDF 的规范文本抽取仍需独立版本。
-2. P15c：固定多语种/多来源/引用类型 gold 数据、否定/转述/反讽切片与人工裁定流程。
+2. P15c（已实现契约）：固定中英合成 fixture、tone 专用标签结构、否定/转述/反讽等困难切片及正式
+   私有 gold 的放行条件。当前没有把合成样本或通用 relevance 人工工具冒充 tone gold；详见
+   `TONE_ANNOTATION_GUIDE.md`。
 3. P15d：运行基线与候选评估，报告 macro F1、混淆矩阵、unknown recall、coverage 和支持数。
 4. P15e：达到 SPEC 门槛后，以新 admission 记录开放 `valid`；shadow 切换，不覆盖旧结果。
 
