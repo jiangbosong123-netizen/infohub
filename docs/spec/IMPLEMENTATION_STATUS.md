@@ -35,7 +35,9 @@ the implementation PR series proceeded. It was restored on 2026-09-27 after `mai
   prompt injection. The fixture validates tooling only and explicitly fails the private-gold admission plan.
   P15c-2 adds hash-bound, no-model human tone review intake for a first and second independent reviewer;
   two opinions remain provisional and any prior private-evidence signature is invalidated by the new cases
-  hash. Real restricted-text sampling, tone-specific agreement/adjudication, HTML/PDF normalized text
+  hash. P15c-3 adds a read-only fixed-pair agreement report for polarity Cohen kappa and exact agreement on
+  speaker, target, aspect, intensity, evidence, phenomena and the full label. Real restricted-text sampling,
+  tone-specific adjudication, HTML/PDF normalized text
   locators, model baselines and quality admission remain absent.
 - P16 impact, P20 macro and sentiment outputs, the remaining portal cutover and final Windows
   consumer drills are later phases. A target endpoint in `openapi.yaml` is not proof that its route
