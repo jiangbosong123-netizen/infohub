@@ -8,6 +8,7 @@ from app import config, database
 from app.analysis_runs import AnalysisInput, AnalysisRunError, prepare_analysis_run
 from app.analysis_attempts import authorize_attempt, record_attempt, register_budget_policy
 from app.analysis_results import publish_analysis_result
+from app.tone_contracts import TONE_SCHEMA_VERSION
 from app.ingest import audit_evidence_payloads, begin_ingest_run, observe_candidate, store_payload
 from app.jobs import claim_job, enqueue_job
 
@@ -71,6 +72,16 @@ class AnalysisRunTests(unittest.TestCase):
   with self.assertRaisesRegex(AnalysisRunError,"subject version does not exist"):
    self.prepare(job,inputs=(AnalysisInput("primary",self.doc,None,self.raw),),subject_type="event",subject_version_id="missing-event",idempotency_key="analysis:closure")
 
+ def test_tone_contract_is_enforced_before_attempt_authorization(self):
+  job=self.job("tone-contract")
+  with self.assertRaisesRegex(AnalysisRunError,"registered output schema"):
+   self.prepare(job,task_type="tone",output_schema_version="tone-draft/0.1",idempotency_key="analysis:tone-bad")
+  with self.assertRaisesRegex(AnalysisRunError,"document version subject"):
+   self.prepare(job,task_type="tone",output_schema_version=TONE_SCHEMA_VERSION,
+                subject_type="event",subject_version_id="event-v1",idempotency_key="analysis:tone-event")
+  with database.get_db() as db:
+   self.assertEqual(db.execute("SELECT COUNT(*) FROM analysis_runs").fetchone()[0],0)
+
  def policy(self,daily=1000,per_attempt=600):
   return register_budget_policy(provider="fixture",daily_limit_microusd=daily,per_attempt_limit_microusd=per_attempt,effective_from=T0,idempotency_key=f"policy:{daily}:{per_attempt}",now=T0)
 
@@ -98,11 +109,69 @@ class AnalysisRunTests(unittest.TestCase):
   with self.assertRaisesRegex(AnalysisRunError,"first attempt"):
    authorize_attempt(run_id=run.id,job_id=job.id,lease_token=job.lease_token,expected_input_version=self.doc,attempt_kind="repair",reserved_cost_microusd=10,idempotency_key="auth:repair-bad",now=T0)
 
- def completed_attempt(self,key="publish"):
-  job=self.job(key); run=self.prepare(job,idempotency_key=f"analysis:{key}"); self.policy()
+ def completed_attempt(self,key="publish",**run_changes):
+  job=self.job(key); run=self.prepare(job,idempotency_key=f"analysis:{key}",**run_changes); self.policy()
   auth=authorize_attempt(run_id=run.id,job_id=job.id,lease_token=job.lease_token,expected_input_version=self.doc,attempt_kind="primary",reserved_cost_microusd=100,idempotency_key=f"auth:{key}",now=T0)
   attempt=record_attempt(authorization_id=auth.id,job_id=job.id,lease_token=job.lease_token,expected_input_version=self.doc,status="succeeded",started_at=T0,finished_at=T0,resolved_model="fixture-v1",usage_status="reported",input_tokens=10,output_tokens=5,cost_microusd=50,pricing_version="v1",raw_response_ref=f"cas://response/{key}",raw_response_sha256=SHA,now=T0)
   return job,run,attempt
+
+ def test_review_only_tone_result_publishes_through_the_immutable_ledger(self):
+  job,run,attempt=self.completed_attempt(
+   "tone-result",task_type="tone",output_schema_version=TONE_SCHEMA_VERSION,
+   prompt_template_id="tone-v1",pipeline_version="tone-contracts-v1")
+  output={"schema_version":TONE_SCHEMA_VERSION,
+   "subject":{"type":"document","version_id":self.doc},"status":"needs_review",
+   "evidence_ids":[self.raw],"data":{"vocabulary_version":"tone-vocabulary-v1","assessments":[{
+    "speaker":{"kind":"author","entity_id":None,"label":"Publisher"},
+    "target":{"entity_id":"organization:example","type":"organization"},
+    "aspect":"business_outlook","polarity":"positive","intensity":0.6,
+    "evidence":[{"evidence_id":self.raw,"quote":"Evidence","start_offset":0,"end_offset":8}],
+    "confidence":{"raw_confidence":0.7,"calibrated_confidence":None,
+                  "calibration_version":None,"uncertainty_reason":None}}]}}
+  with database.get_db() as db:
+   dataset_id=db.execute("SELECT dataset_id FROM dataset_state WHERE singleton=1").fetchone()[0]
+   db.execute("INSERT INTO entities(id,dataset_id,type,status,created_at) VALUES(?,?,?,?,?)",
+              ("organization:example",dataset_id,"organization","active",T0.isoformat()))
+  publish_analysis_result(job_id=job.id,lease_token=job.lease_token,
+   expected_input_version=self.doc,run_id=run.id,attempt_id=attempt.id,
+   validated_output=output,review_status="unreviewed",evidence_status="partial",
+   idempotency_key="result:tone-result",now=T0)
+  with database.get_db() as db:
+   result=db.execute("SELECT result_status,validated_output_json FROM analysis_results").fetchone()
+   publication=db.execute("SELECT review_status,evidence_status FROM analysis_publication_versions").fetchone()
+  self.assertEqual((result["result_status"],publication["review_status"],publication["evidence_status"]),
+                   ("needs_review","unreviewed","partial"))
+  self.assertIn('"vocabulary_version":"tone-vocabulary-v1"',result["validated_output_json"])
+
+ def test_tone_result_rejects_unknown_or_mistyped_catalog_entities(self):
+  job,run,attempt=self.completed_attempt(
+   "tone-entity",task_type="tone",output_schema_version=TONE_SCHEMA_VERSION,
+   prompt_template_id="tone-v1",pipeline_version="tone-contracts-v1")
+  output={"schema_version":TONE_SCHEMA_VERSION,
+   "subject":{"type":"document","version_id":self.doc},"status":"needs_review",
+   "evidence_ids":[self.raw],"data":{"vocabulary_version":"tone-vocabulary-v1","assessments":[{
+    "speaker":{"kind":"author","entity_id":None,"label":"Publisher"},
+    "target":{"entity_id":"organization:missing","type":"organization"},
+    "aspect":"business_outlook","polarity":"positive","intensity":0.6,
+    "evidence":[{"evidence_id":self.raw,"quote":"Evidence","start_offset":0,"end_offset":8}],
+    "confidence":{"raw_confidence":0.7,"calibrated_confidence":None,
+                  "calibration_version":None,"uncertainty_reason":None}}]}}
+  with self.assertRaisesRegex(AnalysisRunError,"does not exist in the entity catalog"):
+   publish_analysis_result(job_id=job.id,lease_token=job.lease_token,
+    expected_input_version=self.doc,run_id=run.id,attempt_id=attempt.id,
+    validated_output=output,review_status="unreviewed",evidence_status="partial",
+    idempotency_key="result:tone-entity-missing",now=T0)
+  with database.get_db() as db:
+   dataset_id=db.execute("SELECT dataset_id FROM dataset_state WHERE singleton=1").fetchone()[0]
+   db.execute("INSERT INTO entities(id,dataset_id,type,status,created_at) VALUES(?,?,?,?,?)",
+              ("organization:missing",dataset_id,"person","active",T0.isoformat()))
+  with self.assertRaisesRegex(AnalysisRunError,"does not match the entity catalog type"):
+   publish_analysis_result(job_id=job.id,lease_token=job.lease_token,
+    expected_input_version=self.doc,run_id=run.id,attempt_id=attempt.id,
+    validated_output=output,review_status="unreviewed",evidence_status="partial",
+    idempotency_key="result:tone-entity-mistyped",now=T0)
+  with database.get_db() as db:
+   self.assertEqual(db.execute("SELECT COUNT(*) FROM analysis_results").fetchone()[0],0)
 
  def test_validated_result_publishes_atomically_and_idempotently(self):
   job,run,attempt=self.completed_attempt()

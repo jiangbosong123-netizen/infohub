@@ -147,6 +147,13 @@ def prepare_analysis_run(
         "rendered_input_ref": _clean(rendered_input_ref, "rendered_input_ref", 2_000),
         "pipeline_version": _clean(pipeline_version, "pipeline_version"),
     }
+    if task == "tone":
+        from .tone_contracts import TONE_SCHEMA_VERSION
+
+        if subject != "document":
+            raise AnalysisRunError("tone analysis requires a document version subject")
+        if fields["output_schema_version"] != TONE_SCHEMA_VERSION:
+            raise AnalysisRunError("tone analysis requires the registered output schema")
     for digest, name in (
         (prompt_sha256, "prompt_sha256"),
         (rendered_input_sha256, "rendered_input_sha256"),

@@ -9,5 +9,7 @@ raw/calibrated confidence 和 intensity 必须位于 0..1。NaN、坏 JSON、伪
 追加每次发布或复核版本；`analysis_publications` 只是可重建的当前指针。结果、发布版本、指针、change_log
 与 durable job 完成由一个事务提交。同一 run 不覆盖旧结果；模型比较应创建不同 run。
 
-本阶段验证通用信封与证据安全。translation、tone、impact 等任务的专用字段约束随对应能力 PR 增加；
-未通过固定评估集前，出现结构合法结果也不表示模型质量已达标。
+本阶段验证通用信封与证据安全。translation、relevance、summarization、importance 已有专用
+策展契约；tone 从 P15a 起使用 `infohub.tone/1.0` 严格契约，具体边界见
+[TONE_ANALYSIS_CONTRACT.md](TONE_ANALYSIS_CONTRACT.md)。impact 等其余任务的专用字段约束随对应
+能力 PR 增加。未通过固定评估集前，出现结构合法结果也不表示模型质量已达标。

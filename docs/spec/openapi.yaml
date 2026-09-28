@@ -2874,59 +2874,103 @@ components:
         then:
           properties:
             calibration_version: {type: string, minLength: 1}
-    ToneAssessment:
+    ToneSpeaker:
       type: object
       properties:
-        speaker_entity_id:
+        kind:
+          type: string
+          enum: [author, interviewee, quoted_person, quoted_organization, unknown]
+        entity_id:
           anyOf:
           - {type: string, minLength: 1, maxLength: 128}
           - {type: 'null'}
+        label:
+          anyOf:
+          - {type: string, minLength: 1, maxLength: 200}
+          - {type: 'null'}
+      required: [kind, entity_id, label]
+      additionalProperties: false
+      description: unknown speakers cannot carry entity_id; identified speakers require entity_id or label.
+    ToneEvidenceSpan:
+      type: object
+      properties:
+        evidence_id: {type: string, minLength: 1, maxLength: 128}
+        quote: {type: string, minLength: 1, maxLength: 2000}
+        start_offset: {type: integer, minimum: 0}
+        end_offset: {type: integer, minimum: 1}
+      required: [evidence_id, quote, start_offset, end_offset]
+      additionalProperties: false
+      description: Unicode-code-point half-open offsets into the frozen evidence text.
+    ToneConfidence:
+      type: object
+      properties:
+        raw_confidence:
+          anyOf:
+          - {type: number, minimum: 0, maximum: 1}
+          - {type: 'null'}
+        calibrated_confidence: {type: 'null'}
+        calibration_version: {type: 'null'}
+        uncertainty_reason:
+          anyOf:
+          - {type: string, minLength: 1, maxLength: 500}
+          - {type: 'null'}
+      required: [raw_confidence, calibrated_confidence, calibration_version, uncertainty_reason]
+      additionalProperties: false
+      description: P15a forbids calibrated values until calibration admission succeeds.
+    ToneAssessment:
+      type: object
+      properties:
+        speaker: {$ref: '#/components/schemas/ToneSpeaker'}
         target:
           anyOf:
           - {$ref: '#/components/schemas/Target'}
           - {type: 'null'}
-        aspect: {type: string}
-        polarity:
+        aspect:
           type: string
           enum:
-          - positive
-          - negative
-          - neutral
-          - mixed
-          - unknown
+          - product_capability
+          - business_outlook
+          - policy_stance
+          - valuation_view
+          - market_position
+          - management_quality
+          - social_impact
+          - other
+        polarity:
+          type: string
+          enum: [positive, negative, neutral, mixed, unknown]
         intensity:
           anyOf:
           - {type: number, minimum: 0, maximum: 1}
           - {type: 'null'}
-        evidence_ids:
+        evidence:
           type: array
-          items: {type: string, minLength: 1, maxLength: 128}
-        confidence: {$ref: '#/components/schemas/Confidence'}
-      required:
-      - speaker_entity_id
-      - target
-      - aspect
-      - polarity
-      - intensity
-      - evidence_ids
-      - confidence
+          minItems: 1
+          items: {$ref: '#/components/schemas/ToneEvidenceSpan'}
+        confidence: {$ref: '#/components/schemas/ToneConfidence'}
+      required: [speaker, target, aspect, polarity, intensity, evidence, confidence]
       additionalProperties: false
-    ToneOutput:
+    ToneReviewOutput:
       type: object
       properties:
-        status:
-          type: string
-          enum:
-          - analyzed
-          - insufficient_evidence
-          - needs_review
+        vocabulary_version: {const: tone-vocabulary-v1}
         assessments:
           type: array
+          minItems: 1
           items: {$ref: '#/components/schemas/ToneAssessment'}
-      required:
-      - status
-      - assessments
+      required: [vocabulary_version, assessments]
       additionalProperties: false
+    ToneUnavailableOutput:
+      type: object
+      properties:
+        reason_code: {type: string, minLength: 1, maxLength: 100}
+      required: [reason_code]
+      additionalProperties: false
+    ToneOutput:
+      oneOf:
+      - {$ref: '#/components/schemas/ToneReviewOutput'}
+      - {$ref: '#/components/schemas/ToneUnavailableOutput'}
+      description: P15a is review-only. Valid publication and calibrated confidence remain closed pending quote and quality admission.
     ImpactAssessment:
       type: object
       properties:

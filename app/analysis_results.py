@@ -11,7 +11,7 @@ from .analysis_runs import AnalysisRunError
 from .database import get_db
 from .event_relations import _existing_change, _retry_persist_should_not_run, _stable_id
 from .publication import ChangeRequest, PublishedChange, PublicationResult, publish_job_result
-from .curation_contracts import validate_curation_data
+from .analysis_contracts import referenced_analysis_entities, validate_analysis_data
 
 CONFIDENCE_KEYS={"confidence","raw_confidence","calibrated_confidence","intensity"}
 RESULT_STATUSES={"valid","needs_review","insufficient_evidence","refused"}
@@ -29,7 +29,9 @@ def _walk(value,path="$",evidence=None):
  evidence=evidence if evidence is not None else set()
  if isinstance(value,dict):
   for key,item in value.items():
-   if key in CONFIDENCE_KEYS and item is not None:
+   if key in CONFIDENCE_KEYS and item is not None and not (
+       key == "confidence" and isinstance(item, dict)
+   ):
     if isinstance(item,bool) or not isinstance(item,(int,float)) or not 0<=item<=1:
      raise AnalysisRunError(f"{path}.{key} must be between 0 and 1")
    if key=="evidence_id" and item is not None:
@@ -51,6 +53,8 @@ def _validate_output(run,output:Mapping[str,object],allowed_evidence:set[str]):
  if clean.get("schema_version")!=run["output_schema_version"]: raise AnalysisRunError("analysis output schema version does not match the run")
  expected={"type":run["subject_type"],"version_id":run["subject_version_id"]}
  if clean.get("subject")!=expected: raise AnalysisRunError("analysis output subject does not match the run")
+ if run["task_type"]=="tone" and run["subject_type"]!="document":
+  raise AnalysisRunError("tone analysis requires a document version subject")
  status=clean.get("status")
  if status not in RESULT_STATUSES: raise AnalysisRunError("analysis output has an unsupported status")
  if "evidence_ids" not in clean: raise AnalysisRunError("analysis output must declare evidence_ids")
@@ -59,7 +63,7 @@ def _validate_output(run,output:Mapping[str,object],allowed_evidence:set[str]):
  if unknown: raise AnalysisRunError(f"analysis output references unknown evidence IDs: {sorted(unknown)[:5]}")
  if status in {"valid","needs_review"} and not referenced: raise AnalysisRunError("publishable analysis output requires evidence")
  if "data" not in clean: raise AnalysisRunError("analysis output must declare data")
- clean["data"]=validate_curation_data(task_type=run["task_type"],schema_version=run["output_schema_version"],status=status,data=clean["data"],allowed_evidence=allowed_evidence)
+ clean["data"]=validate_analysis_data(task_type=run["task_type"],schema_version=run["output_schema_version"],status=status,data=clean["data"],allowed_evidence=allowed_evidence)
  return clean,sorted(referenced),status
 
 
@@ -77,6 +81,13 @@ def publish_analysis_result(*,job_id:str,lease_token:str,expected_input_version:
   if not attempt or attempt["status"] not in {"succeeded","refused"}: raise AnalysisRunError("only a successful or refused attempt can publish a result")
   allowed={row[0] for row in db.execute("SELECT evidence_id FROM analysis_inputs WHERE run_id=? AND evidence_id IS NOT NULL",(run_id,))}
   clean,referenced,result_status=_validate_output(run,validated_output,allowed)
+  for entity_id,expected_type,field in referenced_analysis_entities(
+      task_type=run["task_type"],data=clean["data"]
+  ):
+   entity=db.execute("SELECT type FROM entities WHERE id=?",(entity_id,)).fetchone()
+   if entity is None: raise AnalysisRunError(f"{field} does not exist in the entity catalog")
+   if expected_type is not None and entity["type"]!=expected_type:
+    raise AnalysisRunError(f"{field} does not match the entity catalog type")
   if result_status=="refused" and evidence_status!="refused": raise AnalysisRunError("refused output requires refused evidence status")
   if result_status=="insufficient_evidence" and evidence_status not in {"insufficient","partial"}: raise AnalysisRunError("insufficient output requires insufficient evidence status")
   request={"run_id":run_id,"attempt_id":attempt_id,"output":clean,"review_status":review_status,"evidence_status":evidence_status}
