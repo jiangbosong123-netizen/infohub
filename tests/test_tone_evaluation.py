@@ -140,6 +140,8 @@ class ToneEvaluationDatasetTests(unittest.TestCase):
             "verifier_id": "reviewer-a",
             "recorded_at": "2026-09-28T12:00:00Z",
             "cases_sha256": cases_hash,
+            "artifact_manifest_sha256": "a" * 64,
+            "artifacts_sha256": "b" * 64,
             "all_cases_verified": True,
             "quote_hash_and_offsets_verified": True,
             "normalized_artifacts_verified": True,
@@ -154,7 +156,16 @@ class ToneEvaluationDatasetTests(unittest.TestCase):
         manifest["tone_evidence_review"]["review_record_sha256"] = hashlib.sha256(
             record_bytes
         ).hexdigest()
+        manifest["tone_evidence_review"]["normalizer_versions"] = ["plain-text-v1"]
+        manifest["tone_evidence_review"]["labels_verified"] = 3
+        manifest["tone_evidence_review"]["spans_verified"] = 3
         self.assertTrue(_verified_private_evidence(manifest, root))
+        stale_artifacts = json.loads(json.dumps(manifest))
+        stale_artifacts["tone_evidence_review"]["artifacts_sha256"] = "c" * 64
+        self.assertFalse(_verified_private_evidence(stale_artifacts, root))
+        missing_counts = json.loads(json.dumps(manifest))
+        del missing_counts["tone_evidence_review"]["spans_verified"]
+        self.assertFalse(_verified_private_evidence(missing_counts, root))
         (root / "cases.jsonl").write_text(
             (root / "cases.jsonl").read_text() + "\n", encoding="utf-8"
         )

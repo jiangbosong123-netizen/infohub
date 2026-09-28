@@ -1,0 +1,23 @@
+{
+  "recorded_date": "2026-09-28",
+  "module": "app.tone_private_evidence_review",
+  "environment": "Synthetic private workflow fixture only; no real news text or human review",
+  "validated_behaviors": [
+    "The artifact bundle is bound to exact source manifest, cases and ledger hashes.",
+    "Every restricted adjudicated case must have exactly one versioned UTF-8 normalized text artifact.",
+    "Both independent reviews and the final adjudicated label have every Unicode span checked against the artifact.",
+    "Private text is not copied into the verified dataset version.",
+    "Path escape, symlink, corruption, stale hashes, partial attestation and a non-independent verifier fail closed.",
+    "The result remains non-publishable while sample, split, source and quality requirements are incomplete."
+  ],
+  "real_candidate_documents": 0,
+  "real_human_evidence_reviews": 0,
+  "publishable_tone_gold": false,
+  "limitations": [
+    "No production normalizer or real private artifact bundle was created in this unit.",
+    "The software cannot prove a verifier's real identity or that the person read the text.",
+    "Evidence integrity does not establish tone-label accuracy or model quality."
+  ],
+  "live_database_modified": false,
+  "windows_touched": false
+}

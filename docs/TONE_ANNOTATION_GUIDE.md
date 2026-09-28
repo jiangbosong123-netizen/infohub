@@ -69,7 +69,8 @@ polarity 报告分子/分母；支持数小于 30 的切片标低支持，不能
 quote/offset 检查和规范文本 artifact 检查绑定进 manifest。修改任一 case 或复核记录都会使该证明失效。
 
 HTML/PDF 必须先产生版本化规范文本 artifact，offset 指向该 artifact；不能把浏览器渲染位置或不稳定 HTML 字节位置
-当作文字坐标。此规范文本生产链仍未实现，因此这些来源暂不具备 tone gold 入册条件。
+当作文字坐标。P15c-5 已实现 artifact 的私有复核与冻结，但上游生产 normalizer 尚未实现，因此这些来源暂不具备
+tone gold 入册条件。
 
 ## 5. 人工流程
 
@@ -82,9 +83,11 @@ HTML/PDF 必须先产生版本化规范文本 artifact，offset 指向该 artifa
 当前通用 review intake / adjudication 命令只支持 relevance，不能复用来伪造 tone 工作流。P15c-2 已增加
 `app.tone_review_intake`，对第一、第二名人工 reviewer 使用完整 tone 契约并始终保留 provisional 状态；详见
 `TONE_REVIEW_INTAKE.md`。P15c-3 的 `app.tone_review_agreement` 按固定 reviewer pair 报 polarity κ 和各结构
-组件的一致率；详见 `TONE_REVIEW_AGREEMENT.md`。tone 专用第三人裁定工具仍留给后续独立 PR。
-P15c-4 的 `app.tone_adjudication` 要求与两名 reviewer 不同的第三人冻结最终标签；详见
-`TONE_ADJUDICATION.md`。`app.tone_evaluation` 对 provisional review 和最终 labels 使用同一结构校验。
+组件的一致率；详见 `TONE_REVIEW_AGREEMENT.md`。P15c-4 的 `app.tone_adjudication` 要求与两名 reviewer
+不同的第三人冻结最终标签；详见 `TONE_ADJUDICATION.md`。P15c-5 的
+`app.tone_private_evidence_review` 由第四人对私有规范文本逐条核验 reviewer 和最终引用，并把证明绑定到 exact
+cases hash；详见 `TONE_PRIVATE_EVIDENCE_REVIEW.md`。`app.tone_evaluation` 对 provisional review 和最终 labels
+使用同一结构校验。
 
 ## 6. 正式数据集放行
 
