@@ -1,0 +1,21 @@
+{
+  "phase": "P15d-3",
+  "scope": "Hash-bound multiclass calibration evaluation for frozen tone predictions",
+  "recorded_at": "2026-09-28T20:30:00Z",
+  "production_changed": false,
+  "database_changed": false,
+  "paid_model_calls": 0,
+  "validated_behaviors": [
+    "All five polarity probabilities are finite, bounded and sum to one.",
+    "A unique probability argmax and raw confidence must match the frozen prediction.",
+    "Missing and abstained predictions remain in the total denominator with null probabilities.",
+    "Multiclass Brier score, ten fixed reliability bins and ECE are deterministic.",
+    "Dataset, run, predictions and probability rows are SHA-256 bound.",
+    "Calibration admission requires publishable test gold, complete coverage, at least 200 cases and ECE at most 0.10."
+  ],
+  "real_calibration_cases": 0,
+  "real_calibration_mapping": null,
+  "calibration_admission_ready": false,
+  "known_boundary": "This evaluates raw probabilities only. It does not fit a calibrator, create a calibration version, enable calibrated confidence or change production."
+}
+

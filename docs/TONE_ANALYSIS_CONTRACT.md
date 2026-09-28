@@ -93,7 +93,8 @@ raw_confidence 是未校准模型自报值，可为 null。P15a 拒绝任何非�
    evidence/artifact 复核工具；真实私有样本和生产 normalizer 仍未创建。
 3. P15d：运行基线与候选评估，报告 macro F1、混淆矩阵、unknown recall、coverage 和支持数。P15d-1 已建立
    hash-bound prediction run 与确定性指标/切片契约；P15d-2 已建立同数据集的基线/候选绝对门槛和 2 个百分点
-   退化检查。尚未运行真实模型或形成质量结论。
+   退化检查；P15d-3 已建立完整五分类概率的 Brier/ECE/reliability 评估与 200 条 held-out 门槛。尚未运行
+   真实模型、拟合校准器或形成质量结论。
 4. P15e：达到 SPEC 门槛后，以新 admission 记录开放 `valid`；shadow 切换，不覆盖旧结果。
 
 任何阶段失败都只关闭新的 tone publication；不可变输入、attempt、旧结果和人工修正继续保留。
