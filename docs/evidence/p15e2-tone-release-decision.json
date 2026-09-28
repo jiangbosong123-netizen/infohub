@@ -1,0 +1,19 @@
+{
+  "phase": "P15e-2",
+  "scope": "Authorized, independent human approve/reject record bound to exact tone release evidence",
+  "recorded_at": "2026-09-29T01:00:00Z",
+  "production_changed": false,
+  "database_changed": false,
+  "paid_model_calls": 0,
+  "validated_behaviors": [
+    "Evidence bundle integrity and readiness are recomputed before accepting a decision.",
+    "The decision binds exact bundle and approver-registry SHA-256 values.",
+    "Approvers must be active, in their validity window and hold tone:release:approve.",
+    "An annotation reviewer cannot approve the same release bundle.",
+    "Approval requires holdout, budget-policy and rollback acknowledgements.",
+    "A rejection may preserve an incomplete bundle but can never become an approval candidate."
+  ],
+  "real_decision_record": null,
+  "approval_candidate_for_controlled_import": false,
+  "known_boundary": "This validates a human decision artifact only. It does not import an admission, authenticate an interactive session, enable publication, change the database or deploy production."
+}
