@@ -1,0 +1,17 @@
+{
+  "acceptance": {
+    "conflicting_bundle_decisions_rejected": true,
+    "database_publication_unchanged": true,
+    "decision_record_recomputed": true,
+    "immutable_ledger": true,
+    "migration_from_schema_39_preserves_backup": true
+  },
+  "production_changed": false,
+  "schema_version": "p15e3-tone-release-admission-evidence-v1",
+  "scope": "controlled append-only database admission; no shadow publication",
+  "tests": {
+    "focused_python_3_11": 12,
+    "full_python_3_11": 632,
+    "full_python_3_12": 632
+  }
+}

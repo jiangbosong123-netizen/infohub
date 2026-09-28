@@ -25,7 +25,7 @@ class SyncSnapshotSchemaTests(unittest.TestCase):
         self.addCleanup(temporary.cleanup)
         self.path = Path(temporary.name) / "snapshot.db"
         report = db_admin.migrate_database(self.path)
-        self.assertEqual(report.current_version, 39)
+        self.assertEqual(report.current_version, 40)
         now = datetime.now(timezone.utc)
         with database.get_db(self.path) as db:
             consumer = create_consumer(db, "snapshot-consumer", actor="test")
@@ -129,7 +129,7 @@ class SyncSnapshotSchemaTests(unittest.TestCase):
                     with self.assertRaises(sqlite3.IntegrityError):
                         db.execute(statement)
         self.assertEqual(
-            db_admin.verify_database(self.path, require_current=True).schema_version, 39
+            db_admin.verify_database(self.path, require_current=True).schema_version, 40
         )
 
     def test_incomplete_or_identity_mismatched_snapshot_fails_closed(self):
@@ -212,10 +212,10 @@ class SyncSnapshotSchemaTests(unittest.TestCase):
                             ),
                         )
 
-    def test_schema_38_upgrades_to_39_without_domain_row_changes(self):
+    def test_schema_38_upgrades_through_40_without_domain_row_changes(self):
         prior = self.path.parent / "schema-38.db"
         with database.get_db(prior) as db:
-            applied = db_admin.apply_migrations(db, db_admin.MIGRATIONS[:-1])
+            applied = db_admin.apply_migrations(db, db_admin.MIGRATIONS[:38])
             self.assertEqual(applied[-1], 38)
             db.execute(
                 """INSERT INTO sources(
@@ -231,7 +231,7 @@ class SyncSnapshotSchemaTests(unittest.TestCase):
             )
         report = db_admin.migrate_database(prior)
         self.assertEqual(report.previous_version, 38)
-        self.assertEqual(report.applied_versions, (39,))
+        self.assertEqual(report.applied_versions, (39, 40))
         with database.get_db(prior) as db:
             self.assertEqual(db.execute("SELECT title FROM items").fetchone()[0], "Kept")
             for table in (
