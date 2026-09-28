@@ -1,0 +1,62 @@
+{
+  "annotation_state_counts": {
+    "synthetic_fixture": 16
+  },
+  "assessments": 16,
+  "cases": 16,
+  "dataset_version": "tone-contract-v1",
+  "language_counts": {
+    "en": 8,
+    "zh": 8
+  },
+  "phenomenon_counts": {
+    "ambiguous_target": 4,
+    "direct": 4,
+    "mixed": 2,
+    "negation": 2,
+    "prompt_injection": 2,
+    "quotation": 4,
+    "reported_speech": 12,
+    "sarcasm": 2
+  },
+  "polarity_counts": {
+    "mixed": 2,
+    "negative": 5,
+    "neutral": 2,
+    "positive": 3,
+    "unknown": 4
+  },
+  "publishable_tone_gold": false,
+  "source_kind_counts": {
+    "synthetic": 16
+  },
+  "split_counts": {
+    "dev": 4,
+    "security": 2,
+    "test": 6,
+    "train": 4
+  },
+  "target_gaps": {
+    "adjudicated_cases": 600,
+    "assessments": 584,
+    "chinese_cases": 192,
+    "documents": 584,
+    "english_cases": 192,
+    "phenomenon:ambiguous_target": 26,
+    "phenomenon:direct": 26,
+    "phenomenon:mixed": 28,
+    "phenomenon:negation": 28,
+    "phenomenon:prompt_injection": 28,
+    "phenomenon:quotation": 26,
+    "phenomenon:reported_speech": 18,
+    "phenomenon:sarcasm": 28,
+    "security_cases": 48,
+    "source_kinds": 3
+  },
+  "warnings": [
+    "synthetic tone fixtures validate the contract only; they are not quality gold",
+    "tone quality claims remain blocked until the private adjudicated plan passes",
+    "time/source blind holdout is not verified",
+    "private quote hashes, offsets and normalized artifacts are not verified"
+  ]
+}

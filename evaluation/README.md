@@ -14,6 +14,17 @@
 python -c "from app.evaluation import validate_evaluation_dataset as v; print(v('evaluation/datasets/foundation-v1').to_dict())"
 ```
 
+Tone 有独立的 statement × speaker × target × aspect 标签契约，不能把 relevance 标注命令直接复用成
+tone gold。`tone-contract-v1` 是中英合成契约 fixture，只校验结构、Unicode 引用范围、困难切片和
+放行失败状态：
+
+```bash
+python -c "from app.tone_evaluation import validate_tone_evaluation_dataset as v; print(v('evaluation/datasets/tone-contract-v1').to_dict())"
+```
+
+正式定义、人工边界和仍未实现的私有流程见
+[`docs/TONE_ANNOTATION_GUIDE.md`](../docs/TONE_ANNOTATION_GUIDE.md)。
+
 标注定义见 [ANNOTATION_GUIDE_V1.md](ANNOTATION_GUIDE_V1.md)。分类基线报告必须同时输出 confusion、逐类 support、macro F1、coverage、abstain、missing 和 Wilson 95% 区间。
 
 ## 真实候选抽样
