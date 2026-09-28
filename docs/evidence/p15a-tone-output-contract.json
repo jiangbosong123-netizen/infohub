@@ -1,0 +1,55 @@
+{
+  "phase": "P15a",
+  "scope": "Review-only, evidence-grounded tone output contract",
+  "recorded_at": "2026-09-28T08:04:11Z",
+  "production_changed": false,
+  "paid_model_calls": 0,
+  "validation": {
+    "python_3_11": {
+      "tests": 548,
+      "status": "passed"
+    },
+    "python_3_12": {
+      "tests": 548,
+      "status": "passed"
+    },
+    "contract_checks": {
+      "registered_schema_required_before_attempt": "passed",
+      "document_version_subject_required": "passed",
+      "speaker_target_aspect_and_polarity_validation": "passed",
+      "evidence_allowlist_and_span_shape": "passed",
+      "verbatim_quote_whitespace_preserved": "passed",
+      "unknown_is_not_neutral": "passed",
+      "calibrated_confidence_blocked": "passed",
+      "valid_publication_blocked": "passed",
+      "review_only_immutable_ledger_publication": "passed",
+      "entity_catalog_existence_and_type_gate": "passed",
+      "openapi_yaml_parse": "passed"
+    },
+    "real_database_isolated_rehearsal": {
+      "source_sha256_before": "dca1a2d591eb9bec239870ead9d644445ca2ffc3ffe3a6372ff2335460a5e3c3",
+      "source_sha256_after": "dca1a2d591eb9bec239870ead9d644445ca2ffc3ffe3a6372ff2335460a5e3c3",
+      "schema_from": 0,
+      "schema_to": 39,
+      "items_before": 64946,
+      "items_after": 64946,
+      "stories_before": 55408,
+      "stories_after": 55408,
+      "tone_runs_before": 0,
+      "tone_runs_after": 0,
+      "integrity_check": "ok",
+      "foreign_key_violations": 0,
+      "source_unchanged": true
+    },
+    "local_docker": {
+      "status": "not_run",
+      "reason": "Docker CLI is not installed on the Mac development host; GitHub CI is the authoritative Docker build gate."
+    },
+    "github_ci": {
+      "status": "required_pr_gate",
+      "required_jobs": ["docker", "regression_python_3_11", "regression_python_3_12"],
+      "note": "Verify the checks attached to the final PR head before merge."
+    }
+  },
+  "known_boundary": "The contract checks evidence IDs and Unicode span shape but does not yet reload frozen CAS text to compare quote bytes. Tone remains needs_review-only; valid results, calibrated confidence, model execution, historical backfill, aggregation and production enablement are blocked."
+}

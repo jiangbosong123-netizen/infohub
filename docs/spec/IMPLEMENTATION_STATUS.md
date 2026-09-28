@@ -22,8 +22,14 @@ the implementation PR series proceeded. It was restored on 2026-09-27 after `mai
   with its opaque cursor in a synthetic API/worker drill. Selected-projection policy,
   change-history compaction and the real P23 Windows/external-consumer drill are still absent; those
   remaining units keep the sync service pre-production.
-- P20 macro and sentiment outputs, the remaining portal cutover and final Windows consumer drills
-  are later phases. A target endpoint in `openapi.yaml` is not proof that its route exists.
+- P15a now defines a strict `infohub.tone/1.0` result structure with speaker, target, versioned
+  aspect, polarity, intensity, quote/span evidence and explicitly uncalibrated confidence. It is
+  review-only: `valid` is rejected until CAS quote verification and the fixed evaluation admission
+  are implemented. Declared target/speaker IDs are checked against the entity catalog in the same
+  publication transaction. No model, historical tone output or production task has been enabled.
+- P16 impact, P20 macro and sentiment outputs, the remaining portal cutover and final Windows
+  consumer drills are later phases. A target endpoint in `openapi.yaml` is not proof that its route
+  exists.
 
 ## Status rule
 
