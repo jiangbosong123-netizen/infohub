@@ -20,6 +20,7 @@ python -m app.tone_release_decision \
 - 确认已有回滚计划。
 
 reject 可以记录不完整 bundle，便于保留失败原因，但永远不会成为 approval candidate。有效 approve 输出
-`approval_candidate_for_controlled_import=true`；它仍不是数据库中的正式 admission。P15e-3 导入时必须再次校验
-bundle/registry/record、权限与 append-only ledger 冲突，再决定是否允许 shadow publication。registry 属于受保护的
-运维材料，不应把私人身份或权限清单提交公共 Git。
+`approval_candidate_for_controlled_import=true`；它仍不是数据库中的正式 admission。P15e-3 已由
+`app.tone_release_import` 实现：导入时再次校验 bundle/registry/原始决定/record，并拒绝 append-only ledger 中的
+重复决定或同 bundle 冲突。正式 admission 仍不等于 shadow publication。registry 属于受保护的运维材料，不应把
+私人身份或权限清单提交公共 Git。

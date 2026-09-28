@@ -3258,6 +3258,61 @@ def _sync_snapshot_foundation(db: sqlite3.Connection) -> None:
     _execute_script(db, SYNC_SNAPSHOT_SCHEMA_SQL)
 
 
+TONE_RELEASE_ADMISSION_SCHEMA_SQL = """
+CREATE TABLE tone_release_admissions (
+    id TEXT PRIMARY KEY,
+    record_version TEXT NOT NULL CHECK(record_version='tone-release-decision-record-v1'),
+    decision_id TEXT NOT NULL UNIQUE,
+    bundle_id TEXT NOT NULL UNIQUE,
+    bundle_sha256 TEXT NOT NULL CHECK(length(bundle_sha256)=64),
+    registry_version TEXT NOT NULL,
+    registry_sha256 TEXT NOT NULL CHECK(length(registry_sha256)=64),
+    dataset_version TEXT NOT NULL,
+    baseline_test_run_id TEXT NOT NULL,
+    candidate_dev_run_id TEXT NOT NULL,
+    candidate_test_run_id TEXT NOT NULL,
+    candidate_security_run_id TEXT NOT NULL,
+    calibration_version TEXT NOT NULL,
+    operational_run_id TEXT NOT NULL,
+    approver_id TEXT NOT NULL,
+    decision TEXT NOT NULL CHECK(decision IN ('approve','reject')),
+    reason TEXT NOT NULL CHECK(length(trim(reason))>0),
+    decided_at TEXT NOT NULL,
+    policy_id TEXT NOT NULL,
+    approval_candidate INTEGER NOT NULL CHECK(approval_candidate IN (0,1)),
+    record_json TEXT NOT NULL,
+    record_sha256 TEXT NOT NULL UNIQUE CHECK(length(record_sha256)=64),
+    bundle_json TEXT NOT NULL,
+    imported_by TEXT NOT NULL CHECK(length(trim(imported_by))>0),
+    imported_at TEXT NOT NULL,
+    CHECK((decision='approve' AND approval_candidate=1)
+       OR (decision='reject' AND approval_candidate=0))
+);
+CREATE INDEX idx_tone_release_admissions_dataset
+    ON tone_release_admissions(dataset_version, imported_at);
+CREATE TRIGGER tone_release_admissions_valid_insert
+BEFORE INSERT ON tone_release_admissions
+WHEN NOT json_valid(NEW.record_json) OR NOT json_valid(NEW.bundle_json)
+  OR json_extract(NEW.record_json,'$.record_id')<>NEW.id
+  OR json_extract(NEW.record_json,'$.decision_id')<>NEW.decision_id
+  OR json_extract(NEW.record_json,'$.bundle_id')<>NEW.bundle_id
+  OR json_extract(NEW.record_json,'$.decision')<>NEW.decision
+  OR json_extract(NEW.bundle_json,'$.bundle_id')<>NEW.bundle_id
+  OR json_extract(NEW.bundle_json,'$.dataset_version')<>NEW.dataset_version
+BEGIN SELECT RAISE(ABORT,'tone release admission snapshot mismatch'); END;
+CREATE TRIGGER tone_release_admissions_no_update
+BEFORE UPDATE ON tone_release_admissions
+BEGIN SELECT RAISE(ABORT,'tone release admissions are immutable'); END;
+CREATE TRIGGER tone_release_admissions_no_delete
+BEFORE DELETE ON tone_release_admissions
+BEGIN SELECT RAISE(ABORT,'tone release admissions are immutable'); END;
+"""
+
+
+def _tone_release_admission_foundation(db: sqlite3.Connection) -> None:
+    _execute_script(db, TONE_RELEASE_ADMISSION_SCHEMA_SQL)
+
+
 # Migration 1 freezes the exact legacy schema at main@88a2a1e. Future schema
 # changes must append a new Migration instead of editing this definition.
 MIGRATIONS = (
@@ -3419,6 +3474,9 @@ MIGRATIONS = (
               _event_dataset_release_foundation),
     Migration(39, "immutable reliable-sync snapshot foundation",
               SYNC_SNAPSHOT_SCHEMA_SQL, _sync_snapshot_foundation),
+    Migration(40, "append-only tone release admission ledger",
+              TONE_RELEASE_ADMISSION_SCHEMA_SQL,
+              _tone_release_admission_foundation),
 )
 CURRENT_SCHEMA_VERSION = MIGRATIONS[-1].version
 REQUIRED_MIGRATION_COLUMNS = {
@@ -3476,6 +3534,7 @@ EXPECTED_TABLES = LEGACY_ANCHORS | {
     "event_dataset_release_reviews",
     "sync_snapshot_requests", "sync_snapshots", "sync_snapshot_resources",
     "sync_snapshot_pages",
+    "tone_release_admissions",
 }
 EXPECTED_ITEM_COLUMNS = {
     "id", "source_id", "url", "title", "title_zh", "summary", "raw_summary",
@@ -3945,6 +4004,15 @@ EXPECTED_API_AUTH_COLUMNS = {
         "last_resource_id", "record_count", "payload_ref", "payload_sha256",
         "size_bytes",
     },
+    "tone_release_admissions": {
+        "id", "record_version", "decision_id", "bundle_id", "bundle_sha256",
+        "registry_version", "registry_sha256", "dataset_version",
+        "baseline_test_run_id", "candidate_dev_run_id", "candidate_test_run_id",
+        "candidate_security_run_id", "calibration_version", "operational_run_id",
+        "approver_id", "decision", "reason", "decided_at", "policy_id",
+        "approval_candidate", "record_json", "record_sha256", "bundle_json",
+        "imported_by", "imported_at",
+    },
 }
 EXPECTED_INGEST_TRIGGERS = {
     "sync_snapshot_requests_valid_manifest",
@@ -3954,6 +4022,8 @@ EXPECTED_INGEST_TRIGGERS = {
     "sync_snapshot_resources_running_only", "sync_snapshot_resources_no_update",
     "sync_snapshot_resources_no_delete", "sync_snapshot_pages_running_only",
     "sync_snapshot_pages_no_update", "sync_snapshot_pages_no_delete",
+    "tone_release_admissions_valid_insert", "tone_release_admissions_no_update",
+    "tone_release_admissions_no_delete",
     "api_request_audit_no_update", "api_request_audit_no_delete",
     "api_key_audit_no_update", "api_key_audit_no_delete",
     "report_generation_reviews_valid_approval", "report_generation_reviews_no_update",
@@ -4462,6 +4532,50 @@ def _assert_current_schema(db: sqlite3.Connection) -> None:
     if identity_rows[0]["owner_environment_id"] != identity_rows[0]["epoch_owner"]:
         raise DatabaseVerificationError(
             "dataset state and current epoch have different environment owners"
+        )
+    invalid_tone_admissions = 0
+    for row in db.execute("SELECT * FROM tone_release_admissions ORDER BY imported_at,id"):
+        try:
+            record = json.loads(row["record_json"])
+            bundle = json.loads(row["bundle_json"])
+            canonical_record = json.dumps(
+                record, ensure_ascii=False, sort_keys=True, separators=(",", ":"),
+                allow_nan=False,
+            )
+            valid = (
+                hashlib.sha256(canonical_record.encode("utf-8")).hexdigest()
+                == row["record_sha256"]
+                and record["record_id"] == row["id"]
+                and record["record_version"] == row["record_version"]
+                and record["decision_id"] == row["decision_id"]
+                and record["bundle_id"] == row["bundle_id"]
+                and record["bundle_sha256"] == row["bundle_sha256"]
+                and record["registry_version"] == row["registry_version"]
+                and record["registry_sha256"] == row["registry_sha256"]
+                and record["approver_id"] == row["approver_id"]
+                and record["decision"] == row["decision"]
+                and record["reason"] == row["reason"]
+                and record["recorded_at"] == row["decided_at"]
+                and record["policy_id"] == row["policy_id"]
+                and int(record["approval_candidate_for_controlled_import"])
+                == row["approval_candidate"]
+                and bundle["bundle_id"] == row["bundle_id"]
+                and bundle["dataset_version"] == row["dataset_version"]
+                and bundle["baseline_test_run_id"] == row["baseline_test_run_id"]
+                and bundle["candidate_dev_run_id"] == row["candidate_dev_run_id"]
+                and bundle["candidate_test_run_id"] == row["candidate_test_run_id"]
+                and bundle["candidate_security_run_id"]
+                == row["candidate_security_run_id"]
+                and bundle["calibration_version"] == row["calibration_version"]
+                and bundle["operational_run_id"] == row["operational_run_id"]
+            )
+        except (KeyError, TypeError, ValueError, json.JSONDecodeError):
+            valid = False
+        if not valid:
+            invalid_tone_admissions += 1
+    if invalid_tone_admissions:
+        raise DatabaseVerificationError(
+            f"tone release admission ledger has {invalid_tone_admissions} invalid row(s)"
         )
     search_state = db.execute(
         "SELECT singleton,status FROM curation_search_state"
