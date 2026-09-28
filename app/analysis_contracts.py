@@ -4,7 +4,12 @@ from __future__ import annotations
 
 from .analysis_runs import AnalysisRunError
 from .curation_contracts import validate_curation_data
-from .tone_contracts import TONE_SCHEMA_VERSION, referenced_tone_entities, validate_tone_data
+from .tone_contracts import (
+    TONE_SCHEMA_VERSIONS,
+    referenced_tone_entities,
+    validate_tone_data,
+)
+from .tone_evidence import verify_tone_quotes
 
 
 def validate_analysis_data(
@@ -16,12 +21,13 @@ def validate_analysis_data(
     allowed_evidence: set[str],
 ) -> dict:
     if task_type == "tone":
-        if schema_version != TONE_SCHEMA_VERSION:
+        if schema_version not in TONE_SCHEMA_VERSIONS:
             raise AnalysisRunError("tone schema does not match its task type")
         return validate_tone_data(
-            status=status, data=data, allowed_evidence=allowed_evidence
+            schema_version=schema_version, status=status, data=data,
+            allowed_evidence=allowed_evidence,
         )
-    if schema_version == TONE_SCHEMA_VERSION:
+    if schema_version in TONE_SCHEMA_VERSIONS:
         raise AnalysisRunError("tone schema does not match its task type")
     return validate_curation_data(
         task_type=task_type,
@@ -40,4 +46,14 @@ def referenced_analysis_entities(
     return []
 
 
-__all__ = ["referenced_analysis_entities", "validate_analysis_data"]
+def verify_analysis_evidence(
+    db, *, task_type: str, schema_version: str, data: dict
+) -> dict:
+    if task_type == "tone":
+        return verify_tone_quotes(db, schema_version=schema_version, data=data)
+    return {"validator_version": None, "status": "not_applicable"}
+
+
+__all__ = [
+    "referenced_analysis_entities", "validate_analysis_data", "verify_analysis_evidence",
+]

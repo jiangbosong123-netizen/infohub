@@ -16,7 +16,8 @@ tone 表示**文本中某个 speaker 对某个 target 的表达倾向**，粒度
 
 ## 2. 版本与信封
 
-- output schema：`infohub.tone/1.0`
+- output schema：P15a 的结构版为 `infohub.tone/1.0`；P15b 当前写入版为
+  `infohub.tone/1.1`，增加可验证 JSON Pointer locator。新 run 不再创建 1.0，旧 1.0 结果仍可读取。
 - vocabulary：`tone-vocabulary-v1`
 - subject：tone 只接受不可变 document version；event version 留给 impact 等事件级任务。
 - 顶层仍使用 `analysis_results` 的通用信封：schema_version、subject、status、evidence_ids、data。
@@ -43,8 +44,13 @@ tone 表示**文本中某个 speaker 对某个 target 的表达倾向**，粒度
     "evidence": [{
       "evidence_id": "raw-record-id",
       "quote": "Demand improved.",
-      "start_offset": 10,
-      "end_offset": 26
+      "locator": {
+        "type": "json_pointer",
+        "json_pointer": "/source_record/summary",
+        "start_offset": 10,
+        "end_offset": 26,
+        "offset_unit": "unicode_code_point"
+      }
     }],
     "confidence": {
       "raw_confidence": 0.8,
@@ -58,8 +64,9 @@ tone 表示**文本中某个 speaker 对某个 target 的表达倾向**，粒度
 
 speaker kind 为 author、interviewee、quoted_person、quoted_organization 或 unknown。已识别 speaker
 至少要有 entity_id 或 label；unknown 不得伪造 entity_id。target 类型复用实体目录的受控类型，无法解析时
-可以为 null，但仍只能处于待审状态。发布事务会查询实体目录：声明的 target/speaker entity_id 必须存在，
-target 及可确定类型的 speaker 还必须与目录类型一致；形似 ID 的自由文本不能进入 publication。
+可以为 null，但仍只能处于待审状态。系统会预检实体，并在 publication 写事务内再次查询实体目录：声明的
+target/speaker entity_id 必须存在，target 及可确定类型的 speaker 还必须与目录类型一致；形似 ID 的自由
+文本不能进入 publication。
 
 aspect v1 为 product_capability、business_outlook、policy_stance、valuation_view、market_position、
 management_quality、social_impact、other。词表变化必须提升版本，不能在同一版本中静默改义。
@@ -67,16 +74,19 @@ management_quality、social_impact、other。词表变化必须提升版本，�
 polarity 为 positive、negative、neutral、mixed、unknown。非 unknown 必须有 0..1 intensity；unknown
 必须使用 null intensity 并说明 uncertainty_reason。intensity 只表示表达强度，不是概率、重要性或价格幅度。
 
-每条 assessment 至少有一个不重复证据 span。offset 使用 Unicode code point、半开区间 `[start,end)`，
-当前结构验证会核对非负、顺序和 `end-start == len(quote)`，并核对 evidence_id 属于该 run 的冻结输入。
-它尚未从 CAS 重新读取原文逐字比较，所以本阶段禁止 `valid`。这一限制是显式发布门，而不是模型质量结论。
+每条 assessment 至少有一个不重复证据 span。1.1 locator 使用 RFC 6901 JSON Pointer 定位冻结 raw
+payload 的字符串叶子，offset 使用 Unicode code point、半开区间 `[start,end)`。结构验证核对非负、顺序、
+`end-start == len(quote)` 与 run 输入白名单；进入发布写事务前还会重新验证 CAS 路径、SHA-256、文件大小、UTF-8
+JSON、pointer 和逐字切片。验证报告保存 payload/quote hash 和 locator。1.0 没有可判定字段坐标系，因此只保留
+兼容读取，不标 quote verification passed。即使 1.1 引用完全匹配，当前仍禁止 `valid`，因为引用正确不等于
+情绪分类质量已经通过固定评估集。
 
 raw_confidence 是未校准模型自报值，可为 null。P15a 拒绝任何非空 calibrated_confidence；至少 200 条
 可裁定 held-out、ECE 门槛和 calibration version 通过 admission 后，才能在新版本契约中启用校准值。
 
 ## 4. 后续放行顺序
 
-1. P15b：从冻结 evidence payload 解析规范文本并逐字核验 quote/span；明确标题、摘要、全文字段坐标系。
+1. P15b（已实现）：从冻结 JSON evidence payload 逐字核验 quote/span；HTML/PDF 的规范文本抽取仍需独立版本。
 2. P15c：固定多语种/多来源/引用类型 gold 数据、否定/转述/反讽切片与人工裁定流程。
 3. P15d：运行基线与候选评估，报告 macro F1、混淆矩阵、unknown recall、coverage 和支持数。
 4. P15e：达到 SPEC 门槛后，以新 admission 记录开放 `valid`；shadow 切换，不覆盖旧结果。

@@ -2891,16 +2891,26 @@ components:
       required: [kind, entity_id, label]
       additionalProperties: false
       description: unknown speakers cannot carry entity_id; identified speakers require entity_id or label.
+    ToneJsonLocator:
+      type: object
+      properties:
+        type: {const: json_pointer}
+        json_pointer: {type: string, pattern: '^/', maxLength: 1000}
+        start_offset: {type: integer, minimum: 0}
+        end_offset: {type: integer, minimum: 1}
+        offset_unit: {const: unicode_code_point}
+      required: [type, json_pointer, start_offset, end_offset, offset_unit]
+      additionalProperties: false
+      description: RFC 6901 pointer to a string leaf plus a half-open character range.
     ToneEvidenceSpan:
       type: object
       properties:
         evidence_id: {type: string, minLength: 1, maxLength: 128}
         quote: {type: string, minLength: 1, maxLength: 2000}
-        start_offset: {type: integer, minimum: 0}
-        end_offset: {type: integer, minimum: 1}
-      required: [evidence_id, quote, start_offset, end_offset]
+        locator: {$ref: '#/components/schemas/ToneJsonLocator'}
+      required: [evidence_id, quote, locator]
       additionalProperties: false
-      description: Unicode-code-point half-open offsets into the frozen evidence text.
+      description: The quote must exactly match the hash-verified raw JSON payload at the locator.
     ToneConfidence:
       type: object
       properties:

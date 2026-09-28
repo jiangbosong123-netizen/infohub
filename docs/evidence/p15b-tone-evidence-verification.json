@@ -1,0 +1,52 @@
+{
+  "phase": "P15b",
+  "scope": "Hash-checked raw CAS quote and locator verification for tone/1.1",
+  "recorded_at": "2026-09-28T08:19:39Z",
+  "production_changed": false,
+  "paid_model_calls": 0,
+  "validation": {
+    "python_3_11": {
+      "tests": 554,
+      "status": "passed"
+    },
+    "python_3_12": {
+      "tests": 554,
+      "status": "passed"
+    },
+    "synthetic_cas_and_publication_drill": {
+      "schema_version": "infohub.tone/1.1",
+      "cas_path_boundary": "passed",
+      "payload_sha256_and_size": "passed",
+      "utf8_json_decode": "passed",
+      "rfc6901_object_escape": "passed",
+      "rfc6901_array_index": "passed",
+      "unicode_code_point_slice": "passed",
+      "verbatim_quote_match": "passed",
+      "bad_quote_atomic_rollback": "passed",
+      "verification_report_provenance": "passed",
+      "legacy_1_0_read_compatibility": "passed",
+      "new_1_0_run_rejected": "passed"
+    },
+    "real_database_isolated_rehearsal": {
+      "source_sha256_before": "f88fcc998a5fd9ca7f69d6f9edb818d5b4145f3782c533d156ca3f8819748271",
+      "source_sha256_after": "f88fcc998a5fd9ca7f69d6f9edb818d5b4145f3782c533d156ca3f8819748271",
+      "schema_from": 0,
+      "schema_to": 39,
+      "items_before": 65018,
+      "items_after": 65018,
+      "stories_before": 55478,
+      "stories_after": 55478,
+      "raw_records_after_schema_init": 0,
+      "tone_runs_after": 0,
+      "integrity_check": "ok",
+      "foreign_key_violations": 0,
+      "source_unchanged": true
+    },
+    "github_ci": {
+      "status": "required_pr_gate",
+      "required_jobs": ["docker", "regression_python_3_11", "regression_python_3_12"],
+      "note": "Verify the checks attached to the final PR head before merge."
+    }
+  },
+  "known_boundary": "The current local legacy database has no formal raw_records after schema initialization alone, so this PR does not claim that legacy items are ready for tone processing. Controlled raw/document backfill and publication remain separate. HTML/PDF normalized text artifacts, fixed gold labels, model execution, valid tone publication, aggregation and Windows production enablement remain blocked."
+}
