@@ -1,0 +1,46 @@
+{
+  "phase": "P15c-3",
+  "scope": "Read-only fixed-pair human tone annotation agreement",
+  "recorded_at": "2026-09-28T16:27:07Z",
+  "production_changed": false,
+  "database_changed": false,
+  "paid_model_calls": 0,
+  "validation": {
+    "python_3_11": {
+      "tests": 581,
+      "status": "passed_serially"
+    },
+    "python_3_12": {
+      "tests": 581,
+      "status": "passed_serially"
+    },
+    "synthetic_private_agreement_drill": {
+      "report_version": "tone-review-agreement-v1",
+      "fixed_reviewer_pair": "passed",
+      "split_scope": "passed",
+      "polarity_confusion": "passed",
+      "cohen_kappa": "passed",
+      "speaker_agreement": "passed",
+      "target_agreement": "passed",
+      "aspect_agreement": "passed",
+      "intensity_agreement": "passed",
+      "evidence_span_agreement": "passed",
+      "phenomena_agreement": "passed",
+      "full_label_agreement": "passed",
+      "single_class_perfect_kappa_claim_blocked": "passed",
+      "minimum_support_for_kappa_gate": 30,
+      "polarity_kappa_target": 0.7,
+      "quality_gate_eligible": false
+    },
+    "github_ci": {
+      "status": "required_pr_gate",
+      "required_jobs": [
+        "docker",
+        "regression_python_3_11",
+        "regression_python_3_12"
+      ],
+      "note": "Verify the checks attached to the final PR head before merge."
+    }
+  },
+  "known_boundary": "Agreement is an annotation-process metric, not model accuracy. This unit does not adjudicate disagreements, verify private quote contents, create real samples, run a model, calibrate confidence, open valid publication or change Windows production."
+}
