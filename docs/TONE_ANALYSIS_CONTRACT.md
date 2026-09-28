@@ -89,7 +89,8 @@ raw_confidence 是未校准模型自报值，可为 null。P15a 拒绝任何非�
 1. P15b（已实现）：从冻结 JSON evidence payload 逐字核验 quote/span；HTML/PDF 的规范文本抽取仍需独立版本。
 2. P15c（已实现契约）：固定中英合成 fixture、tone 专用标签结构、否定/转述/反讽等困难切片及正式
    私有 gold 的放行条件。当前没有把合成样本或通用 relevance 人工工具冒充 tone gold；详见
-   `TONE_ANNOTATION_GUIDE.md`。
+   `TONE_ANNOTATION_GUIDE.md`。P15c-2 至 P15c-5 已补齐专用 review、agreement、adjudication 和私有
+   evidence/artifact 复核工具；真实私有样本和生产 normalizer 仍未创建。
 3. P15d：运行基线与候选评估，报告 macro F1、混淆矩阵、unknown recall、coverage 和支持数。
 4. P15e：达到 SPEC 门槛后，以新 admission 记录开放 `valid`；shadow 切换，不覆盖旧结果。
 

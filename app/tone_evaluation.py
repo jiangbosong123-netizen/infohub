@@ -230,12 +230,36 @@ def _verified_private_evidence(manifest: dict, root: Path) -> bool:
     }
     if any(review.get(key) != value for key, value in required.items()):
         return False
-    for key in ("verifier_id", "recorded_at", "cases_sha256", "review_record_sha256"):
+    for key in (
+        "verifier_id",
+        "recorded_at",
+        "cases_sha256",
+        "review_record_sha256",
+        "artifact_manifest_sha256",
+        "artifacts_sha256",
+    ):
         if not isinstance(review.get(key), str) or not review[key].strip():
             return False
-    if HASH_RE.fullmatch(review["cases_sha256"]) is None or HASH_RE.fullmatch(
-        review["review_record_sha256"]
-    ) is None:
+    if any(
+        HASH_RE.fullmatch(review[key]) is None
+        for key in (
+            "cases_sha256",
+            "review_record_sha256",
+            "artifact_manifest_sha256",
+            "artifacts_sha256",
+        )
+    ):
+        return False
+    if (
+        type(review.get("labels_verified")) is not int
+        or review["labels_verified"] <= 0
+        or type(review.get("spans_verified")) is not int
+        or review["spans_verified"] <= 0
+        or not isinstance(review.get("normalizer_versions"), list)
+        or not review["normalizer_versions"]
+        or any(not isinstance(item, str) or not item.strip() for item in review["normalizer_versions"])
+        or review["normalizer_versions"] != sorted(set(review["normalizer_versions"]))
+    ):
         return False
     try:
         stamp = datetime.fromisoformat(review["recorded_at"].replace("Z", "+00:00"))
@@ -259,6 +283,8 @@ def _verified_private_evidence(manifest: dict, root: Path) -> bool:
         "verifier_id": None,
         "recorded_at": None,
         "cases_sha256": None,
+        "artifact_manifest_sha256": None,
+        "artifacts_sha256": None,
     })
 
 
