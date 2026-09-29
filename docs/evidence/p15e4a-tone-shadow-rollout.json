@@ -1,0 +1,19 @@
+{
+  "acceptance": {
+    "approved_admission_required": true,
+    "configuration_content_bound": true,
+    "formal_publication_unchanged": true,
+    "shadow_only_mode_enforced": true,
+    "stale_transition_rejected": true,
+    "terminal_states_cannot_reopen": true
+  },
+  "phase": "P15e-4a",
+  "production_changed": false,
+  "schema_version": "p15e4a-tone-shadow-rollout-evidence-v1",
+  "scope": "immutable shadow rollout plan and state history; no model execution or result serving",
+  "tests": {
+    "focused_python_3_11": 34,
+    "full_python_3_11": 637,
+    "full_python_3_12": 637
+  }
+}

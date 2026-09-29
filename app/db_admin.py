@@ -3313,6 +3313,89 @@ def _tone_release_admission_foundation(db: sqlite3.Connection) -> None:
     _execute_script(db, TONE_RELEASE_ADMISSION_SCHEMA_SQL)
 
 
+TONE_SHADOW_ROLLOUT_SCHEMA_SQL = """
+CREATE TABLE tone_shadow_rollouts (
+    id TEXT PRIMARY KEY,
+    admission_id TEXT NOT NULL UNIQUE REFERENCES tone_release_admissions(id),
+    rollout_schema_version TEXT NOT NULL CHECK(
+        rollout_schema_version='tone-shadow-rollout-v1'),
+    dataset_version TEXT NOT NULL,
+    candidate_test_run_id TEXT NOT NULL,
+    calibration_version TEXT NOT NULL,
+    sample_bps INTEGER NOT NULL CHECK(sample_bps BETWEEN 1 AND 10000),
+    config_json TEXT NOT NULL,
+    config_sha256 TEXT NOT NULL UNIQUE CHECK(length(config_sha256)=64),
+    created_by TEXT NOT NULL CHECK(length(trim(created_by))>0),
+    created_at TEXT NOT NULL
+);
+CREATE TABLE tone_shadow_rollout_transitions (
+    id TEXT PRIMARY KEY,
+    rollout_id TEXT NOT NULL REFERENCES tone_shadow_rollouts(id),
+    version INTEGER NOT NULL CHECK(version>0),
+    previous_transition_id TEXT UNIQUE REFERENCES tone_shadow_rollout_transitions(id),
+    from_state TEXT CHECK(from_state IS NULL OR from_state IN (
+        'planned','running','paused','completed','aborted')),
+    to_state TEXT NOT NULL CHECK(to_state IN (
+        'planned','running','paused','completed','aborted')),
+    actor TEXT NOT NULL CHECK(length(trim(actor))>0),
+    reason TEXT NOT NULL CHECK(length(trim(reason))>0),
+    occurred_at TEXT NOT NULL,
+    UNIQUE(rollout_id,version)
+);
+CREATE INDEX idx_tone_shadow_rollout_transitions_latest
+    ON tone_shadow_rollout_transitions(rollout_id,version DESC);
+CREATE TRIGGER tone_shadow_rollouts_valid_insert
+BEFORE INSERT ON tone_shadow_rollouts
+WHEN NOT json_valid(NEW.config_json)
+  OR NOT EXISTS(
+      SELECT 1 FROM tone_release_admissions AS admission
+      WHERE admission.id=NEW.admission_id AND admission.decision='approve'
+        AND admission.approval_candidate=1
+        AND admission.dataset_version=NEW.dataset_version
+        AND admission.candidate_test_run_id=NEW.candidate_test_run_id
+        AND admission.calibration_version=NEW.calibration_version)
+BEGIN SELECT RAISE(ABORT,'tone shadow rollout requires matching approved admission'); END;
+CREATE TRIGGER tone_shadow_rollouts_no_update BEFORE UPDATE ON tone_shadow_rollouts
+BEGIN SELECT RAISE(ABORT,'tone shadow rollouts are immutable'); END;
+CREATE TRIGGER tone_shadow_rollouts_no_delete BEFORE DELETE ON tone_shadow_rollouts
+BEGIN SELECT RAISE(ABORT,'tone shadow rollouts are immutable'); END;
+CREATE TRIGGER tone_shadow_rollout_transitions_valid_append
+BEFORE INSERT ON tone_shadow_rollout_transitions
+WHEN NOT (
+    (NEW.version=1 AND NEW.previous_transition_id IS NULL
+       AND NEW.from_state IS NULL AND NEW.to_state='planned'
+       AND NOT EXISTS(SELECT 1 FROM tone_shadow_rollout_transitions
+                      WHERE rollout_id=NEW.rollout_id))
+    OR
+    (NEW.version>1 AND NEW.previous_transition_id IS NOT NULL
+       AND EXISTS(
+           SELECT 1 FROM tone_shadow_rollout_transitions AS previous
+           WHERE previous.id=NEW.previous_transition_id
+             AND previous.rollout_id=NEW.rollout_id
+             AND previous.version=NEW.version-1
+             AND previous.to_state=NEW.from_state
+             AND NOT EXISTS(
+                 SELECT 1 FROM tone_shadow_rollout_transitions AS later
+                 WHERE later.rollout_id=previous.rollout_id
+                   AND later.version>previous.version))
+       AND ((NEW.from_state='planned' AND NEW.to_state IN ('running','aborted'))
+         OR (NEW.from_state='running' AND NEW.to_state IN ('paused','completed','aborted'))
+         OR (NEW.from_state='paused' AND NEW.to_state IN ('running','aborted'))))
+)
+BEGIN SELECT RAISE(ABORT,'invalid tone shadow rollout transition'); END;
+CREATE TRIGGER tone_shadow_rollout_transitions_no_update
+BEFORE UPDATE ON tone_shadow_rollout_transitions
+BEGIN SELECT RAISE(ABORT,'tone shadow rollout transitions are immutable'); END;
+CREATE TRIGGER tone_shadow_rollout_transitions_no_delete
+BEFORE DELETE ON tone_shadow_rollout_transitions
+BEGIN SELECT RAISE(ABORT,'tone shadow rollout transitions are immutable'); END;
+"""
+
+
+def _tone_shadow_rollout_foundation(db: sqlite3.Connection) -> None:
+    _execute_script(db, TONE_SHADOW_ROLLOUT_SCHEMA_SQL)
+
+
 # Migration 1 freezes the exact legacy schema at main@88a2a1e. Future schema
 # changes must append a new Migration instead of editing this definition.
 MIGRATIONS = (
@@ -3477,6 +3560,9 @@ MIGRATIONS = (
     Migration(40, "append-only tone release admission ledger",
               TONE_RELEASE_ADMISSION_SCHEMA_SQL,
               _tone_release_admission_foundation),
+    Migration(41, "controlled tone shadow rollout plan",
+              TONE_SHADOW_ROLLOUT_SCHEMA_SQL,
+              _tone_shadow_rollout_foundation),
 )
 CURRENT_SCHEMA_VERSION = MIGRATIONS[-1].version
 REQUIRED_MIGRATION_COLUMNS = {
@@ -3535,6 +3621,7 @@ EXPECTED_TABLES = LEGACY_ANCHORS | {
     "sync_snapshot_requests", "sync_snapshots", "sync_snapshot_resources",
     "sync_snapshot_pages",
     "tone_release_admissions",
+    "tone_shadow_rollouts", "tone_shadow_rollout_transitions",
 }
 EXPECTED_ITEM_COLUMNS = {
     "id", "source_id", "url", "title", "title_zh", "summary", "raw_summary",
@@ -4013,6 +4100,15 @@ EXPECTED_API_AUTH_COLUMNS = {
         "approval_candidate", "record_json", "record_sha256", "bundle_json",
         "imported_by", "imported_at",
     },
+    "tone_shadow_rollouts": {
+        "id", "admission_id", "rollout_schema_version", "dataset_version",
+        "candidate_test_run_id", "calibration_version", "sample_bps",
+        "config_json", "config_sha256", "created_by", "created_at",
+    },
+    "tone_shadow_rollout_transitions": {
+        "id", "rollout_id", "version", "previous_transition_id", "from_state",
+        "to_state", "actor", "reason", "occurred_at",
+    },
 }
 EXPECTED_INGEST_TRIGGERS = {
     "sync_snapshot_requests_valid_manifest",
@@ -4024,6 +4120,10 @@ EXPECTED_INGEST_TRIGGERS = {
     "sync_snapshot_pages_no_update", "sync_snapshot_pages_no_delete",
     "tone_release_admissions_valid_insert", "tone_release_admissions_no_update",
     "tone_release_admissions_no_delete",
+    "tone_shadow_rollouts_valid_insert", "tone_shadow_rollouts_no_update",
+    "tone_shadow_rollouts_no_delete", "tone_shadow_rollout_transitions_valid_append",
+    "tone_shadow_rollout_transitions_no_update",
+    "tone_shadow_rollout_transitions_no_delete",
     "api_request_audit_no_update", "api_request_audit_no_delete",
     "api_key_audit_no_update", "api_key_audit_no_delete",
     "report_generation_reviews_valid_approval", "report_generation_reviews_no_update",
@@ -4576,6 +4676,69 @@ def _assert_current_schema(db: sqlite3.Connection) -> None:
     if invalid_tone_admissions:
         raise DatabaseVerificationError(
             f"tone release admission ledger has {invalid_tone_admissions} invalid row(s)"
+        )
+    invalid_tone_rollouts = 0
+    legal_rollout_transitions = {
+        "planned": {"running", "aborted"},
+        "running": {"paused", "completed", "aborted"},
+        "paused": {"running", "aborted"},
+    }
+    for rollout in db.execute("SELECT * FROM tone_shadow_rollouts ORDER BY id"):
+        try:
+            config = json.loads(rollout["config_json"])
+            identity = {
+                "rollout_schema_version": rollout["rollout_schema_version"],
+                "admission_id": rollout["admission_id"],
+                "sample_bps": rollout["sample_bps"],
+                "config": config,
+            }
+            expected_hash = hashlib.sha256(json.dumps(
+                identity, ensure_ascii=False, sort_keys=True, separators=(",", ":"),
+                allow_nan=False,
+            ).encode()).hexdigest()
+            admission = db.execute(
+                """SELECT * FROM tone_release_admissions
+                   WHERE id=? AND decision='approve' AND approval_candidate=1""",
+                (rollout["admission_id"],),
+            ).fetchone()
+            transitions = db.execute(
+                """SELECT * FROM tone_shadow_rollout_transitions
+                   WHERE rollout_id=? ORDER BY version""",
+                (rollout["id"],),
+            ).fetchall()
+            valid = (
+                expected_hash == rollout["config_sha256"]
+                and config.get("mode") == "shadow_only"
+                and admission is not None
+                and admission["dataset_version"] == rollout["dataset_version"]
+                and admission["candidate_test_run_id"] == rollout["candidate_test_run_id"]
+                and admission["calibration_version"] == rollout["calibration_version"]
+                and bool(transitions)
+            )
+            previous = None
+            for version, transition in enumerate(transitions, 1):
+                valid = valid and transition["version"] == version
+                if version == 1:
+                    valid = valid and (
+                        transition["previous_transition_id"] is None
+                        and transition["from_state"] is None
+                        and transition["to_state"] == "planned"
+                    )
+                else:
+                    valid = valid and (
+                        transition["previous_transition_id"] == previous["id"]
+                        and transition["from_state"] == previous["to_state"]
+                        and transition["to_state"]
+                        in legal_rollout_transitions.get(previous["to_state"], set())
+                    )
+                previous = transition
+        except (KeyError, TypeError, ValueError, json.JSONDecodeError):
+            valid = False
+        if not valid:
+            invalid_tone_rollouts += 1
+    if invalid_tone_rollouts:
+        raise DatabaseVerificationError(
+            f"tone shadow rollout ledger has {invalid_tone_rollouts} invalid row(s)"
         )
     search_state = db.execute(
         "SELECT singleton,status FROM curation_search_state"

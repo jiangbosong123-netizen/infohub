@@ -101,6 +101,8 @@ raw_confidence 是未校准模型自报值，可为 null。P15a 拒绝任何非�
 4. P15e：P15e-1 已建立从冻结原始材料重算 agreement、comparison、calibration、operations 和 security 的
    content-bound evidence bundle；P15e-2 使用受控 registry 校验独立授权人的 exact bundle approve/reject 决定；
    P15e-3 已加入迁移 40 和受控导入器，在写入 append-only admission ledger 前重算全部绑定，并拒绝重复决定和
-   同 bundle 冲突。后续 P15e-4 才以新记录开放 `valid` 并 shadow 切换，不覆盖旧结果。
+   同 bundle 冲突。P15e-4a 已增加只绑定 approved admission 的 shadow-only rollout 计划与追加式状态机；它还不
+   生成结果或移动 publication。后续 P15e-4b/4c 分别建立影子观测门槛与独立人工切换/回滚，再以新记录开放
+   `valid`，不覆盖旧结果。
 
 任何阶段失败都只关闭新的 tone publication；不可变输入、attempt、旧结果和人工修正继续保留。
