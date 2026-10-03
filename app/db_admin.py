@@ -13,7 +13,7 @@ from typing import Callable, Iterable
 from uuid import uuid4
 
 from . import config, database
-from .timeutil import parse_utc, utc_now
+from .timeutil import format_utc, parse_utc, utc_now
 
 
 class DatabaseSafetyError(RuntimeError):
@@ -3576,6 +3576,122 @@ def _tone_shadow_observation_foundation(db: sqlite3.Connection) -> None:
     _execute_script(db, TONE_SHADOW_OBSERVATION_SCHEMA_SQL)
 
 
+TONE_RELEASE_ACTIVATION_SCHEMA_SQL = """
+CREATE TABLE tone_release_activations (
+    id TEXT PRIMARY KEY,
+    rollout_id TEXT NOT NULL UNIQUE REFERENCES tone_shadow_rollouts(id),
+    admission_id TEXT NOT NULL UNIQUE REFERENCES tone_release_admissions(id),
+    shadow_evaluation_id TEXT NOT NULL UNIQUE REFERENCES tone_shadow_evaluations(id),
+    profile_id TEXT NOT NULL,
+    profile_json TEXT NOT NULL,
+    profile_sha256 TEXT NOT NULL CHECK(length(profile_sha256)=64),
+    profile_content_sha256 TEXT NOT NULL CHECK(length(profile_content_sha256)=64),
+    candidate_run_json TEXT NOT NULL,
+    candidate_run_sha256 TEXT NOT NULL CHECK(length(candidate_run_sha256)=64),
+    candidate_run_content_sha256 TEXT NOT NULL CHECK(length(candidate_run_content_sha256)=64),
+    runtime_config_json TEXT NOT NULL,
+    runtime_config_sha256 TEXT NOT NULL CHECK(length(runtime_config_sha256)=64),
+    activation_request_json TEXT NOT NULL,
+    activation_request_sha256 TEXT NOT NULL UNIQUE CHECK(length(activation_request_sha256)=64),
+    created_at TEXT NOT NULL
+);
+CREATE TABLE tone_release_activation_transitions (
+    id TEXT PRIMARY KEY,
+    activation_id TEXT NOT NULL REFERENCES tone_release_activations(id),
+    version INTEGER NOT NULL CHECK(version>0),
+    previous_transition_id TEXT UNIQUE REFERENCES tone_release_activation_transitions(id),
+    from_state TEXT CHECK(from_state IN ('active','rolled_back')),
+    to_state TEXT NOT NULL CHECK(to_state IN ('active','rolled_back')),
+    actor TEXT NOT NULL CHECK(length(trim(actor))>0),
+    reason TEXT NOT NULL CHECK(length(trim(reason))>0),
+    occurred_at TEXT NOT NULL,
+    registry_version TEXT NOT NULL CHECK(length(trim(registry_version))>0),
+    registry_sha256 TEXT NOT NULL CHECK(length(registry_sha256)=64),
+    authorization_json TEXT NOT NULL,
+    request_json TEXT NOT NULL,
+    request_sha256 TEXT NOT NULL UNIQUE CHECK(length(request_sha256)=64),
+    UNIQUE(activation_id,version)
+);
+CREATE INDEX idx_tone_release_activation_state
+    ON tone_release_activation_transitions(activation_id,version);
+
+CREATE TRIGGER tone_release_activations_valid_insert
+BEFORE INSERT ON tone_release_activations
+WHEN NOT (
+    json_valid(NEW.profile_json)
+    AND json_valid(NEW.candidate_run_json)
+    AND json_valid(NEW.runtime_config_json)
+    AND json_valid(NEW.activation_request_json)
+    AND EXISTS(
+        SELECT 1 FROM tone_shadow_rollouts AS rollout
+        JOIN tone_shadow_rollout_transitions AS transition
+          ON transition.rollout_id=rollout.id
+        JOIN tone_shadow_evaluations AS evaluation
+          ON evaluation.id=transition.shadow_evaluation_id
+        JOIN tone_shadow_batches AS batch ON batch.id=evaluation.batch_id
+        WHERE rollout.id=NEW.rollout_id
+          AND rollout.admission_id=NEW.admission_id
+          AND transition.to_state='completed'
+          AND transition.shadow_evaluation_id=NEW.shadow_evaluation_id
+          AND evaluation.decision='passed'
+          AND batch.rollout_id=rollout.id
+          AND NOT EXISTS(
+              SELECT 1 FROM tone_shadow_rollout_transitions AS later
+              WHERE later.rollout_id=transition.rollout_id
+                AND later.version>transition.version))
+)
+BEGIN SELECT RAISE(ABORT,'tone activation requires completed passed rollout'); END;
+CREATE TRIGGER tone_release_activations_no_update
+BEFORE UPDATE ON tone_release_activations
+BEGIN SELECT RAISE(ABORT,'tone release activations are immutable'); END;
+CREATE TRIGGER tone_release_activations_no_delete
+BEFORE DELETE ON tone_release_activations
+BEGIN SELECT RAISE(ABORT,'tone release activations are immutable'); END;
+CREATE TRIGGER tone_release_activation_transitions_valid_append
+BEFORE INSERT ON tone_release_activation_transitions
+WHEN NOT (
+    (NEW.version=1 AND NEW.previous_transition_id IS NULL
+       AND NEW.from_state IS NULL AND NEW.to_state='active'
+       AND NOT EXISTS(
+           SELECT 1 FROM tone_release_activation_transitions
+           WHERE activation_id=NEW.activation_id))
+    OR
+    (NEW.version=2 AND NEW.previous_transition_id IS NOT NULL
+       AND NEW.from_state='active' AND NEW.to_state='rolled_back'
+       AND EXISTS(
+           SELECT 1 FROM tone_release_activation_transitions AS previous
+           WHERE previous.id=NEW.previous_transition_id
+             AND previous.activation_id=NEW.activation_id
+             AND previous.version=1 AND previous.to_state='active'
+             AND NOT EXISTS(
+                 SELECT 1 FROM tone_release_activation_transitions AS later
+                 WHERE later.activation_id=previous.activation_id
+                   AND later.version>previous.version)))
+)
+BEGIN SELECT RAISE(ABORT,'invalid tone release activation transition'); END;
+CREATE TRIGGER tone_release_activation_single_active
+BEFORE INSERT ON tone_release_activation_transitions
+WHEN NEW.to_state='active' AND EXISTS(
+    SELECT 1 FROM tone_release_activation_transitions AS active
+    WHERE active.to_state='active' AND active.activation_id<>NEW.activation_id
+      AND NOT EXISTS(
+          SELECT 1 FROM tone_release_activation_transitions AS later
+          WHERE later.activation_id=active.activation_id
+            AND later.version>active.version))
+BEGIN SELECT RAISE(ABORT,'another tone release activation is active'); END;
+CREATE TRIGGER tone_release_activation_transitions_no_update
+BEFORE UPDATE ON tone_release_activation_transitions
+BEGIN SELECT RAISE(ABORT,'tone release activation transitions are immutable'); END;
+CREATE TRIGGER tone_release_activation_transitions_no_delete
+BEFORE DELETE ON tone_release_activation_transitions
+BEGIN SELECT RAISE(ABORT,'tone release activation transitions are immutable'); END;
+"""
+
+
+def _tone_release_activation_foundation(db: sqlite3.Connection) -> None:
+    _execute_script(db, TONE_RELEASE_ACTIVATION_SCHEMA_SQL)
+
+
 # Migration 1 freezes the exact legacy schema at main@88a2a1e. Future schema
 # changes must append a new Migration instead of editing this definition.
 MIGRATIONS = (
@@ -3746,6 +3862,9 @@ MIGRATIONS = (
     Migration(42, "complete tone shadow observation gate",
               TONE_SHADOW_OBSERVATION_SCHEMA_SQL,
               _tone_shadow_observation_foundation),
+    Migration(43, "controlled tone release activation ledger",
+              TONE_RELEASE_ACTIVATION_SCHEMA_SQL,
+              _tone_release_activation_foundation),
 )
 CURRENT_SCHEMA_VERSION = MIGRATIONS[-1].version
 REQUIRED_MIGRATION_COLUMNS = {
@@ -3808,6 +3927,7 @@ EXPECTED_TABLES = LEGACY_ANCHORS | {
     "tone_shadow_batches", "tone_shadow_batch_members",
     "tone_shadow_population_members",
     "tone_shadow_observations", "tone_shadow_evaluations",
+    "tone_release_activations", "tone_release_activation_transitions",
 }
 EXPECTED_ITEM_COLUMNS = {
     "id", "source_id", "url", "title", "title_zh", "summary", "raw_summary",
@@ -4314,6 +4434,18 @@ EXPECTED_API_AUTH_COLUMNS = {
         "id", "batch_id", "decision", "metrics_json", "metrics_sha256",
         "evaluated_by", "reason", "evaluated_at",
     },
+    "tone_release_activations": {
+        "id", "rollout_id", "admission_id", "shadow_evaluation_id",
+        "profile_id", "profile_json", "profile_sha256", "profile_content_sha256",
+        "candidate_run_json", "candidate_run_sha256", "candidate_run_content_sha256",
+        "runtime_config_json", "runtime_config_sha256",
+        "activation_request_json", "activation_request_sha256", "created_at",
+    },
+    "tone_release_activation_transitions": {
+        "id", "activation_id", "version", "previous_transition_id", "from_state",
+        "to_state", "actor", "reason", "occurred_at", "registry_version",
+        "registry_sha256", "authorization_json", "request_json", "request_sha256",
+    },
 }
 EXPECTED_INGEST_TRIGGERS = {
     "sync_snapshot_requests_valid_manifest",
@@ -4340,6 +4472,12 @@ EXPECTED_INGEST_TRIGGERS = {
     "tone_shadow_observations_running_only",
     "tone_shadow_evaluations_complete_insert", "tone_shadow_evaluations_no_update",
     "tone_shadow_evaluations_no_delete",
+    "tone_release_activations_valid_insert", "tone_release_activations_no_update",
+    "tone_release_activations_no_delete",
+    "tone_release_activation_transitions_valid_append",
+    "tone_release_activation_single_active",
+    "tone_release_activation_transitions_no_update",
+    "tone_release_activation_transitions_no_delete",
     "api_request_audit_no_update", "api_request_audit_no_delete",
     "api_key_audit_no_update", "api_key_audit_no_delete",
     "report_generation_reviews_valid_approval", "report_generation_reviews_no_update",
@@ -5100,6 +5238,195 @@ def _assert_current_schema(db: sqlite3.Connection) -> None:
     if invalid_tone_shadow_batches:
         raise DatabaseVerificationError(
             f"tone shadow evaluation ledger has {invalid_tone_shadow_batches} invalid batch(es)"
+        )
+    invalid_tone_activations = 0
+    for activation in db.execute("SELECT * FROM tone_release_activations ORDER BY id"):
+        try:
+            from .tone_release_activation import (
+                ACTIVATE_SCOPE, ACTIVATION_REQUEST_FIELDS, ACTIVATION_SCHEMA,
+                AUTHORIZATION_FIELDS, ROLLBACK_REQUEST_FIELDS, ROLLBACK_SCHEMA,
+                ROLLBACK_SCOPE, ToneReleaseActivationError, _validate_runtime_profile,
+            )
+
+            canonical = lambda value: json.dumps(
+                value, ensure_ascii=False, sort_keys=True, separators=(",", ":"),
+                allow_nan=False,
+            )
+            profile = json.loads(activation["profile_json"])
+            candidate = json.loads(activation["candidate_run_json"])
+            runtime = json.loads(activation["runtime_config_json"])
+            activation_request = json.loads(activation["activation_request_json"])
+            rollout = db.execute(
+                "SELECT * FROM tone_shadow_rollouts WHERE id=?", (activation["rollout_id"],)
+            ).fetchone()
+            admission = db.execute(
+                "SELECT * FROM tone_release_admissions WHERE id=?",
+                (activation["admission_id"],),
+            ).fetchone()
+            evaluation = db.execute(
+                "SELECT * FROM tone_shadow_evaluations WHERE id=?",
+                (activation["shadow_evaluation_id"],),
+            ).fetchone()
+            completion = db.execute(
+                """SELECT * FROM tone_shadow_rollout_transitions
+                   WHERE rollout_id=? AND to_state='completed'
+                     AND shadow_evaluation_id=?""",
+                (activation["rollout_id"], activation["shadow_evaluation_id"]),
+            ).fetchone()
+            bundle = json.loads(admission["bundle_json"]) if admission else None
+            checked_runtime, runtime_hash = _validate_runtime_profile(
+                profile, candidate, admission, rollout
+            )
+            request_json = canonical(activation_request)
+            request_hash = hashlib.sha256(request_json.encode("utf-8")).hexdigest()
+            expected_activation_id = "tone-activation-" + hashlib.sha256(canonical({
+                "request_sha256": request_hash,
+            }).encode("utf-8")).hexdigest()[:24]
+            valid = (
+                rollout is not None and admission is not None and evaluation is not None
+                and completion is not None and evaluation["decision"] == "passed"
+                and rollout["admission_id"] == admission["id"]
+                and rollout["id"] == activation["rollout_id"]
+                and evaluation["id"] == activation["shadow_evaluation_id"]
+                and profile["profile_id"] == activation["profile_id"]
+                and hashlib.sha256(
+                    activation["profile_json"].encode("utf-8")
+                ).hexdigest() == activation["profile_sha256"]
+                and hashlib.sha256(canonical(profile).encode("utf-8")).hexdigest()
+                    == activation["profile_content_sha256"]
+                and hashlib.sha256(
+                    activation["candidate_run_json"].encode("utf-8")
+                ).hexdigest() == activation["candidate_run_sha256"]
+                and hashlib.sha256(canonical(candidate).encode("utf-8")).hexdigest()
+                    == activation["candidate_run_content_sha256"]
+                and canonical(checked_runtime) == activation["runtime_config_json"]
+                and runtime == checked_runtime
+                and runtime_hash == activation["runtime_config_sha256"]
+                and request_json == activation["activation_request_json"]
+                and request_hash == activation["activation_request_sha256"]
+                and expected_activation_id == activation["id"]
+                and bundle["artifact_sha256"]["candidate_test_run"]
+                    == activation["candidate_run_sha256"]
+                and activation_request["rollout_id"] == activation["rollout_id"]
+                and activation_request["shadow_evaluation_id"]
+                    == activation["shadow_evaluation_id"]
+                and activation_request["profile_id"] == activation["profile_id"]
+                and activation_request["profile_sha256"] == activation["profile_sha256"]
+                and activation_request["candidate_test_run_id"]
+                    == admission["candidate_test_run_id"]
+                and activation_request["candidate_run_sha256"]
+                    == activation["candidate_run_sha256"]
+                and parse_utc(profile["created_at"])
+                    <= parse_utc(activation["created_at"])
+                and parse_utc(candidate["generated_at"])
+                    <= parse_utc(activation["created_at"])
+                and parse_utc(evaluation["evaluated_at"])
+                    <= parse_utc(activation["created_at"])
+                and parse_utc(completion["occurred_at"])
+                    <= parse_utc(activation["created_at"])
+            )
+            transitions = db.execute(
+                """SELECT * FROM tone_release_activation_transitions
+                   WHERE activation_id=? ORDER BY version""", (activation["id"],)
+            ).fetchall()
+            valid = valid and len(transitions) in {1, 2}
+            previous = None
+            for version, transition in enumerate(transitions, 1):
+                authorization = json.loads(transition["authorization_json"])
+                request = json.loads(transition["request_json"])
+                serialized_request = canonical(request)
+                request_sha = hashlib.sha256(serialized_request.encode("utf-8")).hexdigest()
+                valid_from = parse_utc(authorization["valid_from"])
+                valid_until = (
+                    parse_utc(authorization["valid_until"])
+                    if authorization["valid_until"] is not None else None
+                )
+                occurred = parse_utc(transition["occurred_at"])
+                required_scope = ACTIVATE_SCOPE if version == 1 else ROLLBACK_SCOPE
+                actor_field = "activator_id" if version == 1 else "operator_id"
+                schema = ACTIVATION_SCHEMA if version == 1 else ROLLBACK_SCHEMA
+                request_fields = (
+                    ACTIVATION_REQUEST_FIELDS if version == 1
+                    else ROLLBACK_REQUEST_FIELDS
+                )
+                valid = valid and (
+                    transition["version"] == version
+                    and canonical(authorization) == transition["authorization_json"]
+                    and serialized_request == transition["request_json"]
+                    and request_sha == transition["request_sha256"]
+                    and set(request) == request_fields
+                    and request["schema_version"] == schema
+                    and request[actor_field] == transition["actor"]
+                    and request["reason"].strip() == transition["reason"]
+                    and format_utc(parse_utc(request["recorded_at"]))
+                        == transition["occurred_at"]
+                    and request["source"] == "human"
+                    and request["model_assistance"] is False
+                    and request["registry_version"] == transition["registry_version"]
+                    and request["registry_sha256"] == transition["registry_sha256"]
+                    and authorization["approver_id"] == transition["actor"]
+                    and set(authorization) == AUTHORIZATION_FIELDS
+                    and authorization["status"] == "active"
+                    and authorization["scopes"]
+                        == sorted(set(authorization["scopes"]))
+                    and required_scope in authorization["scopes"]
+                    and occurred >= valid_from
+                    and (valid_until is None or occurred < valid_until)
+                )
+                if version == 1:
+                    valid = valid and (
+                        transition["previous_transition_id"] is None
+                        and transition["from_state"] is None
+                        and transition["to_state"] == "active"
+                        and transition["request_sha256"]
+                            == activation["activation_request_sha256"]
+                        and transition["occurred_at"] == activation["created_at"]
+                        and request["rollback_plan_acknowledged"] is True
+                        and transition["actor"] not in {
+                            admission["approver_id"], evaluation["evaluated_by"],
+                            bundle["reviewer_a"], bundle["reviewer_b"],
+                        }
+                    )
+                else:
+                    valid = valid and (
+                        previous is not None
+                        and transition["previous_transition_id"] == previous["id"]
+                        and transition["from_state"] == "active"
+                        and transition["to_state"] == "rolled_back"
+                        and request["activation_id"] == activation["id"]
+                        and request["expected_previous_transition_id"] == previous["id"]
+                        and occurred >= parse_utc(previous["occurred_at"])
+                    )
+                expected_transition_id = "tone-activation-transition-" + hashlib.sha256(
+                    canonical(
+                        {"activation_id": activation["id"], "version": version}
+                        if version == 1 else {
+                            "activation_id": activation["id"], "version": version,
+                            "request_sha256": request_sha,
+                        }
+                    ).encode("utf-8")
+                ).hexdigest()[:24]
+                valid = valid and transition["id"] == expected_transition_id
+                previous = transition
+        except (
+            KeyError, TypeError, ValueError, json.JSONDecodeError,
+            ToneReleaseActivationError,
+        ):
+            valid = False
+        if not valid:
+            invalid_tone_activations += 1
+    active_tone_activations = db.execute(
+        """SELECT COUNT(*) FROM tone_release_activation_transitions AS transition
+           WHERE transition.to_state='active' AND NOT EXISTS(
+               SELECT 1 FROM tone_release_activation_transitions AS later
+               WHERE later.activation_id=transition.activation_id
+                 AND later.version>transition.version)"""
+    ).fetchone()[0]
+    if active_tone_activations > 1:
+        invalid_tone_activations += active_tone_activations
+    if invalid_tone_activations:
+        raise DatabaseVerificationError(
+            f"tone release activation ledger has {invalid_tone_activations} invalid row(s)"
         )
     search_state = db.execute(
         "SELECT singleton,status FROM curation_search_state"

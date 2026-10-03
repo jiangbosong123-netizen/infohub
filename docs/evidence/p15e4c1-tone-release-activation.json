@@ -1,0 +1,19 @@
+{
+  "acceptance": {
+    "activation_requires_completed_passed_shadow_rollout": true,
+    "candidate_artifact_and_runtime_profile_are_hash_bound": true,
+    "independent_authorized_human_activation_is_required": true,
+    "only_one_profile_can_be_active": true,
+    "rollback_is_append_only_and_terminal": true,
+    "valid_tone_publication_remains_closed": true
+  },
+  "phase": "P15e-4c-1",
+  "production_changed": false,
+  "schema_version": "p15e4c1-tone-release-activation-evidence-v1",
+  "scope": "controlled tone production activation and rollback ledger",
+  "verification": {
+    "focused_tests": 39,
+    "python_311_full_tests": 648,
+    "python_312_full_tests": 648
+  }
+}
