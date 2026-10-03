@@ -1,0 +1,40 @@
+{
+  "phase": "P16d",
+  "scope": "Read-only fixed-pair human impact annotation agreement",
+  "recorded_at": "2026-10-03T00:00:00Z",
+  "production_changed": false,
+  "database_changed": false,
+  "paid_model_calls": 0,
+  "validation": {
+    "focused_tests": 43,
+    "python_3_11_full_tests": 696,
+    "python_3_12_full_tests": 696,
+    "synthetic_private_agreement_drill": {
+      "report_version": "impact-review-agreement-v1",
+      "fixed_reviewer_pair": "passed",
+      "reviewer_order_transposes_confusion": "passed",
+      "split_scope": "passed",
+      "direction_confusion_and_cohen_kappa": "passed",
+      "expected_status_and_evidence_judgment_diagnostic_kappa": "passed",
+      "single_class_perfect_kappa_claim_blocked": "passed",
+      "role_bound_evidence_agreement": "passed",
+      "structured_label_ignores_free_text_wording": "passed",
+      "full_label_exact_agreement": "passed",
+      "report_is_read_only": "passed",
+      "gate_field": "direction",
+      "minimum_support_for_kappa_gate": 30,
+      "kappa_target": 0.7,
+      "quality_gate_eligible": false
+    },
+    "github_ci": {
+      "status": "required_pr_gate",
+      "required_jobs": [
+        "docker",
+        "regression_python_3_11",
+        "regression_python_3_12"
+      ],
+      "note": "Local full suites passed on Python 3.11.16 and 3.12.14; the PR head must also pass the required GitHub jobs."
+    }
+  },
+  "known_boundary": "Agreement is an annotation-process metric, not model accuracy. This unit does not adjudicate disagreements, verify private evidence contents, create real samples, run a model, calibrate confidence, open valid impact publication or change Windows production."
+}
