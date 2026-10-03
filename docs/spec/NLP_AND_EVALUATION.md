@@ -161,7 +161,7 @@
 
 数据集 manifest：dataset_version、来源允许用途、原文 hash、抽样 SQL/时间、stratum、document/event group、split、annotation_schema、annotators、adjudication、label timestamps。受限制正文只保本地对象引用，不推公开仓库。
 
-两名独立标注者评审关键事件/impact 真值；意见分歧经裁定。若当前只能由一名所有者标注，标记 single_annotator，影响分析仅为 experimental，不能假装完成双人验收。AI 可提出预标注，不能自己给自己出正式真值。
+两名独立标注者评审关键事件/impact 真值；意见分歧经裁定。当前只有所有者一名标注者，按 [D23 `single-owner-v1`](DECISIONS.md#d23-单人所有者标注协议-single-owner-v12026-10-03) 分为 gold / owner / silver 三层：owner 盲标加延时自复核只支持 experimental 结论，不能假装完成双人验收；算法生成的 silver 标签只进 train/dev，不能作为任何评估真值。AI 可提出预标注，不能自己给自己出正式真值。
 
 impact 的标注真值是“在给定证据下，判断是否有依据且符合定义”，不是以后是否涨价。加入 unknown 作为合格答案，避免逼模型猜方向。
 
