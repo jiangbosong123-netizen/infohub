@@ -12,111 +12,152 @@ It runs unattended. The design problem it actually solves is not *fetching* news
 
 ---
 
-## Quick start
+## Status at a glance
+
+| Layer | State |
+|---|---|
+| Portal + crawler + daily digest | Working. This is what a running instance serves today. |
+| v1 data foundations (raw evidence, versioned documents/events/analyses, durable jobs, publication ledger, authenticated read API, sync snapshots) | On `main`, behind **default-off** flags. Production has not been upgraded to enable them. |
+| NLP quality evaluation (relevance, tone, impact) | Contracts, validators and review tooling exist. **No real labelled data and no model-quality claim yet**; checked-in datasets are synthetic fixtures that only exercise the tooling. |
+
+[`docs/spec/IMPLEMENTATION_STATUS.md`](docs/spec/IMPLEMENTATION_STATUS.md) is the source of
+truth for what is implemented versus planned; [`SPEC.md`](SPEC.md) is the target architecture.
+
+## Quick start (development)
+
+Requires Python 3.11 or 3.12 (CI tests both; the container uses 3.12). Python 3.9 — the
+macOS system default — is too old.
 
 ```bash
-python3 -m venv .venv
+python3.12 -m venv .venv
 .venv/bin/pip install -r requirements.txt
 
-.venv/bin/python cli.py init-db    # create schema, load the company watchlist
-.venv/bin/python cli.py crawl      # first pass; also validates every source
-.venv/bin/python cli.py serve      # web UI on http://127.0.0.1:8000
+.venv/bin/python cli.py runtime-config   # show environment and data paths (no secrets)
+.venv/bin/python cli.py init-db          # create the isolated dev database
+.venv/bin/python cli.py serve            # portal on http://127.0.0.1:8000
 ```
 
-No API key required. Without one the service runs as a pure aggregator; the LLM layer
-degrades away rather than failing.
+Development defaults are deliberately inert: data lives under `.runtime/development-local/`,
+and network tasks, the scheduler and model calls are all off. A one-off crawl must be asked
+for explicitly:
 
-## What it does
+```bash
+INFOHUB_PROCESS_ROLE=maintenance INFOHUB_ALLOW_NETWORK_TASKS=true .venv/bin/python cli.py crawl
+```
 
-Three channels — **AI**, **robotics**, and **US/HK-listed tech equities** — each fed by
-its own mix of sources.
+Without an LLM key the service runs as a pure aggregator; the LLM layer degrades away rather
+than failing.
+
+## What it serves
+
+Three channels — **AI**, **robotics**, and **US/HK-listed tech equities** — each fed by its
+own mix of sources.
 
 | Page | What it shows |
 |---|---|
 | `/` | Today's ranked hot list, channel tabs, timeline grouped by date. The equity channel filters by company and event type (earnings, buybacks, M&A, ratings…). |
 | `/hot` | Recent persistent events, counted by distinguishable publisher; click through to a report timeline. |
-| `/topics` | Topics across companies & models, technical directions, and content formats — each with statistics, recent focus, and a curated selection. |
+| `/topics`, `/topics/{slug}` | Topics across companies & models, technical directions, and content formats — each with statistics, recent focus, and a curated selection. |
 | `/story/{id}` | A stable link per event: every source that covered it, the original items, and why they were merged. |
 | `/daily` | The automatically generated daily digest. |
+| `/search`, `/saved` | Title/summary full-text search; locally bookmarked items. |
 | `/health` | Per-source last success, consecutive failures, and error text. |
-| `/api/health` | The same, machine-readable: source failures, processing backlog, topic/event index lag, digest status, and the running build's commit SHA. |
+
+Machine-readable endpoints: `/api/live` (web process answers), `/api/ready` (database identity
+plus a fresh worker heartbeat of the same version), `/api/pipeline` (source, job, index and
+digest freshness) and `/api/health` (combined snapshot; 503 when not ready). The `/api/v1/*`
+read API (items, events, evidence, analyses, catalog, sync snapshots, changes) requires an API
+key with the matching scope and is disabled unless its feature flag is set — see
+[`docs/API_AUTH_FOUNDATION.md`](docs/API_AUTH_FOUNDATION.md) and
+[`docs/API_READ_CONTRACT.md`](docs/API_READ_CONTRACT.md).
+
+## Not missing things: three layers plus reconciliation
+
+The equity channel is the one where a miss actually costs something, so coverage is layered
+rather than trusted to any single feed:
+
+| Layer | Sources | Cadence | Role |
+|---|---|---|---|
+| **First-party** | SEC EDGAR (8-K / 10-Q / Form 4), HKEX filings, company sites | 10–60 min | Official disclosure, highest trust |
+| **Financial media** | CNBC, wire services, Chinese live feeds, one Google News feed per watched company | 10–30 min | Speed and breadth |
+| **Daily reconciliation** | Per-company sweep | 06:30 daily | Compared against what is already stored; anything missing is backfilled and tagged as such |
+
+Supporting mechanics: URL normalisation for de-duplication, per-source exponential backoff on
+failure (flagged red on the health page), request staggering within a domain to avoid rate
+limits, and a digest generated each morning (08:00 by default) for the previous day.
+Scheduling is anchored to the exchange's local time, not hard-coded UTC offsets.
 
 ## Architecture
 
 ```
 app/
-├── crawler/           ingestion layer
-│   ├── sources.py       source registry — adding a source means adding a row here
-│   ├── rss_source.py    generic RSS
-│   ├── sec_source.py    SEC EDGAR (CIK resolved automatically)
-│   ├── hkex_source.py   HKEX filings (stockId resolved automatically)
-│   ├── googlenews.py    per-company feeds + the daily reconciliation pass
-│   └── runner.py        scheduling, de-duplication on write, source health
-├── ai/                LLM curation — summaries, scoring, digests; degrades without a key
-├── company_match.py   strict bilingual alias matching
-├── provenance.py      where every item came from
-├── ranking.py         heat scoring and event clustering
-├── topics.py          topic and event indexing
-├── web/               FastAPI + Jinja2
-└── database.py        SQLite schema (WAL)
+├── crawler/               ingestion: source registry, RSS/SEC/HKEX/Google News connectors, runner
+├── ingest.py, documents.py, source_time.py
+│                          immutable raw observations (content-addressed), document versions, source time rules
+├── worker.py, jobs.py, publication.py, runtime_health.py
+│                          durable jobs with leases, atomic publication ledger, web/worker health
+├── catalog.py, sec_identity.py, company_match.py
+│                          versioned entity catalog, SEC issuer/security semantics, bilingual alias matching
+├── event_*.py, stories.py, ranking.py, topics.py, topic_*.py, curation_*.py
+│                          stable events (matching, relations, revisions), topics, curation projections
+├── analysis_*.py, tone_*.py, impact_*.py, ai/
+│                          versioned NLP: pinned inputs, audited attempts, evidence-checked results
+├── report_*.py            daily report snapshots, drafts, review and publication
+├── api_*.py, web/         FastAPI portal and the authenticated /api/v1 read API
+├── evaluation*.py, review_intake.py
+│                          evaluation datasets, leakage checks, human review intake, metrics
+└── database.py, db_admin.py, evidence_backup.py
+                           SQLite (WAL) schema and migrations, verified backups and restores
 
-cli.py                 init-db / crawl / reconcile / ai / report / reindex / serve
-config/watchlist.yaml  companies tracked
-config/topics.yaml     topic rules
+cli.py                     every operational command (`init-db`, `serve`, `worker`, `db-*`, review tools…)
+config/watchlist.yaml      companies tracked
+config/topics.yaml         topic rules
+evaluation/                dataset contracts, synthetic fixtures, baselines (private data is git-ignored)
 ```
 
 Adding a company means editing `config/watchlist.yaml` and re-running `init-db`; adding a
 source means one entry in `app/crawler/sources.py`. Neither requires touching the rest.
 
-## Not missing things: three layers plus reconciliation
-
-The equity channel is the one where a miss actually costs something, so coverage is
-layered rather than trusted to any single feed:
-
-| Layer | Sources | Cadence | Role |
-|---|---|---|---|
-| **First-party** | SEC EDGAR (8-K / 10-Q / Form 4), HKEX filings, company sites | 10–60 min | Official disclosure, highest trust |
-| **Financial media** | CNBC, wire services, per-company news feeds | 20–240 min | Speed and breadth |
-| **Daily reconciliation** | Per-company sweep | 06:30 daily | Compared against what is already stored; anything missing is backfilled and tagged as such |
-
-Supporting mechanics: URL normalisation for de-duplication, per-source exponential backoff
-on failure (flagged red on the health page), request staggering within a domain to avoid
-rate limits, and a digest generated each morning for the previous day.
-
 ## Running it unattended
 
-- **Docker Compose** with restart policies and a persistent volume; SQLite data lives on
-  the host. `docker compose up -d --build` also rolls a new version.
-- **launchd** on macOS with `KeepAlive` and `RunAtLoad` for an always-on local instance.
-- **Tailscale** for private network access without exposing a port publicly.
-- Missed scheduled jobs **self-recover after host sleep** via a misfire grace window.
-- Scheduling is anchored to the exchange's local time, not hard-coded UTC offsets — US and
-  UK daylight-saving transitions fall on different dates, and a hard-coded offset is wrong
-  for about two weeks a year.
+Production is a Windows host running **Docker Compose**: a one-shot `migrate` container
+(`cli.py prepare-release`: verified backup, then migration), a read-only `infohub` web
+container that never crawls, and a single `worker` container that owns scheduling, crawling
+and model calls. SQLite, evidence blobs, backups and heartbeats persist under `./data`. The
+web port is bound to `127.0.0.1` and reached privately through Tailscale Serve
+([`docs/PRIVATE_HTTPS_INGRESS.md`](docs/PRIVATE_HTTPS_INGRESS.md)).
 
-A companion deployment manager (separate repository) polls this repo's branch and applies
-fast-forward-only updates, passing the running commit SHA into the container so `/health`
-reports the exact deployed version.
+A companion deployment manager (separate repository) polls this repository and applies
+fast-forward-only updates of `main`, passing the commit SHA into the container so
+`/api/health` reports the exact running version.
+Day-to-day commands, backups and restores are in [`docs/RUNBOOK.md`](docs/RUNBOOK.md).
 
 ## Tests and CI
 
 ```bash
-.venv/bin/python -m unittest discover -s tests -v
 .venv/bin/python -m compileall -q app cli.py
+.venv/bin/python -m unittest discover -s tests
 ```
 
-43 unit tests covering story clustering, crawler health, and past regressions. They use a
-temporary database and mocked LLM responses — no network calls, no paid API usage.
-GitHub Actions runs them on Python 3.11 and 3.12 on every push and pull request, and
-builds the container image.
+The suite uses temporary databases and mocked LLM responses — no network calls, no paid API
+usage — and runs in well under a minute. GitHub Actions runs it on Python 3.11 and 3.12 on
+every push and pull request, and builds the container image.
 
 ## LLM curation (optional)
 
 Configured through `.env` with any OpenAI-compatible endpoint
-(`LLM_BASE_URL` / `LLM_MODEL` / `LLM_API_KEY`). When enabled it translates English sources
-into summaries, scores each item 0–100 for importance, tags equity items by event type,
-and generates the daily digest. Remove the key and the service falls back to pure
-aggregation.
+(`LLM_BASE_URL` / `LLM_MODEL` / `LLM_API_KEY`); only the worker receives the credentials.
+When enabled it translates English sources into summaries, scores each item 0–100 for
+importance, tags equity items by event type, and generates the daily digest. Remove the key
+and the service falls back to pure aggregation.
+
+## Evaluation and annotation
+
+[`evaluation/README.md`](evaluation/README.md) describes the dataset format, leakage-safe
+splits and review tooling. The project has one human annotator (its owner). Per
+[SPEC §8.2](docs/spec/NLP_AND_EVALUATION.md), owner-labelled results count as *experimental*,
+never as multi-reviewer gold, and model output never grades itself. The owner-labelling path
+is being built; its state is tracked in the implementation status page.
 
 ## Known limitations
 
@@ -135,6 +176,8 @@ tool at all.
 - **Coverage of major corporate events has not been validated against an independent
   sample.** The three-layer design plus reconciliation is intended to make misses rare; it
   has not been measured, and is not a guarantee.
+- **No NLP output has a measured quality yet.** Tone and impact results stay review-only
+  until real labelled data exists.
 
 ## Acknowledgements
 
