@@ -5,8 +5,21 @@
 文档、143 个事件组、300 条 impact 标注和 48 条安全样本。
 
 真实数据集必须按事件组和原始出处分组，确保转载、翻译、同一公告和同一事件不跨 train/dev/test。
-受限正文只保存对象引用与 hash，不提交 Git。关键标签需要两名标注者与裁定；当前只能单人标注时状态为
-`single_annotator`，impact 只能标 experimental。模型预标注不能变成 `adjudicated` gold。
+受限正文只保存对象引用与 hash，不提交 Git。关键标签需要两名标注者与裁定才是 gold；代码中的
+`single_annotator` 是等待裁定的临时状态，labels 必须为空。模型预标注不能变成 `adjudicated` gold。
+
+### 单人所有者协议（D23 `single-owner-v1`）
+
+项目只有所有者一名人工标注者，因此按
+[D23](../docs/spec/DECISIONS.md#d23-单人所有者标注协议-single-owner-v12026-10-03) 分三层：
+
+- **gold**：双人独立 review + 第三人裁定，定义不变，目前不可达；
+- **owner**：所有者盲标（不看任何模型输出），test split 必须是这一层；配合首次标注 ≥7 天后的
+  盲重标自复核（至少 30 对、关键标签同人 κ≥0.70），只支持 **experimental** 结论；
+- **silver**：版本化算法标注器批量生成，只进 train/dev，不能作为任何评估真值，也不能评估生成它的标注器。
+
+协议已确立，状态、导入、自复核、指标和本地标注工具按小 PR 逐项实现，进度见
+[实施状态](../docs/spec/IMPLEMENTATION_STATUS.md)。
 
 验证命令：
 

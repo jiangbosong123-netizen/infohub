@@ -63,6 +63,11 @@ the implementation PR series proceeded. It was restored on 2026-09-27 after `mai
   P16 adjudication/evidence review/metrics/admission, P20 macro and sentiment outputs, the remaining
   portal cutover and final Windows consumer drills are later phases. A target endpoint in `openapi.yaml` is not
   proof that its route exists.
+- D23 (`single-owner-v1`, 2026-10-03) resolves U09: the owner is the only human annotator. Multi-person
+  gold keeps its definition but is unreachable for now; owner-blind labels with a delayed intra-annotator
+  recheck support only *experimental* quality claims, and versioned algorithm (silver) labels may enter
+  train/dev but never act as evaluation truth. The protocol is recorded in `DECISIONS.md` §5; no annotation
+  state, intake, recheck, metric or labeling tool for it is implemented yet.
 
 ## Status rule
 
