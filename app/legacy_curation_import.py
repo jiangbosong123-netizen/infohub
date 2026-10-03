@@ -118,9 +118,9 @@ def _load_frozen_snapshot(job: JobRecord) -> tuple[Mapping[str, object], Mapping
     snapshot = payload.get("extra", {}).get("legacy_snapshot")
     if not isinstance(snapshot, dict) or not version:
         raise LegacyCurationImportError("frozen legacy snapshot is missing")
+    # Same source-text rule as the legacy backfill: raw_summary only, because the legacy AI
+    # pipeline overwrote summary. Old model summaries are imported as publications, not as text.
     original_text = snapshot.get("raw_summary")
-    if original_text is None:
-        original_text = snapshot.get("summary")
     # Document projection collapses whitespace before freezing the version.
     # Compare the same normalization while still requiring the exact CAS-backed
     # legacy snapshot as the input to the imported publication.

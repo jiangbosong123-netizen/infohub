@@ -26,16 +26,17 @@ class ToneEvidenceTests(unittest.TestCase):
         self.addCleanup(self.db.close)
         self.db.execute("""CREATE TABLE raw_records(
             id TEXT PRIMARY KEY,payload_ref TEXT NOT NULL,payload_sha256 TEXT NOT NULL,
-            size_bytes INTEGER NOT NULL,media_type TEXT NOT NULL,encoding TEXT)""")
+            size_bytes INTEGER NOT NULL,media_type TEXT NOT NULL,encoding TEXT,
+            payload_kind TEXT NOT NULL)""")
 
-    def store(self, payload, evidence_id="raw-1"):
+    def store(self, payload, evidence_id="raw-1", payload_kind="feed_entry"):
         encoded = json.dumps(
             payload, ensure_ascii=False, sort_keys=True, separators=(",", ":")
         ).encode("utf-8")
         digest, reference = store_payload(encoded)
         self.db.execute(
-            "INSERT INTO raw_records VALUES(?,?,?,?,?,?)",
-            (evidence_id, reference, digest, len(encoded), "application/json", "utf-8"),
+            "INSERT INTO raw_records VALUES(?,?,?,?,?,?,?)",
+            (evidence_id, reference, digest, len(encoded), "application/json", "utf-8", payload_kind),
         )
         return digest, self.blobs / reference
 
@@ -49,6 +50,44 @@ class ToneEvidenceTests(unittest.TestCase):
                 "offset_unit": "unicode_code_point",
             },
         }]}]}
+
+    def test_quotes_must_come_from_source_text_fields(self):
+        # Legacy excerpts keep the old row, including model-written fields, in extra.
+        self.store({
+            "title": "前文偏好🙂后文",
+            "summary": "",
+            "extra": {"legacy_snapshot": {"summary": "模型偏好🙂摘要", "reason": "偏好🙂"}},
+        }, payload_kind="legacy_excerpt")
+        for pointer in ("/extra/legacy_snapshot/summary", "/extra/legacy_snapshot/reason"):
+            with self.subTest(pointer):
+                with self.assertRaisesRegex(AnalysisRunError, "must quote source text"):
+                    verify_tone_quotes(
+                        self.db, schema_version=TONE_SCHEMA_VERSION,
+                        data=self.data(pointer=pointer, start=2, end=5),
+                    )
+        result = verify_tone_quotes(
+            self.db, schema_version=TONE_SCHEMA_VERSION, data=self.data(pointer="/title")
+        )
+        self.assertEqual(result["status"], "passed")
+
+    def test_derived_fields_and_non_source_record_paths_are_rejected(self):
+        # Scraped generated metadata keeps publisher text in title; event_type is derived.
+        self.store({"title": "前文偏好🙂后文", "event_type": "前文偏好🙂后文"},
+                   payload_kind="generated_metadata")
+        result = verify_tone_quotes(
+            self.db, schema_version=TONE_SCHEMA_VERSION, data=self.data(pointer="/title")
+        )
+        self.assertEqual(result["status"], "passed")
+        with self.assertRaisesRegex(AnalysisRunError, "must quote source text"):
+            verify_tone_quotes(
+                self.db, schema_version=TONE_SCHEMA_VERSION, data=self.data(pointer="/event_type")
+            )
+        self.db.execute("DELETE FROM raw_records")
+        self.store({"source_record": {"summary": "前文偏好🙂后文"}, "note": "前文偏好🙂后文"})
+        with self.assertRaisesRegex(AnalysisRunError, "must quote source text"):
+            verify_tone_quotes(
+                self.db, schema_version=TONE_SCHEMA_VERSION, data=self.data(pointer="/note")
+            )
 
     def test_unicode_quote_is_reloaded_from_hash_checked_payload(self):
         digest, _ = self.store({"source_record": {"summary": "前文偏好🙂后文"}})

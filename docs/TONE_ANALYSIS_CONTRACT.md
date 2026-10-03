@@ -79,7 +79,9 @@ polarity 为 positive、negative、neutral、mixed、unknown。非 unknown 必�
 每条 assessment 至少有一个不重复证据 span。1.1 locator 使用 RFC 6901 JSON Pointer 定位冻结 raw
 payload 的字符串叶子，offset 使用 Unicode code point、半开区间 `[start,end)`。结构验证核对非负、顺序、
 `end-start == len(quote)` 与 run 输入白名单；进入发布写事务前还会重新验证 CAS 路径、SHA-256、文件大小、UTF-8
-JSON、pointer 和逐字切片。验证报告保存 payload/quote hash 和 locator。1.0 没有可判定字段坐标系，因此只保留
+JSON、pointer 和逐字切片；pointer 只能指向来源原文字段（见
+[引用核验](TONE_EVIDENCE_VERIFICATION.md) 第 5a 条），不能引用派生字段或旧模型输出。验证报告保存
+payload/quote hash 和 locator。1.0 没有可判定字段坐标系，因此只保留
 兼容读取，不标 quote verification passed。1.1 引用完全匹配只是 `valid` 的必要条件；还必须绑定已通过完整
 评估、admission、shadow rollout 和人工激活的 exact release。
 

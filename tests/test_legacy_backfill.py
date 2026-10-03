@@ -75,6 +75,36 @@ class LegacyBackfillTests(unittest.TestCase):
                 ).hexdigest()
         return result
 
+    def test_model_overwritten_summary_is_not_frozen_as_legacy_excerpt(self):
+        self._item(1, 1, title="Kept title", summary="Connector excerpt", url="https://example.com/a")
+        self._item(2, 1, title="Old title", summary="", url="https://example.com/b")
+        with database.get_db() as db:
+            # Older rows predate raw_summary; their summary was overwritten by the AI pipeline.
+            db.execute(
+                "UPDATE items SET summary='Model written summary',raw_summary=NULL WHERE id=2"
+            )
+        self._run_to_completion()
+        with database.get_db() as db:
+            rows = {
+                row["legacy_item_id"]: row
+                for row in db.execute(
+                    """SELECT document.legacy_item_id,version.text,version.content_extent,
+                              raw.payload_ref,raw.payload_sha256
+                       FROM documents AS document
+                       JOIN document_versions AS version ON version.id=document.current_version_id
+                       JOIN document_version_inputs AS input ON input.version_id=version.id
+                       JOIN raw_records AS raw ON raw.id=input.raw_record_id"""
+                )
+            }
+        self.assertEqual(rows[1]["text"], "Connector excerpt")
+        self.assertEqual(rows[1]["content_extent"], "excerpt")
+        self.assertIn(rows[2]["text"], ("", None))
+        self.assertEqual(rows[2]["content_extent"], "title_only")
+        payload = json.loads((self.blob_path / rows[2]["payload_ref"]).read_text("utf-8"))
+        self.assertIsNone(payload["summary"])
+        # The complete legacy row, model fields included, is still preserved for audit.
+        self.assertEqual(payload["extra"]["legacy_snapshot"]["summary"], "Model written summary")
+
     def test_discovery_reconciliation_uses_target_lookup_index(self):
         with database.get_db() as db:
             plan = [row[3] for row in db.execute(

@@ -12,9 +12,20 @@ from .analysis_runs import AnalysisRunError
 from .ingest import PayloadIntegrityError, verify_payload
 from .tone_contracts import TONE_SCHEMA_VERSION
 
-TONE_QUOTE_VALIDATOR_VERSION = "tone-quote-validator-v1"
+TONE_QUOTE_VALIDATOR_VERSION = "tone-quote-validator-v2"
+# Quotes must be source text. Connector payloads keep the source record under /source_record.
+# Flat candidate payloads (scraped generated_metadata and legacy excerpts) carry publisher text
+# only in title and summary; their other fields are derived, and a legacy excerpt's
+# extra.legacy_snapshot preserves old model output that must never pass as a quote.
+FLAT_SOURCE_TEXT_POINTERS = frozenset({"/title", "/summary"})
 _BAD_POINTER_ESCAPE = re.compile(r"~(?![01])")
 _ARRAY_INDEX = re.compile(r"0|[1-9][0-9]*")
+
+
+def _is_source_text(payload: object, pointer: str) -> bool:
+    if isinstance(payload, Mapping) and "source_record" in payload:
+        return pointer.startswith("/source_record/")
+    return pointer in FLAT_SOURCE_TEXT_POINTERS
 
 
 def _resolve_pointer(payload: object, pointer: str) -> object:
@@ -86,6 +97,8 @@ def verify_tone_quotes(
                     raise AnalysisRunError("tone evidence payload is not valid UTF-8 JSON") from exc
                 cached[evidence_id] = (payload, row["payload_sha256"])
             payload, payload_sha256 = cached[evidence_id]
+            if not _is_source_text(payload, locator["json_pointer"]):
+                raise AnalysisRunError("tone evidence must quote source text, not generated or derived fields")
             value = _resolve_pointer(payload, locator["json_pointer"])
             if not isinstance(value, str):
                 raise AnalysisRunError("tone evidence json_pointer must resolve to a string")

@@ -186,7 +186,10 @@ def _legacy_candidate(item: sqlite3.Row, observed_at: str) -> dict:
         "url": item["url"],
         "external_id": f"legacy-item:{item['id']}",
         "title": item["title"],
-        "summary": item["raw_summary"] if item["raw_summary"] is not None else item["summary"],
+        # The legacy AI pipeline overwrote items.summary; only raw_summary is connector text.
+        # Rows without it become title-only rather than presenting model output as an excerpt.
+        # The complete legacy row, including the model fields, stays in extra.legacy_snapshot.
+        "summary": item["raw_summary"],
         "published_at": None,
         "event_type": item["event_type"],
         "official": bool(item["official"]),
