@@ -154,6 +154,13 @@ def prepare_analysis_run(
             raise AnalysisRunError("tone analysis requires a document version subject")
         if fields["output_schema_version"] != TONE_SCHEMA_VERSION:
             raise AnalysisRunError("tone analysis requires the registered output schema")
+    if task == "impact":
+        from .impact_contracts import IMPACT_SCHEMA_VERSION
+
+        if subject != "event":
+            raise AnalysisRunError("impact analysis requires an event version subject")
+        if fields["output_schema_version"] != IMPACT_SCHEMA_VERSION:
+            raise AnalysisRunError("impact analysis requires the registered output schema")
     for digest, name in (
         (prompt_sha256, "prompt_sha256"),
         (rendered_input_sha256, "rendered_input_sha256"),

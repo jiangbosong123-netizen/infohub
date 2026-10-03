@@ -49,9 +49,12 @@ the implementation PR series proceeded. It was restored on 2026-09-27 after `mai
   exposed by the analysis API. Rollback closes new writes while immutable results and exact retries remain
   readable. No real private gold, model execution, real release activation, valid production tone result,
   portal read switch or production deployment has been performed.
-- P16 impact, P20 macro and sentiment outputs, the remaining portal cutover and final Windows
-  consumer drills are later phases. A target endpoint in `openapi.yaml` is not proof that its route
-  exists.
+- P16a registers the review-only `impact/1.0` contract. Impact runs require an immutable event-version
+  subject, catalog-backed target, fixed aspect/horizon vocabularies, and direct non-generated event
+  evidence with role-aware support/contradiction validation. `valid` and calibrated impact remain closed;
+  no impact model, private labels or production result exists. P16 evaluation/admission, P20 macro and
+  sentiment outputs, the remaining portal cutover and final Windows consumer drills are later phases. A
+  target endpoint in `openapi.yaml` is not proof that its route exists.
 
 ## Status rule
 
