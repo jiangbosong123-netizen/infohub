@@ -3001,7 +3001,9 @@ components:
       type: object
       properties:
         target: {$ref: '#/components/schemas/Target'}
-        aspect: {type: string}
+        aspect:
+          type: string
+          enum: [revenue, operating_cost, margin, capex, funding, supply, demand, regulatory_constraint, employment, other]
         horizon: {$ref: '#/components/schemas/Horizon'}
         direction:
           type: string
@@ -3017,26 +3019,25 @@ components:
           - {type: 'null'}
         evidence_ids:
           type: array
+          minItems: 1
+          uniqueItems: true
           items: {type: string, minLength: 1, maxLength: 128}
         contradicting_evidence_ids:
           type: array
+          uniqueItems: true
           items: {type: string, minLength: 1, maxLength: 128}
-        mechanism: {type: string}
+        mechanism: {type: string, minLength: 1, maxLength: 1000}
         assumptions:
           type: array
-          items: {type: string}
+          maxItems: 20
+          uniqueItems: true
+          items: {type: string, minLength: 1, maxLength: 500}
         raw_confidence:
           anyOf:
           - {type: number, minimum: 0, maximum: 1}
           - {type: 'null'}
-        calibrated_confidence:
-          anyOf:
-          - {type: number, minimum: 0, maximum: 1}
-          - {type: 'null'}
-        calibration_version:
-          anyOf:
-          - {type: string}
-          - {type: 'null'}
+        calibrated_confidence: {type: 'null'}
+        calibration_version: {type: 'null'}
         uncertainty_reason:
           anyOf:
           - {type: string}
@@ -3059,58 +3060,84 @@ components:
       allOf:
       - if:
           properties:
-            calibrated_confidence: {type: number}
+            direction: {const: unknown}
+          required: [direction]
         then:
           properties:
-            calibration_version: {type: string, minLength: 1}
-    ImpactOutput:
+            intensity: {type: 'null'}
+            uncertainty_reason: {type: string, minLength: 1, maxLength: 500}
+        else:
+          properties:
+            intensity: {type: number, minimum: 0, maximum: 1}
+    ImpactSubject:
       type: object
       properties:
-        schema_version: {const: impact/1.0}
-        subject:
-          type: object
-          properties:
-            event_id: {type: string, minLength: 1, maxLength: 128}
-            event_version_id: {type: string, minLength: 1, maxLength: 128}
-          required:
-          - event_id
-          - event_version_id
-          additionalProperties: false
-        status:
-          type: string
-          enum:
-          - analyzed
-          - insufficient_evidence
-          - needs_review
+        type: {const: event}
+        version_id: {type: string, minLength: 1, maxLength: 128}
+      required: [type, version_id]
+      additionalProperties: false
+    ImpactReviewData:
+      type: object
+      properties:
         assessments:
           type: array
+          minItems: 1
           items: {$ref: '#/components/schemas/ImpactAssessment'}
-      required:
-      - schema_version
-      - subject
-      - status
-      - assessments
+      required: [assessments]
       additionalProperties: false
+    ImpactUnavailableData:
+      type: object
+      properties:
+        reason_code: {type: string, minLength: 1, maxLength: 100}
+      required: [reason_code]
+      additionalProperties: false
+    ImpactOutput:
+      oneOf:
+      - type: object
+        properties:
+          schema_version: {const: impact/1.0}
+          subject: {$ref: '#/components/schemas/ImpactSubject'}
+          status: {const: needs_review}
+          evidence_ids:
+            type: array
+            minItems: 1
+            uniqueItems: true
+            items: {type: string, minLength: 1, maxLength: 128}
+          data: {$ref: '#/components/schemas/ImpactReviewData'}
+        required: [schema_version, subject, status, evidence_ids, data]
+        additionalProperties: false
+      - type: object
+        properties:
+          schema_version: {const: impact/1.0}
+          subject: {$ref: '#/components/schemas/ImpactSubject'}
+          status: {enum: [insufficient_evidence, refused]}
+          evidence_ids:
+            type: array
+            uniqueItems: true
+            items: {type: string, minLength: 1, maxLength: 128}
+          data: {$ref: '#/components/schemas/ImpactUnavailableData'}
+        required: [schema_version, subject, status, evidence_ids, data]
+        additionalProperties: false
       examples:
       - schema_version: impact/1.0
-        subject: {event_id: event-demo, event_version_id: ev-demo-003}
+        subject: {type: event, version_id: ev-demo-003}
         status: needs_review
-        assessments:
-        - target: {entity_id: entity-demo-company, type: organization}
-          aspect: operating_cost
-          horizon: {bucket: quarter, min_days: 8, max_days: 90}
-          direction: positive
-          intensity: 0.4
-          evidence_ids:
-          - evidence-demo-001
-          contradicting_evidence_ids: []
-          mechanism: If the announced cost reduction is implemented, operating cost burden may fall.
-          assumptions:
-          - Execution on schedule; no offsetting costs
-          raw_confidence: 0.72
-          calibrated_confidence: null
-          calibration_version: null
-          uncertainty_reason: Plan only; no realized cost outcome.
+        evidence_ids: [evidence-demo-001]
+        data:
+          assessments:
+          - target: {entity_id: entity-demo-company, type: organization}
+            aspect: operating_cost
+            horizon: {bucket: quarter, min_days: 8, max_days: 90}
+            direction: positive
+            intensity: 0.4
+            evidence_ids: [evidence-demo-001]
+            contradicting_evidence_ids: []
+            mechanism: If the announced cost reduction is implemented, operating cost burden may fall.
+            assumptions: [Execution on schedule; no offsetting costs]
+            raw_confidence: 0.72
+            calibrated_confidence: null
+            calibration_version: null
+            uncertainty_reason: Plan only; no realized cost outcome.
     MacroObservation:
       type: object
       properties:

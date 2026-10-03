@@ -6168,6 +6168,10 @@ def _assert_current_schema(db: sqlite3.Connection) -> None:
     from .analysis_results import (
         TONE_RELEASE_VALIDATOR_VERSION, _tone_release_binding,
     )
+    from .impact_contracts import (
+        IMPACT_SCHEMA_VERSION, referenced_impact_entities, validate_impact_data,
+        validate_impact_envelope, verify_impact_evidence,
+    )
     for result in db.execute("SELECT * FROM analysis_results"):
         run = db.execute("SELECT * FROM analysis_runs WHERE id=?", (result["run_id"],)).fetchone()
         attempt = db.execute(
@@ -6260,6 +6264,49 @@ def _assert_current_schema(db: sqlite3.Connection) -> None:
                     valid_result = False
             elif result["tone_activation_id"] is not None or tone_release_report is not None:
                 valid_result = False
+            if valid_result and run["task_type"] == "impact":
+                try:
+                    allowed_evidence = {
+                        item[0] for item in db.execute(
+                            """SELECT evidence_id FROM analysis_inputs
+                               WHERE run_id=? AND evidence_id IS NOT NULL""",
+                            (run["id"],),
+                        )
+                    }
+                    clean_impact = validate_impact_data(
+                        schema_version=run["output_schema_version"],
+                        status=result["result_status"], data=output["data"],
+                        allowed_evidence=allowed_evidence,
+                    )
+                    clean_envelope = dict(output)
+                    clean_envelope["data"] = clean_impact
+                    validate_impact_envelope(clean_envelope)
+                    task_validation = verify_impact_evidence(
+                        db, event_version_id=run["subject_version_id"],
+                        data=clean_impact,
+                    )
+                    entity_references = referenced_impact_entities(clean_impact)
+                    entities_valid = all(
+                        bool(db.execute(
+                            "SELECT 1 FROM entities WHERE id=? AND type=?",
+                            (entity_id, expected_type),
+                        ).fetchone())
+                        for entity_id, expected_type, _ in entity_references
+                    )
+                    expected_task_report = (
+                        task_validation if task_validation["status"] == "passed" else None
+                    )
+                    valid_result = (
+                        run["subject_type"] == "event"
+                        and run["output_schema_version"] == IMPACT_SCHEMA_VERSION
+                        and result["result_status"] != "valid"
+                        and clean_envelope == output
+                        and clean_impact == output["data"]
+                        and report.get("task_validation") == expected_task_report
+                        and entities_valid
+                    )
+                except (AnalysisRunError, KeyError, TypeError, ValueError):
+                    valid_result = False
         if not valid_result:
             invalid_analysis_results += 1
     for pointer in db.execute("SELECT * FROM analysis_publications"):

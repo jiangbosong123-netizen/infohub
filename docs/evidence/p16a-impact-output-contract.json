@@ -1,0 +1,20 @@
+{
+  "acceptance": {
+    "calibrated_confidence_and_valid_publication_remain_closed": true,
+    "event_version_subject_is_required": true,
+    "impact_envelope_is_exact_and_evidence_complete": true,
+    "fixed_aspect_direction_and_horizon_vocabularies_are_enforced": true,
+    "generated_or_truncated_payloads_cannot_directly_support_impact": true,
+    "supporting_and_contradicting_evidence_are_role_checked": true,
+    "targets_are_validated_against_the_entity_catalog": true
+  },
+  "phase": "P16a",
+  "production_changed": false,
+  "schema_version": "p16a-impact-output-contract-evidence-v1",
+  "scope": "strict review-only event impact output and evidence contract",
+  "verification": {
+    "focused_tests": 43,
+    "python_311_full_tests": 661,
+    "python_312_full_tests": 661
+  }
+}

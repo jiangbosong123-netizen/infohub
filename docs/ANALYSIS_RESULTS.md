@@ -20,3 +20,8 @@ provider/model/prompt/pipeline/parameters/output schema 必须与该 activation 
 每条 assessment 必须使用其 calibration version，并且 publication 的 evidence status 必须为 `supported`。
 门禁在 publication 写事务内再次查询，防止检查后发生 rollback 的竞态。`analysis_results`、验证报告和
 change payload 都保存 `tone_activation_id`；API 也返回该字段。非 tone 或非 `valid` 结果必须为 null。
+
+P16a 为 impact 注册 `impact/1.0`：subject 必须是不可变 event version；target 必须解析到实体目录；支持/冲突
+证据既要位于 run 输入白名单，也要以对应角色挂在该 event version 上，generated metadata 和截断载荷不能
+作为直接影响证据。当前只允许 `needs_review`、`insufficient_evidence` 或 `refused`，`valid` 和 calibrated
+confidence 要等 impact 固定评估、双人复核与 release admission 后再开放。

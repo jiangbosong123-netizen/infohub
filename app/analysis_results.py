@@ -17,6 +17,7 @@ from .analysis_contracts import (
     validate_analysis_data,
     verify_analysis_evidence,
 )
+from .impact_contracts import validate_impact_envelope
 
 CONFIDENCE_KEYS={"confidence","raw_confidence","calibrated_confidence","intensity"}
 RESULT_STATUSES={"valid","needs_review","insufficient_evidence","refused"}
@@ -139,6 +140,7 @@ def _validate_output(
  if status in {"valid","needs_review"} and not referenced: raise AnalysisRunError("publishable analysis output requires evidence")
  if "data" not in clean: raise AnalysisRunError("analysis output must declare data")
  clean["data"]=validate_analysis_data(task_type=run["task_type"],schema_version=run["output_schema_version"],status=status,data=clean["data"],allowed_evidence=allowed_evidence,tone_calibration_version=tone_calibration_version)
+ if run["task_type"]=="impact": clean=validate_impact_envelope(clean)
  return clean,sorted(referenced),status
 
 
@@ -188,6 +190,7 @@ def publish_analysis_result(*,job_id:str,lease_token:str,expected_input_version:
   )
   task_validation=verify_analysis_evidence(
       db,task_type=run["task_type"],schema_version=run["output_schema_version"],
+      subject_type=run["subject_type"],subject_version_id=run["subject_version_id"],
       data=clean["data"],
   )
   _validate_entity_references(db,task_type=run["task_type"],data=clean["data"])

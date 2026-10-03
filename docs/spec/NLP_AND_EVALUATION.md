@@ -47,25 +47,27 @@
 ```json
 {
   "schema_version":"impact/1.0",
-  "subject":{"event_id":"event-demo","event_version_id":"ev-demo-003"},
+  "subject":{"type":"event","version_id":"ev-demo-003"},
   "status":"needs_review",
-  "assessments":[
-    {
-      "target":{"entity_id":"entity-demo-company","type":"organization"},
-      "aspect":"operating_cost",
-      "horizon":{"bucket":"quarter","min_days":8,"max_days":90},
-      "direction":"positive",
-      "intensity":0.4,
-      "evidence_ids":["evidence-demo-001"],
-      "contradicting_evidence_ids":[],
-      "mechanism":"若削减费用按公告计划实施，运营成本可能下降。",
-      "assumptions":["计划能按期执行；其他成本不抵消节省"],
-      "raw_confidence":0.72,
-      "calibrated_confidence":null,
-      "calibration_version":null,
-      "uncertainty_reason":"仅有公司计划，尚无实际费用结果"
-    }
-  ]
+  "evidence_ids":["evidence-demo-001"],
+  "data":{"assessments":[
+      {
+        "target":{"entity_id":"entity-demo-company","type":"organization"},
+        "aspect":"operating_cost",
+        "horizon":{"bucket":"quarter","min_days":8,"max_days":90},
+        "direction":"positive",
+        "intensity":0.4,
+        "evidence_ids":["evidence-demo-001"],
+        "contradicting_evidence_ids":[],
+        "mechanism":"若削减费用按公告计划实施，运营成本可能下降。",
+        "assumptions":["计划能按期执行；其他成本不抵消节省"],
+        "raw_confidence":0.72,
+        "calibrated_confidence":null,
+        "calibration_version":null,
+        "uncertainty_reason":"仅有公司计划，尚无实际费用结果"
+      }
+    ]
+  }
 }
 ```
 
@@ -89,7 +91,7 @@
 
 粒度：事件版本 × target（公司/行业/地区/宏观因子）× aspect × horizon。
 
-- aspect 独立于 direction：revenue/cost/margin/capex/funding/supply/demand/regulatory_constraint/employment 等。
+- aspect 独立于 direction：revenue/operating_cost/margin/capex/funding/supply/demand/regulatory_constraint/employment 等。
 - horizon 首期 immediate=0..7 天、quarter=8..90 天、long_term=91..730 天、unspecified。若模型无法确定，选 unspecified，不自行填 90 天。示例及序列中使用同一边界定义。
 - direction 是对所定义 aspect 的有利/不利/中性/混合/未知。成本下降对公司成本负担是有利，需要 mechanism 清楚写明。宏观变量“通胀上升”是数值方向 up，不能直接叫 positive。
 - intensity 是推测影响幅度的序数强度，不当成收益幅度。未经标注集校准，前端优先展示弱/中/强及条件，而非小数精度。
