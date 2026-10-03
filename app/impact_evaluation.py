@@ -469,6 +469,9 @@ def validate_impact_evaluation_dataset(path: Path | str) -> ImpactEvaluationRepo
                 phenomena[item] += 1
         for review in annotation.get("reviews", []):
             _validate_impact_label(case, review["labels"])
+        if state in {"owner_labeled", "algorithm_labeled"}:
+            # Owner and silver labels follow the same contract but never count as gold assessments.
+            _validate_impact_label(case)
         language = case["language"]
         languages[language] = languages.get(language, 0) + 1
         source = case.get("source_kind")

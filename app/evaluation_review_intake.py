@@ -24,6 +24,7 @@ TASK = ReviewIntakeTask(
     validate_dataset=validate_evaluation_dataset,
     is_publishable=lambda report: report.publishable_gold,
     validate_labels=_validate_relevance_label,
+    task_id="relevance",
 )
 
 

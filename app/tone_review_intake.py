@@ -17,6 +17,7 @@ TASK = ReviewIntakeTask(
     is_publishable=lambda report: report.publishable_tone_gold,
     validate_labels=_validate_tone_label,
     evidence_review_key="tone_evidence_review",
+    task_id="tone",
 )
 
 

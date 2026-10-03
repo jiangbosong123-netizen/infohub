@@ -344,6 +344,9 @@ def validate_tone_evaluation_dataset(path: Path | str) -> ToneEvaluationReport:
             polarity, case_phenomena = None, ()
         for review in annotation.get("reviews", []):
             _validate_tone_label(case, review["labels"])
+        if state in {"owner_labeled", "algorithm_labeled"}:
+            # Owner and silver labels follow the same contract but never count as gold assessments.
+            _validate_tone_label(case)
         language = case["language"]
         languages[language] = languages.get(language, 0) + 1
         if polarity is not None:

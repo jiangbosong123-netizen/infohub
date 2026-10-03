@@ -11,7 +11,20 @@ from pathlib import Path
 from typing import Iterable
 
 ALLOWED_SPLITS = {"train", "dev", "test", "security"}
-ALLOWED_ANNOTATION_STATES = {"unlabeled", "single_annotator", "adjudicated", "synthetic_fixture"}
+ALLOWED_ANNOTATION_STATES = {
+    "unlabeled", "single_annotator", "adjudicated", "synthetic_fixture",
+    "owner_labeled", "algorithm_labeled",
+}
+# D23 single-owner-v1: owner labels are experimental truth; algorithm (silver) labels never are.
+OWNER_PROTOCOL_VERSION = "single-owner-v1"
+OWNER_LABEL_FIELDS = frozenset({
+    "owner_id", "source", "blind", "model_assistance", "content_sha256", "recorded_at", "labels",
+})
+LABELER_FIELDS = frozenset({
+    "labeler_id", "labeler_version", "config_sha256", "content_sha256", "generated_at",
+})
+SILVER_SPLITS = {"train", "dev"}
+GOLD_STATES = {"adjudicated", "synthetic_fixture"}
 SCHEMA_VERSION = "evaluation-dataset-v1"
 MINIMUM_GOLD_TARGETS = {"documents": 600, "event_groups": 150,
                         "impact_annotations": 300, "security_cases": 50}
@@ -125,6 +138,63 @@ def _validate_adjudication(case_id: str, annotation: dict, digest: str) -> None:
     _review_time(decision.get("recorded_at"), case_id)
 
 
+def owner_protocol_id(manifest: dict) -> str | None:
+    """Return the declared single-owner annotator, or None when the protocol is absent."""
+    protocol = manifest.get("annotation_protocol")
+    if protocol is None:
+        return None
+    if (
+        not isinstance(protocol, dict)
+        or set(protocol) != {"version", "owner_id"}
+        or protocol.get("version") != OWNER_PROTOCOL_VERSION
+    ):
+        raise EvaluationDatasetError("manifest has invalid annotation_protocol")
+    return _require_text(protocol.get("owner_id"), "owner_id", "annotation_protocol")
+
+
+def _validate_owner_label(case_id: str, annotation: dict, digest: str, owner_id: str | None) -> None:
+    if owner_id is None:
+        raise EvaluationDatasetError(
+            f"case {case_id} owner label requires manifest annotation_protocol {OWNER_PROTOCOL_VERSION}"
+        )
+    record = annotation.get("owner_label")
+    if not isinstance(record, dict) or set(record) != OWNER_LABEL_FIELDS:
+        raise EvaluationDatasetError(f"case {case_id} has invalid owner_label provenance")
+    if (
+        record["owner_id"] != owner_id
+        or record["source"] != "human"
+        or record["blind"] is not True
+        or record["model_assistance"] is not False
+    ):
+        raise EvaluationDatasetError(
+            f"case {case_id} owner label must be blind, human and by the declared owner"
+        )
+    if record["content_sha256"] != digest:
+        raise EvaluationDatasetError(f"case {case_id} owner label lacks frozen-content binding")
+    _review_time(record["recorded_at"], case_id)
+    if not isinstance(record["labels"], dict) or not record["labels"] or record["labels"] != annotation["labels"]:
+        raise EvaluationDatasetError(f"case {case_id} owner label does not match final labels")
+
+
+def _validate_silver_label(case_id: str, split: str, annotation: dict, digest: str) -> None:
+    if split not in SILVER_SPLITS:
+        raise EvaluationDatasetError(f"case {case_id} algorithm labels may only enter train/dev")
+    if annotation.get("generated_by_model") is not True:
+        raise EvaluationDatasetError(f"case {case_id} algorithm labels must set generated_by_model")
+    labeler = annotation.get("labeler")
+    if not isinstance(labeler, dict) or set(labeler) != LABELER_FIELDS:
+        raise EvaluationDatasetError(f"case {case_id} has invalid labeler provenance")
+    _require_text(labeler["labeler_id"], "labeler_id", case_id)
+    _require_text(labeler["labeler_version"], "labeler_version", case_id)
+    if not isinstance(labeler["config_sha256"], str) or re.fullmatch(r"[0-9a-f]{64}", labeler["config_sha256"]) is None:
+        raise EvaluationDatasetError(f"case {case_id} labeler requires config_sha256")
+    if labeler["content_sha256"] != digest:
+        raise EvaluationDatasetError(f"case {case_id} algorithm label lacks frozen-content binding")
+    _review_time(labeler["generated_at"], case_id)
+    if not annotation["labels"]:
+        raise EvaluationDatasetError(f"case {case_id} has empty algorithm labels")
+
+
 def _verified_holdout(manifest: dict, cases: list[dict], root: Path | None = None) -> bool:
     review = manifest.get("holdout_review")
     if not isinstance(review, dict) or review.get("status") != "verified":
@@ -207,6 +277,7 @@ def validate_evaluation_dataset(path: Path | str) -> EvaluationReport:
     if not isinstance(targets, dict):
         raise EvaluationDatasetError("manifest target_plan must be an object")
 
+    owner_id = owner_protocol_id(manifest)
     ids: set[str] = set()
     hashes: dict[str, str] = {}
     group_splits: dict[tuple[str, str], str] = {}
@@ -276,8 +347,22 @@ def validate_evaluation_dataset(path: Path | str) -> EvaluationReport:
             raise EvaluationDatasetError(f"case {case_id} labels must be an object")
         if state == "unlabeled" and labels:
             raise EvaluationDatasetError(f"case {case_id} has labels while marked unlabeled")
-        if annotation.get("generated_by_model") and state in {"single_annotator", "adjudicated"}:
+        if annotation.get("generated_by_model") and state in {"single_annotator", "adjudicated", "owner_labeled"}:
             raise EvaluationDatasetError(f"case {case_id} cannot use model output as gold")
+        # Tiers never mix: provenance of one tier on a case of another is a hidden upgrade path.
+        if state != "owner_labeled" and "owner_label" in annotation:
+            raise EvaluationDatasetError(f"case {case_id} carries owner_label outside owner tier")
+        if state != "algorithm_labeled" and "labeler" in annotation:
+            raise EvaluationDatasetError(f"case {case_id} carries labeler outside silver tier")
+        if state in {"owner_labeled", "algorithm_labeled"}:
+            if storage != "restricted_reference":
+                raise EvaluationDatasetError(f"case {case_id} {state} requires a restricted real-data reference")
+            if annotation.get("reviews") or annotation.get("adjudication"):
+                raise EvaluationDatasetError(f"case {case_id} mixes {state} with multi-reviewer provenance")
+        if state == "owner_labeled":
+            _validate_owner_label(case_id, annotation, digest, owner_id)
+        if state == "algorithm_labeled":
+            _validate_silver_label(case_id, split, annotation, digest)
         if state == "single_annotator":
             if labels:
                 raise EvaluationDatasetError(f"case {case_id} provisional reviews cannot supply gold labels")
@@ -289,7 +374,7 @@ def validate_evaluation_dataset(path: Path | str) -> EvaluationReport:
                 raise EvaluationDatasetError(f"case {case_id} has no adjudicated labels")
             _validate_adjudication(case_id, annotation, digest)
         impact = labels.get("impact")
-        if isinstance(impact, list):
+        if state in GOLD_STATES and isinstance(impact, list):
             impact_count += len(impact)
 
     target_values = {}
