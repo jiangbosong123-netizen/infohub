@@ -18,5 +18,6 @@ P15e-4b 把一次 `running` rollout 的完整候选总体冻结为不可变 batc
 缺失 evaluation 均会由数据库触发器拒绝。完整数据库校验会重算总体 manifest、确定性抽样、metrics hash、decision
 和完成状态绑定。
 
-本阶段仍不调用模型、不写正式 analysis publication、不开放 `valid`、不改变门户/API。P15e-4c 才负责受控切换与
-即时回滚；真实 shadow worker 与真实观测数据也必须在后续显式启用。
+本阶段仍不调用模型、不写正式 analysis publication、不开放 `valid`、不改变门户/API。P15e-4c-1 已增加受控人工
+激活与即时回滚账本，详见 `TONE_RELEASE_ACTIVATION.md`；P15e-4c-2 才把正式 publication 事务接入 active profile。
+真实 shadow worker 与真实观测数据也必须在后续显式启用。

@@ -20,10 +20,18 @@ from app.tone_shadow_evaluation import (
     evaluate_tone_shadow_batch,
     record_tone_shadow_observation,
 )
+from app.tone_release_activation import (
+    ToneReleaseActivationError,
+    activate_tone_release,
+    rollback_tone_release,
+)
+from app.tone_contracts import TONE_SCHEMA_VERSION
 from tests.test_tone_release_admission import hashes, reports
 
 
 T0 = "2026-09-29T02:00:00.000000Z"
+T1 = "2026-09-29T03:00:00.000000Z"
+T2 = "2026-09-29T04:00:00.000000Z"
 
 
 class ToneShadowRolloutTests(unittest.TestCase):
@@ -39,18 +47,72 @@ class ToneShadowRolloutTests(unittest.TestCase):
             mocked.start()
             self.addCleanup(mocked.stop)
         database.init_schema()
-        bundle = assess_tone_release_evidence(*reports(), artifact_sha256=hashes())
+        runtime = {
+            "provider": "fixture", "requested_model": "fixture-tone-v1",
+            "prompt_template_id": "tone-v1", "prompt_sha256": "a" * 64,
+            "pipeline_version": "tone-contracts-v1", "parameters": {"temperature": 0},
+            "output_schema_version": TONE_SCHEMA_VERSION,
+            "calibration_version": "tone-temperature-good",
+        }
+        runtime_hash = hashlib.sha256(json.dumps(
+            runtime, sort_keys=True, separators=(",", ":"),
+        ).encode()).hexdigest()
+        candidate = {
+            "schema_version": "tone-prediction-run-v1",
+            "prediction_run_id": "candidate-test-v1",
+            "dataset_version": "tone-private-v1", "task": "tone.polarity",
+            "task_contract": "infohub.tone-evaluation/1.0",
+            "output_schema_version": TONE_SCHEMA_VERSION,
+            "vocabulary_version": "tone-vocabulary-v1", "split": "test",
+            "method_id": "fixture-tone", "method_version": "v1",
+            "method_config_sha256": runtime_hash,
+            "generated_at": "2026-09-28T20:00:00Z",
+            "predictions_file": "predictions.jsonl",
+            "dataset_manifest_sha256": "b" * 64,
+            "dataset_cases_sha256": "c" * 64,
+            "predictions_sha256": "d" * 64,
+            "abstain_label": "__abstain__",
+        }
+        self.candidate = self.root / "candidate-run.json"
+        self.candidate.write_text(json.dumps(candidate, sort_keys=True))
+        profile = {
+            "schema_version": "tone-production-profile-v1",
+            "profile_id": "tone-production-profile-v1",
+            "candidate_test_run_id": "candidate-test-v1",
+            "method_id": "fixture-tone", "method_version": "v1",
+            "runtime_config": runtime, "runtime_config_sha256": runtime_hash,
+            "created_at": "2026-09-29T01:00:00Z",
+        }
+        self.profile = self.root / "production-profile.json"
+        self.profile.write_text(json.dumps(profile, sort_keys=True))
+        artifact_hashes = hashes()
+        artifact_hashes["candidate_test_run"] = hashlib.sha256(
+            self.candidate.read_bytes()
+        ).hexdigest()
+        bundle = assess_tone_release_evidence(*reports(), artifact_sha256=artifact_hashes)
         self.bundle = self.root / "bundle.json"
         self.bundle.write_text(json.dumps(bundle.to_dict(), sort_keys=True))
         registry = {
             "schema_version": "tone-release-approver-registry-v1",
             "registry_version": "tone-approvers-v1",
             "generated_at": "2026-09-28T23:00:00Z",
-            "approvers": [{
-                "approver_id": "release-owner", "status": "active",
-                "scopes": ["tone:release:approve"],
-                "valid_from": "2026-09-01T00:00:00Z", "valid_until": None,
-            }],
+            "approvers": [
+                {
+                    "approver_id": "activation-owner", "status": "active",
+                    "scopes": ["tone:release:activate"],
+                    "valid_from": "2026-09-01T00:00:00Z", "valid_until": None,
+                },
+                {
+                    "approver_id": "release-owner", "status": "active",
+                    "scopes": ["tone:release:approve"],
+                    "valid_from": "2026-09-01T00:00:00Z", "valid_until": None,
+                },
+                {
+                    "approver_id": "rollback-owner", "status": "active",
+                    "scopes": ["tone:release:rollback"],
+                    "valid_from": "2026-09-01T00:00:00Z", "valid_until": None,
+                },
+            ],
         }
         self.registry = self.root / "registry.json"
         self.registry.write_text(json.dumps(registry, sort_keys=True))
@@ -165,6 +227,80 @@ class ToneShadowRolloutTests(unittest.TestCase):
             )
         return running, batch, documents
 
+    def completed_rollout(self):
+        running, batch, documents = self.running_batch()
+        with database.get_db() as db:
+            for subject in documents:
+                record_tone_shadow_observation(
+                    db, batch_id=batch.batch_id, subject_version_id=subject,
+                    outcome="matched", candidate_result_sha256="a" * 64,
+                    reference_result_sha256="b" * 64, error_code=None,
+                    recorded_by="worker", observed_at=T0,
+                )
+            evaluation = evaluate_tone_shadow_batch(
+                db, batch_id=batch.batch_id, evaluated_by="quality-owner",
+                reason="Complete frozen sample passes every threshold.", now=T0,
+            )
+            completed = transition_tone_shadow_rollout(
+                db, rollout_id=running.rollout_id, to_state="completed",
+                expected_previous_transition_id=running.transition_id,
+                actor="operator", reason="Complete after passing shadow gate.",
+                shadow_evaluation_id=evaluation.evaluation_id, now=T0,
+            )
+        return completed, evaluation
+
+    def activation_request(self, completed, evaluation, **changes):
+        profile = json.loads(self.profile.read_text())
+        candidate = json.loads(self.candidate.read_text())
+        registry = json.loads(self.registry.read_text())
+        request = {
+            "schema_version": "tone-production-activation-v1",
+            "request_id": "tone-activation-request-v1",
+            "rollout_id": completed.rollout_id,
+            "shadow_evaluation_id": evaluation.evaluation_id,
+            "profile_id": profile["profile_id"],
+            "profile_sha256": hashlib.sha256(self.profile.read_bytes()).hexdigest(),
+            "candidate_test_run_id": candidate["prediction_run_id"],
+            "candidate_run_sha256": hashlib.sha256(self.candidate.read_bytes()).hexdigest(),
+            "registry_version": registry["registry_version"],
+            "registry_sha256": hashlib.sha256(self.registry.read_bytes()).hexdigest(),
+            "activator_id": "activation-owner",
+            "reason": "Activate only the exact evaluated production profile.",
+            "recorded_at": T1, "source": "human", "model_assistance": False,
+            "rollback_plan_acknowledged": True,
+        }
+        request.update(changes)
+        path = self.root / "activation-request.json"
+        path.write_text(json.dumps(request, sort_keys=True))
+        return path
+
+    def activate(self, completed, evaluation, **changes):
+        request = self.activation_request(completed, evaluation, **changes)
+        with database.get_db() as db:
+            return activate_tone_release(
+                db, rollout_id=completed.rollout_id,
+                candidate_run_path=self.candidate, profile_path=self.profile,
+                registry_path=self.registry, request_path=request,
+            )
+
+    def rollback_request(self, activation, **changes):
+        registry = json.loads(self.registry.read_text())
+        request = {
+            "schema_version": "tone-production-rollback-v1",
+            "request_id": "tone-rollback-request-v1",
+            "activation_id": activation.activation_id,
+            "expected_previous_transition_id": activation.transition_id,
+            "registry_version": registry["registry_version"],
+            "registry_sha256": hashlib.sha256(self.registry.read_bytes()).hexdigest(),
+            "operator_id": "rollback-owner",
+            "reason": "Disable new candidate publication immediately.",
+            "recorded_at": T2, "source": "human", "model_assistance": False,
+        }
+        request.update(changes)
+        path = self.root / "rollback-request.json"
+        path.write_text(json.dumps(request, sort_keys=True))
+        return path
+
     def test_approved_admission_creates_idempotent_planned_rollout(self):
         first = self.create()
         second = self.create()
@@ -178,7 +314,7 @@ class ToneShadowRolloutTests(unittest.TestCase):
                 "SELECT COUNT(*) FROM analysis_publications"
             ).fetchone()[0], 0)
         self.assertEqual(
-            db_admin.verify_database(self.path, require_current=True).schema_version, 42
+            db_admin.verify_database(self.path, require_current=True).schema_version, 43
         )
 
     def test_config_is_bounded_and_cannot_enable_serving(self):
@@ -248,7 +384,7 @@ class ToneShadowRolloutTests(unittest.TestCase):
             db_admin.apply_migrations(db, db_admin.MIGRATIONS[:41])
             db.execute("INSERT INTO sources(key,name,channel,type) VALUES('x','X','ai','rss')")
         report = db_admin.migrate_database(predecessor)
-        self.assertEqual(report.applied_versions, (42,))
+        self.assertEqual(report.applied_versions, (42, 43))
         self.assertEqual(db_admin.verify_database(report.backup_path).schema_version, 41)
         with database.get_db(predecessor) as db:
             self.assertEqual(db.execute(
@@ -361,6 +497,125 @@ class ToneShadowRolloutTests(unittest.TestCase):
                     actor="operator", reason="A failed gate cannot complete.",
                     shadow_evaluation_id=evaluation.evaluation_id, now=T0,
                 )
+
+    def test_completed_rollout_creates_idempotent_independent_activation(self):
+        completed, evaluation = self.completed_rollout()
+        activation = self.activate(completed, evaluation)
+        repeated = self.activate(completed, evaluation)
+        self.assertEqual(activation, repeated)
+        self.assertEqual((activation.state, activation.transition_version), ("active", 1))
+        with database.get_db() as db:
+            self.assertEqual(db.execute(
+                "SELECT COUNT(*) FROM analysis_publications"
+            ).fetchone()[0], 0)
+            with self.assertRaisesRegex(Exception, "immutable"):
+                db.execute("UPDATE tone_release_activations SET profile_id='changed'")
+        self.assertEqual(
+            db_admin.verify_database(self.path, require_current=True).schema_version, 43
+        )
+
+    def test_database_verifier_rejects_raw_activation_artifact_tampering(self):
+        completed, evaluation = self.completed_rollout()
+        activation = self.activate(completed, evaluation)
+        with database.get_db() as db:
+            db.execute("DROP TRIGGER tone_release_activations_no_update")
+            stored = db.execute(
+                "SELECT profile_json FROM tone_release_activations WHERE id=?",
+                (activation.activation_id,),
+            ).fetchone()["profile_json"]
+            db.execute(
+                "UPDATE tone_release_activations SET profile_json=? WHERE id=?",
+                (stored + "\n", activation.activation_id),
+            )
+            db.execute(
+                """CREATE TRIGGER tone_release_activations_no_update
+                   BEFORE UPDATE ON tone_release_activations
+                   BEGIN SELECT RAISE(ABORT,'tone release activations are immutable'); END"""
+            )
+        with self.assertRaisesRegex(
+            db_admin.DatabaseVerificationError, "activation ledger",
+        ):
+            db_admin.verify_database(self.path, require_current=True)
+
+    def test_activation_requires_completed_rollout(self):
+        planned = self.create()
+        request = self.activation_request(
+            planned,
+            type("Evaluation", (), {"evaluation_id": "missing-evaluation"})(),
+        )
+        with database.get_db() as db:
+            with self.assertRaisesRegex(ToneReleaseActivationError, "completed rollout"):
+                activate_tone_release(
+                    db, rollout_id=planned.rollout_id,
+                    candidate_run_path=self.candidate, profile_path=self.profile,
+                    registry_path=self.registry, request_path=request,
+                )
+
+    def test_activation_requires_exact_evaluated_profile(self):
+        completed, evaluation = self.completed_rollout()
+        with self.assertRaisesRegex(ToneReleaseActivationError, "predates"):
+            self.activate(
+                completed, evaluation, recorded_at="2026-09-29T01:30:00Z"
+            )
+        profile = json.loads(self.profile.read_text())
+        profile["runtime_config"]["requested_model"] = "unevaluated-model"
+        self.profile.write_text(json.dumps(profile, sort_keys=True))
+        with self.assertRaisesRegex(ToneReleaseActivationError, "config hash differs"):
+            self.activate(completed, evaluation)
+
+    def test_activation_authorization_and_independence_fail_closed(self):
+        completed, evaluation = self.completed_rollout()
+        registry = json.loads(self.registry.read_text())
+        for operator in registry["approvers"]:
+            if operator["approver_id"] == "release-owner":
+                operator["scopes"] = ["tone:release:activate", "tone:release:approve"]
+        self.registry.write_text(json.dumps(registry, sort_keys=True))
+        with self.assertRaisesRegex(ToneReleaseActivationError, "independent"):
+            self.activate(completed, evaluation, activator_id="release-owner")
+        with self.assertRaisesRegex(ToneReleaseActivationError, "not authorized"):
+            self.activate(completed, evaluation, activator_id="rollback-owner")
+
+    def test_authorized_rollback_is_append_only_idempotent_and_terminal(self):
+        completed, evaluation = self.completed_rollout()
+        activation = self.activate(completed, evaluation)
+        stale_request = self.rollback_request(activation, recorded_at=T0)
+        with database.get_db() as db:
+            with self.assertRaisesRegex(ToneReleaseActivationError, "predates"):
+                rollback_tone_release(
+                    db, activation_id=activation.activation_id,
+                    expected_previous_transition_id=activation.transition_id,
+                    registry_path=self.registry, request_path=stale_request,
+                )
+        request = self.rollback_request(activation)
+        with database.get_db() as db:
+            rolled_back = rollback_tone_release(
+                db, activation_id=activation.activation_id,
+                expected_previous_transition_id=activation.transition_id,
+                registry_path=self.registry, request_path=request,
+            )
+            repeated = rollback_tone_release(
+                db, activation_id=activation.activation_id,
+                expected_previous_transition_id=activation.transition_id,
+                registry_path=self.registry, request_path=request,
+            )
+            self.assertEqual(rolled_back, repeated)
+            self.assertEqual((rolled_back.state, rolled_back.transition_version), ("rolled_back", 2))
+            with self.assertRaisesRegex(Exception, "immutable"):
+                db.execute("DELETE FROM tone_release_activation_transitions")
+        db_admin.verify_database(self.path, require_current=True)
+
+    def test_migration_43_preserves_schema_42_database(self):
+        predecessor = self.root / "schema42.db"
+        with database.get_db(predecessor) as db:
+            db_admin.apply_migrations(db, db_admin.MIGRATIONS[:42])
+            db.execute("INSERT INTO sources(key,name,channel,type) VALUES('x','X','ai','rss')")
+        report = db_admin.migrate_database(predecessor)
+        self.assertEqual(report.applied_versions, (43,))
+        self.assertEqual(db_admin.verify_database(report.backup_path).schema_version, 42)
+        with database.get_db(predecessor) as db:
+            self.assertEqual(db.execute(
+                "SELECT COUNT(*) FROM tone_release_activations"
+            ).fetchone()[0], 0)
 
 
 if __name__ == "__main__":

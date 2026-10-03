@@ -103,6 +103,8 @@ raw_confidence 是未校准模型自报值，可为 null。P15a 拒绝任何非�
    P15e-3 已加入迁移 40 和受控导入器，在写入 append-only admission ledger 前重算全部绑定，并拒绝重复决定和
    同 bundle 冲突。P15e-4a 已增加只绑定 approved admission 的 shadow-only rollout 计划与追加式状态机；P15e-4b
    冻结完整候选总体、确定性抽样并以不可变 observation 重算错误率和分歧率，只有 passed evaluation 才能完成
-   rollout。后续 P15e-4c 建立独立人工切换/回滚，再以新记录开放 `valid`，不覆盖旧结果。
+   rollout。P15e-4c-1 已建立独立人工激活/回滚账本，把 exact candidate artifact、生产 runtime profile、授权人与
+   passed shadow evaluation 绑定，且同一时间只允许一个 active profile；它尚未放开 `valid`。P15e-4c-2 将把新的
+   tone publication 事务接入该门禁，不覆盖旧结果。
 
 任何阶段失败都只关闭新的 tone publication；不可变输入、attempt、旧结果和人工修正继续保留。
