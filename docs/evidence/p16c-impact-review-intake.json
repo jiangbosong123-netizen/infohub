@@ -1,0 +1,42 @@
+{
+  "phase": "P16c",
+  "scope": "Hash-bound import of first and second independent human impact reviews",
+  "recorded_at": "2026-10-03T00:00:00Z",
+  "production_changed": false,
+  "database_changed": false,
+  "paid_model_calls": 0,
+  "validation": {
+    "focused_tests": 37,
+    "python_3_11_full_tests": 690,
+    "python_3_12_full_tests": 690,
+    "synthetic_private_intake_drill": {
+      "batch_schema": "human-impact-review-batch-v1",
+      "source_manifest_hash_binding": "passed",
+      "source_cases_hash_binding": "passed",
+      "content_hash_binding": "passed",
+      "first_reviewer_import": "passed",
+      "second_distinct_reviewer_import": "passed",
+      "final_gold_after_two_reviews": false,
+      "model_assisted_human_review_rejected": "passed",
+      "restricted_text_quote_non_disclosure": "passed",
+      "stale_private_evidence_signature_removed": "passed",
+      "strict_manifest_and_review_fields": "passed",
+      "failure_leaves_no_output": "passed",
+      "third_reviewer_rejected": "passed",
+      "duplicate_unknown_and_empty_rows_rejected": "passed",
+      "unverified_blind_holdout_rejected_before_batch_read": "passed",
+      "repository_paths_restricted_to_evaluation_private": "passed",
+      "recorded_hashes_match_imported_bytes": "passed"
+    },
+    "github_ci": {
+      "status": "required_pr_gate",
+      "required_jobs": [
+        "docker",
+        "regression_python_3_11",
+        "regression_python_3_12"
+      ],
+      "note": "Local full suites passed on Python 3.11.16 and 3.12.14; the PR head must also pass the required GitHub jobs."
+    }
+  },
+  "known_boundary": "This unit imports independent human impact opinions but deliberately leaves final labels empty. It does not create real samples, measure agreement, adjudicate disagreements, verify private evidence contents, run a model, claim accuracy, enable valid impact publication or change Windows production."
+}

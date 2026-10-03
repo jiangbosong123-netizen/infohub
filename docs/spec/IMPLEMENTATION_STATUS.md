@@ -54,11 +54,13 @@ the implementation PR series proceeded. It was restored on 2026-09-27 after `mai
   evidence with role-aware support/contradiction validation. P16b adds the separate
   `infohub.impact-evaluation/1.0` annotation contract and a 16-case bilingual synthetic fixture for
   conditional plans, direct effects, conflicting evidence, numeric revisions, cross-entity effects,
-  insufficient evidence and prompt injection. It remains non-publishable contract data. `valid` and
-  calibrated impact remain closed; no impact model, private labels or production result exists. P16 human
-  workflow/metrics/admission, P20 macro and sentiment outputs, the remaining portal cutover and final
-  Windows consumer drills are later phases. A target endpoint in `openapi.yaml` is not proof that its route
-  exists.
+  insufficient evidence and prompt injection. P16c adds hash-bound, no-model human impact review intake for
+  first and second independent reviewers; both opinions remain provisional and any prior evidence signature is
+  invalidated by the new cases hash. The fixture and private intake remain non-publishable contract data.
+  `valid` and calibrated impact remain closed; no impact model, private labels or production result exists.
+  P16 agreement/adjudication/evidence review/metrics/admission, P20 macro and sentiment outputs, the remaining
+  portal cutover and final Windows consumer drills are later phases. A target endpoint in `openapi.yaml` is not
+  proof that its route exists.
 
 ## Status rule
 
