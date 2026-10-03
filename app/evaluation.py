@@ -55,12 +55,16 @@ def _load_json(path: Path):
 
 
 def _load_cases(path: Path) -> list[dict]:
-    cases = []
     try:
-        lines = path.read_text(encoding="utf-8").splitlines()
+        text = path.read_text(encoding="utf-8")
     except OSError as exc:
         raise EvaluationDatasetError(f"cannot read cases: {exc}") from exc
-    for number, line in enumerate(lines, 1):
+    return _parse_cases(text)
+
+
+def _parse_cases(text: str) -> list[dict]:
+    cases = []
+    for number, line in enumerate(text.splitlines(), 1):
         if not line.strip():
             continue
         try:
