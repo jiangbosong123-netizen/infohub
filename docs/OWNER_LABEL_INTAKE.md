@@ -9,7 +9,7 @@
 | `annotation.state` | 层 | 关键字段 | 规则 |
 |---|---|---|---|
 | `adjudicated` | gold | `reviews`（2 份）+ `adjudication` | 不变 |
-| `owner_labeled` | owner | `labels` + `owner_label` | manifest 必须声明 `annotation_protocol={"version":"single-owner-v1","owner_id":...}`；`owner_label` 只能含 `owner_id/source/blind/model_assistance/content_sha256/recorded_at/labels`，必须 `source=human`、`blind=true`、`model_assistance=false`、owner 与 manifest 一致、hash 绑定冻结正文、`labels` 与最终 `labels` 完全相同 |
+| `owner_labeled` | owner | `labels` + `owner_label` | manifest 必须声明 `annotation_protocol={"version":"single-owner-v1","owner_id":...,"label_definition":...}`；`owner_label` 只能含 `owner_id/source/blind/model_assistance/content_sha256/recorded_at/labels`，必须 `source=human`、`blind=true`、`model_assistance=false`、owner 与 manifest 一致、hash 绑定冻结正文、`labels` 与最终 `labels` 完全相同 |
 | `algorithm_labeled` | silver | `labels` + `labeler`，`generated_by_model=true` | 只能在 train/dev；`labeler` 只能含 `labeler_id/labeler_version/config_sha256/content_sha256/generated_at` |
 
 三层互不混用：`owner_label` 不能出现在其他状态上，`labeler` 不能出现在 silver 以外，owner/silver case 不能
@@ -26,6 +26,7 @@
 {
   "schema_version": "owner-label-batch-v1",
   "task": "relevance",
+  "label_definition": "relevance-definition-v1",
   "source_dataset_version": "...",
   "source_manifest_sha256": "...",
   "source_cases_sha256": "...",
@@ -36,7 +37,9 @@
 }
 ```
 
-`task` 为 `relevance`、`tone` 或 `impact`，防止把一个任务的批次导入另一个任务。每行 review 只含
+`task` 为 `relevance`、`tone` 或 `impact`，防止把一个任务的批次导入另一个任务。`label_definition` 是标注
+定义版本（relevance 当前为 [`relevance-definition-v1`](../evaluation/ANNOTATION_GUIDE_V1.md#relevance-definition-v1)）；
+第一次导入把 owner 与定义一起锁进 `annotation_protocol`，之后定义不同的批次被拒绝，避免同一数据集混用口径。每行 review 只含
 `case_id/content_sha256/recorded_at/labels`，labels 必须是该任务的完整标签。
 
 ```bash
@@ -59,7 +62,36 @@ python -m app.owner_label_intake --task relevance \
   这个命令导入。
 - 新标签改变 cases hash，旧的 `tone_evidence_review` / `impact_evidence_review` 签名会被移除。
 
+## 本地标注台（relevance）
+
+`app.owner_label_console` 把未标注 case 的冻结内容展示给所有者，导出可直接导入的 owner 批次：
+
+```bash
+python -m app.owner_label_console serve \
+  --dataset /absolute/private/path/relevance-unlabeled-v1 \
+  --database /absolute/private/path/app-snapshot.db \
+  --draft-dir /absolute/private/path/owner-drafts \
+  --owner-id owner
+# 浏览器打开 http://127.0.0.1:8013/ ，按 1/2/3 标 relevant / not_relevant / unknown，←/→ 翻页
+python -m app.owner_label_console status ...      # 进度
+python -m app.owner_label_console export ... --output /absolute/private/path/owner-batch-1
+python -m app.owner_label_intake --task relevance --dataset ... --batch .../owner-batch-1 ...
+```
+
+- **盲标由工具保证。** 只从数据库读取来源标题、`raw_summary`、来源名和旧库时间，按抽样同一规则
+  （`legacy-source-text-v2`）重算 `content_sha256`，不一致就拒绝显示和记录；模型字段（评分、AI 摘要、翻译、
+  分类、`tmt`）从不被读取，也不显示 URL，避免看冻结内容以外的信息。因此导出的批次可以如实声明 `blind=true`。
+- **顺序。** test → dev → train → security，同 split 内按固定种子打乱；中途停止也会先得到完整的 test 集。
+- **草稿。** 每次选择追加到私有草稿（`<dataset_version>.<cases hash>.draft.jsonl`，fsync），导出前可改判，
+  以最后一次为准；草稿绑定数据集 cases hash，不能混入其他数据集。草稿与批次目录必须在仓库外或
+  `evaluation/private/` 下。
+- **安全。** 只绑定 `127.0.0.1`，拒绝非本机 Host；表单需 CSRF token 和冻结 hash；内容由模板自动转义，
+  键盘快捷键脚本使用逐请求 nonce 的 CSP。
+- 导出后用 intake 生成新数据集版本；继续标注时以新版本为 `--dataset`，已导入的 case 不再出现。
+
+数据库建议使用一致性快照副本（例如 `db-backup` 产物），抽样、入册和标注期间保持不变；源内容变化会被拒绝。
+
 ## 仍未实现
 
-延时自复核抽样与同人一致性、experimental 指标结论、把受限 case 渲染给所有者阅读的本地标注工具、
-silver 标注器均在后续 PR。现在只能导入 owner 标签，不能据此发布任何质量结论。
+延时自复核抽样与同人一致性、experimental 指标结论、tone/impact 的标注界面、silver 标注器均在后续 PR。
+现在可以产出 relevance owner 标签，但还不能据此发布任何质量结论。

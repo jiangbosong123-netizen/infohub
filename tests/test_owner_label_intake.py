@@ -77,6 +77,7 @@ class OwnerLabelIntakeTests(unittest.TestCase):
         manifest = {
             "schema_version": "owner-label-batch-v1",
             "task": for_task,
+            "label_definition": f"{for_task}-definition-v1",
             "source_dataset_version": VALIDATORS[for_task](source).dataset_version,
             "source_manifest_sha256": hashlib.sha256((source / "manifest.json").read_bytes()).hexdigest(),
             "source_cases_sha256": hashlib.sha256((source / "cases.jsonl").read_bytes()).hexdigest(),
@@ -122,7 +123,8 @@ class OwnerLabelIntakeTests(unittest.TestCase):
                 manifest, labeled = self.load(one)
                 self.assertEqual(
                     manifest["annotation_protocol"],
-                    {"version": "single-owner-v1", "owner_id": "owner-1"},
+                    {"version": "single-owner-v1", "owner_id": "owner-1",
+                     "label_definition": f"{task}-definition-v1"},
                 )
                 case = next(item for item in labeled if item["case_id"] == first_id)
                 self.assertEqual(case["annotation"]["state"], "owner_labeled")
@@ -155,6 +157,8 @@ class OwnerLabelIntakeTests(unittest.TestCase):
             ("not-blind", {"blind": False}, "blind, no-model"),
             ("assisted", {"model_assistance": True}, "blind, no-model"),
             ("wrong-task", {"task": "tone"}, "not for task relevance"),
+            ("other-definition", {"label_definition": "relevance-definition-v2"},
+             "definition differs"),
         ):
             with self.subTest(name):
                 batch = self.batch(
@@ -248,7 +252,10 @@ class OwnerAndSilverValidatorTests(unittest.TestCase):
         ]
         self.case = self.cases[0]
         _restrict("relevance", self.case)
-        self.manifest["annotation_protocol"] = {"version": "single-owner-v1", "owner_id": "owner-1"}
+        self.manifest["annotation_protocol"] = {
+            "version": "single-owner-v1", "owner_id": "owner-1",
+            "label_definition": "relevance-definition-v1",
+        }
 
     def owner_label(self, **overrides) -> dict:
         labels = {"relevance": "relevant"}

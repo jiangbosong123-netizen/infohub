@@ -68,8 +68,11 @@ the implementation PR series proceeded. It was restored on 2026-09-27 after `mai
   recheck support only *experimental* quality claims, and versioned algorithm (silver) labels may enter
   train/dev but never act as evaluation truth. The protocol is recorded in `DECISIONS.md` §5. D23-a adds
   the `owner_labeled` and `algorithm_labeled` dataset states with tier-separation validation (relevance, tone
-  and impact) and a hash-bound blind owner-label intake built on the shared review-intake core. No recheck,
-  experimental metric, labeling tool, silver labeler or real owner label exists yet.
+  and impact) and a hash-bound blind owner-label intake built on the shared review-intake core. D23-b binds
+  the protocol to a label-definition version, publishes `relevance-definition-v1`, and adds a loopback-only
+  relevance labeling console that re-verifies frozen source content, never reads model fields, and exports
+  owner batches. No recheck, experimental metric, tone/impact labeling UI, silver labeler or real owner label
+  exists yet.
 
 ## Status rule
 
