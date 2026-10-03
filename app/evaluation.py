@@ -138,18 +138,29 @@ def _validate_adjudication(case_id: str, annotation: dict, digest: str) -> None:
     _review_time(decision.get("recorded_at"), case_id)
 
 
-def owner_protocol_id(manifest: dict) -> str | None:
-    """Return the declared single-owner annotator, or None when the protocol is absent."""
+def owner_protocol(manifest: dict) -> dict[str, str] | None:
+    """Return the declared single-owner protocol (owner and label definition), if any."""
     protocol = manifest.get("annotation_protocol")
     if protocol is None:
         return None
     if (
         not isinstance(protocol, dict)
-        or set(protocol) != {"version", "owner_id"}
+        or set(protocol) != {"version", "owner_id", "label_definition"}
         or protocol.get("version") != OWNER_PROTOCOL_VERSION
     ):
         raise EvaluationDatasetError("manifest has invalid annotation_protocol")
-    return _require_text(protocol.get("owner_id"), "owner_id", "annotation_protocol")
+    return {
+        "owner_id": _require_text(protocol.get("owner_id"), "owner_id", "annotation_protocol"),
+        "label_definition": _require_text(
+            protocol.get("label_definition"), "label_definition", "annotation_protocol"
+        ),
+    }
+
+
+def owner_protocol_id(manifest: dict) -> str | None:
+    """Return the declared single-owner annotator, or None when the protocol is absent."""
+    protocol = owner_protocol(manifest)
+    return protocol["owner_id"] if protocol else None
 
 
 def _validate_owner_label(case_id: str, annotation: dict, digest: str, owner_id: str | None) -> None:

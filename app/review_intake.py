@@ -29,7 +29,7 @@ from .evaluation import (
     _require_text,
     _review_time,
     _verified_holdout,
-    owner_protocol_id,
+    owner_protocol,
 )
 
 BATCH_MANIFEST_FIELDS = frozenset({
@@ -38,8 +38,9 @@ BATCH_MANIFEST_FIELDS = frozenset({
 })
 OWNER_BATCH_VERSION = "owner-label-batch-v1"
 OWNER_BATCH_MANIFEST_FIELDS = frozenset({
-    "schema_version", "task", "source_dataset_version", "source_manifest_sha256",
-    "source_cases_sha256", "owner_id", "source", "blind", "model_assistance",
+    "schema_version", "task", "label_definition", "source_dataset_version",
+    "source_manifest_sha256", "source_cases_sha256", "owner_id", "source", "blind",
+    "model_assistance",
 })
 REVIEW_ROW_FIELDS = frozenset({"case_id", "content_sha256", "recorded_at", "labels"})
 DATASET_VERSION_RE = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]*")
@@ -387,9 +388,13 @@ def run_owner_label_intake(
         or bound.manifest.get("model_assistance") is not False
     ):
         raise EvaluationDatasetError("owner label batch requires a blind, no-model human attestation")
-    declared = owner_protocol_id(loaded.manifest)
-    if declared is not None and declared != owner:
+    definition = _require_text(bound.manifest.get("label_definition"), "label_definition", "batch")
+    declared = owner_protocol(loaded.manifest)
+    if declared is not None and declared["owner_id"] != owner:
         raise EvaluationDatasetError("owner label batch owner differs from the dataset owner")
+    if declared is not None and declared["label_definition"] != definition:
+        # Labels made under different definitions are not comparable within one dataset.
+        raise EvaluationDatasetError("owner label batch definition differs from the dataset definition")
 
     labeled = 0
     for row, case in _rows(task, label, batch, bound, loaded):
@@ -425,7 +430,11 @@ def run_owner_label_intake(
         prefix="owner_label_batch",
         schema_version=OWNER_BATCH_VERSION,
         extra_manifest={
-            "annotation_protocol": {"version": OWNER_PROTOCOL_VERSION, "owner_id": owner},
+            "annotation_protocol": {
+                "version": OWNER_PROTOCOL_VERSION,
+                "owner_id": owner,
+                "label_definition": definition,
+            },
         },
     )
     states = result.annotation_state_counts

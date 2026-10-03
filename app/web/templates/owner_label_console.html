@@ -1,0 +1,92 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>InfoHub 所有者盲标</title>
+  <style>
+    :root { color-scheme: light; font-family: system-ui, sans-serif; background:#f5f6f8; color:#172033; }
+    body { margin:0; } main { max-width:920px; margin:0 auto; padding:28px 20px 64px; }
+    header,.card { background:#fff; border:1px solid #dfe3ea; border-radius:14px; padding:20px 22px; margin-bottom:16px; }
+    h1 { margin:0 0 6px; font-size:22px; } h2 { margin:0 0 12px; font-size:21px; line-height:1.45; overflow-wrap:anywhere; }
+    .muted { color:#667085; font-size:14px; } .metrics { display:flex; gap:18px; flex-wrap:wrap; margin-top:12px; }
+    .metric strong { display:block; font-size:19px; }
+    .text { white-space:pre-wrap; background:#f7f8fa; padding:14px; border-radius:8px; line-height:1.6; overflow-wrap:anywhere; }
+    .empty { color:#98a2b3; font-style:italic; }
+    dl { display:grid; grid-template-columns:120px 1fr; gap:6px 14px; margin:14px 0 0; font-size:14px; } dt { color:#667085; } dd { margin:0; }
+    .actions { display:flex; gap:12px; flex-wrap:wrap; margin-top:4px; } form { margin:0; }
+    button { border:0; border-radius:10px; padding:13px 20px; color:#fff; font-weight:650; font-size:16px; cursor:pointer; }
+    .relevant { background:#087443; } .not_relevant { background:#b42318; } .unknown { background:#475467; }
+    button.current { outline:3px solid #fdb022; outline-offset:2px; }
+    nav { display:flex; justify-content:space-between; margin-top:14px; font-size:14px; } a { color:#175cd3; }
+    details { font-size:14px; line-height:1.6; } summary { cursor:pointer; font-weight:600; }
+    .error { border-color:#fda29b; background:#fef3f2; } kbd { border:1px solid #d0d5dd; border-radius:4px; padding:0 5px; font-size:12px; background:#fff; color:#344054; }
+  </style>
+</head>
+<body><main>
+  <header>
+    <h1>所有者盲标 · relevance</h1>
+    <div class="muted">数据集 {{ dataset_version }} · 标注人 {{ owner_id }} · 定义 {{ definition }}</div>
+    <div class="metrics">
+      <div class="metric"><strong>{{ progress.labeled }} / {{ progress.total }}</strong><span class="muted">已标</span></div>
+      {% for split, counts in progress.splits.items() %}
+      <div class="metric"><strong>{{ counts.labeled }} / {{ counts.total }}</strong><span class="muted">{{ split }}</span></div>
+      {% endfor %}
+    </div>
+  </header>
+
+  <details class="card">
+    <summary>判断标准（{{ definition }}）</summary>
+    <p>只看下方冻结的标题与原文摘录，不打开链接、不搜索。问题：<b>主体是否属于科技研究范围（TMT）？</b></p>
+    <p><b>relevant</b>：AI、机器人、半导体与芯片、智能硬件与消费电子、互联网平台、软件与云、智能汽车技术、电信与网络；
+      科技公司自身的动态与公司事件（财报、申报、回购、并购、评级、内部人交易、人事）；直接针对科技行业或具体科技公司的
+      政策、监管、资本开支与融资环境。</p>
+    <p><b>not_relevant</b>：大盘与指数、货币政策、非科技焦点的地缘政治、医疗医药、体育娱乐、能源大宗农产品、非科技公司的一般
+      财经新闻；科技公司只是顺带提及。</p>
+    <p><b>unknown</b>：冻结内容不足以判断（含义不明的标题、乱码、公司名歧义）。不是“拿不准”。</p>
+  </details>
+
+  {% if error %}
+  <section class="card error"><h2>无法显示这条样本</h2><p>{{ error }}</p><p><a href="/">返回</a></p></section>
+  {% elif case %}
+  <section class="card">
+    <div class="muted">第 {{ position }} 条 · {{ case.source_name }} · 语言 {{ case.language }} · 旧库时间 {{ case.published_at or "未知" }}（未核实）</div>
+    <h2>{% if case.title %}{{ case.title }}{% else %}<span class="empty">（无标题）</span>{% endif %}</h2>
+    {% if case.text %}<div class="text">{{ case.text }}</div>{% else %}<div class="text empty">（没有原文摘录，只能根据标题判断）</div>{% endif %}
+  </section>
+  <section class="card">
+    <div class="actions">
+      {% for value in labels %}
+      <form method="post" action="/label/{{ case.case_id }}" id="form-{{ loop.index }}">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+        <input type="hidden" name="content_sha256" value="{{ case.content_sha256 }}">
+        <input type="hidden" name="label" value="{{ value }}">
+        <button type="submit" class="{{ value }}{% if current == value %} current{% endif %}"><kbd>{{ loop.index }}</kbd> {{ value }}</button>
+      </form>
+      {% endfor %}
+    </div>
+    <nav>
+      <span>{% if previous %}<a id="previous" href="/case/{{ previous }}"><kbd>←</kbd> 上一条</a>{% endif %}</span>
+      <span>{% if current %}当前标签：<b>{{ current }}</b>（再次选择会覆盖草稿）{% endif %}</span>
+      <span>{% if following %}<a id="following" href="/case/{{ following }}">下一条 <kbd>→</kbd></a>{% endif %}</span>
+    </nav>
+  </section>
+  <script nonce="{{ nonce }}">
+    document.addEventListener("keydown", function (event) {
+      if (event.altKey || event.ctrlKey || event.metaKey) { return; }
+      var form = document.getElementById("form-" + event.key);
+      if (form) { form.submit(); return; }
+      var link = event.key === "ArrowLeft" ? document.getElementById("previous")
+        : event.key === "ArrowRight" ? document.getElementById("following") : null;
+      if (link) { window.location.href = link.href; }
+    });
+  </script>
+  {% else %}
+  <section class="card"><h2>本数据集的待标样本已全部完成</h2>
+    <p>relevant {{ progress.labels.relevant }} · not_relevant {{ progress.labels.not_relevant }} · unknown {{ progress.labels.unknown }}</p>
+    <p class="muted">停止服务后运行 <code>python -m app.owner_label_console export …</code> 导出批次，再用
+      <code>python -m app.owner_label_intake --task relevance …</code> 冻结为新的数据集版本。</p>
+  </section>
+  {% endif %}
+</main></body>
+</html>
