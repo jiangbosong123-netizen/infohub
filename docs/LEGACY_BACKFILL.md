@@ -17,6 +17,12 @@ P07 为旧 `items`、`item_discoveries` 和 `daily_reports` 建立稳定映射�
   建立正式 report versions；
 - `legacy_object_mappings` 保存旧键、目标 ID、旧快照 hash、质量状态与映射时间，触发器禁止改写或删除。
 
+版本正文只取 `raw_summary`。旧 AI 策展会用模型输出覆盖 `items.summary`，`raw_summary` 为 NULL 的旧行
+（本机旧库约 3,302 条，均已被模型处理过）因此只保留标题、内容范围为 `title_only`，不把可能由模型改写的
+摘要冻结成 `legacy_excerpt` 正文；完整旧行（含模型字段）仍原样保存在快照的 `extra.legacy_snapshot`。
+P13 历史策展导入使用同一规则核对快照与版本。规则在任何生产回填之前修正；已在其他副本上按旧规则完成映射的
+行不会被改写，重放时 hash 不同会按既有规则报错，而不是静默覆盖。
+
 空标题/摘要仍会映射，内容范围为 `none`；无效 URL 使用 `urn:infohub:legacy-item:<id>` 内部 locator，
 旧门户链接和旧行原值不变。无效或无时区 legacy 时间不猜时区，迁移版本始终保持
 `legacy_unverified`。如果一个旧 item 已经由 P06 新证据生成 document，回填只把旧快照作为
