@@ -31,6 +31,18 @@ python -c "from app.tone_evaluation import validate_tone_evaluation_dataset as v
 第三名独立 adjudicator 冻结最终标签的流程见
 [`docs/TONE_ADJUDICATION.md`](../docs/TONE_ADJUDICATION.md)。裁定后仍须重新做私有 evidence review。
 
+Impact 有独立的 event version × target × aspect × horizon 标注契约，不能把 tone 或 relevance 标签改名后
+复用。`impact-contract-v1` 是 16 条中英合成契约 fixture，覆盖条件计划、直接影响、冲突证据、数字修订、
+跨实体、证据不足和提示注入；它明确不是 gold：
+
+```bash
+python -c "from app.impact_evaluation import validate_impact_evaluation_dataset as v; print(v('evaluation/datasets/impact-contract-v1').to_dict())"
+```
+
+字段、证据角色、困难切片和 300 条正式 impact assessment 计划见
+[`docs/IMPACT_ANNOTATION_GUIDE.md`](../docs/IMPACT_ANNOTATION_GUIDE.md)。当前没有 impact 专用双人 review、
+裁定、私有证据复核、模型指标或 release admission，`publishable_impact_gold` 必须保持 false。
+
 标注定义见 [ANNOTATION_GUIDE_V1.md](ANNOTATION_GUIDE_V1.md)。分类基线报告必须同时输出 confusion、逐类 support、macro F1、coverage、abstain、missing 和 Wilson 95% 区间。
 
 ## 真实候选抽样

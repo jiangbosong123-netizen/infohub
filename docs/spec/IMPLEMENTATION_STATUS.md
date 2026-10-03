@@ -51,10 +51,14 @@ the implementation PR series proceeded. It was restored on 2026-09-27 after `mai
   portal read switch or production deployment has been performed.
 - P16a registers the review-only `impact/1.0` contract. Impact runs require an immutable event-version
   subject, catalog-backed target, fixed aspect/horizon vocabularies, and direct non-generated event
-  evidence with role-aware support/contradiction validation. `valid` and calibrated impact remain closed;
-  no impact model, private labels or production result exists. P16 evaluation/admission, P20 macro and
-  sentiment outputs, the remaining portal cutover and final Windows consumer drills are later phases. A
-  target endpoint in `openapi.yaml` is not proof that its route exists.
+  evidence with role-aware support/contradiction validation. P16b adds the separate
+  `infohub.impact-evaluation/1.0` annotation contract and a 16-case bilingual synthetic fixture for
+  conditional plans, direct effects, conflicting evidence, numeric revisions, cross-entity effects,
+  insufficient evidence and prompt injection. It remains non-publishable contract data. `valid` and
+  calibrated impact remain closed; no impact model, private labels or production result exists. P16 human
+  workflow/metrics/admission, P20 macro and sentiment outputs, the remaining portal cutover and final
+  Windows consumer drills are later phases. A target endpoint in `openapi.yaml` is not proof that its route
+  exists.
 
 ## Status rule
 

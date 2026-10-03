@@ -1,0 +1,20 @@
+{
+  "dataset": {
+    "assessments": 16,
+    "cases": 16,
+    "dataset_version": "impact-contract-v1",
+    "english_cases": 8,
+    "publishable_impact_gold": false,
+    "synthetic_fixture": true,
+    "zh_cases": 8
+  },
+  "paid_model_calls": 0,
+  "phase": "P16b",
+  "production_changed": false,
+  "scope": "impact annotation contract and bilingual synthetic difficult-slice fixture",
+  "verification": {
+    "focused_tests": 33,
+    "python_311_full_tests": 677,
+    "python_312_full_tests": 677
+  }
+}

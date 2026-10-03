@@ -42,5 +42,7 @@ null。结构正确只允许 `needs_review`；证据不足和 provider 拒绝分
 结果、task validation report、publication version、change log 和 job completion 继续由同一事务提交。实体在
 事务前和事务内都检查，避免目录变化竞态。
 
-后续 P16 单元才会建立 impact 专用标注、双人复核、困难切片、指标、校准、release admission、shadow rollout
-和 production activation。未完成这些条件前，任何合成 fixture 都不能被称为真实 impact 质量结论。
+P16b 已建立 impact 专用标注契约、困难切片和 16 条中英合成 fixture，详见
+[IMPACT_ANNOTATION_GUIDE.md](IMPACT_ANNOTATION_GUIDE.md)。后续 P16 单元继续实现双人复核、裁定、私有
+证据复核、指标、校准、release admission、shadow rollout 和 production activation。未完成这些条件前，
+任何合成 fixture 都不能被称为真实 impact 质量结论。
