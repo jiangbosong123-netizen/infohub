@@ -59,6 +59,36 @@ class EvaluationSamplingTests(unittest.TestCase):
         self.assertEqual(report["selected"]["sec_related"], 1)
         self.assertEqual(report["selected"]["us_market_linked"], 2)
 
+    def test_model_rewritten_summary_never_becomes_frozen_source_text(self):
+        db = sqlite3.connect(self.database)
+        db.execute(
+            "INSERT INTO items VALUES(4,2,'https://news.test/x','Source title','','',"
+            "'Model rewritten summary','Original excerpt','us','launch',0,'2026-04-04T10:00:00Z')"
+        )
+        db.commit(); db.close()
+        artifacts = build_sampling_plan(self.database, self.root / "rule", target=4, seed="fixed")
+        rows = {
+            row["document_ref"]: row
+            for row in map(json.loads, artifacts.candidates_path.read_text().splitlines())
+        }
+
+        def frozen(title: str, text: str) -> str:
+            payload = json.dumps({"text": text, "title": title}, ensure_ascii=False,
+                                 sort_keys=True, separators=(",", ":"))
+            return hashlib.sha256(payload.encode("utf-8")).hexdigest()
+
+        # raw_summary keeps the connector excerpt; the model-written summary is ignored.
+        self.assertEqual(rows["legacy-item:4"]["content_sha256"], frozen("Source title", "Original excerpt"))
+        self.assertEqual(rows["legacy-item:4"]["content_extent"], "excerpt")
+        # Without raw_summary the summary may be model-written, so the case freezes title-only.
+        self.assertEqual(rows["legacy-item:1"]["content_sha256"], frozen("Example files 10-K", ""))
+        self.assertEqual(rows["legacy-item:1"]["content_extent"], "title_only")
+        manifest = json.loads(artifacts.manifest_path.read_text())
+        self.assertEqual(
+            (manifest["sampling_version"], manifest["content_rule"]),
+            ("p12c-v2", "legacy-source-text-v2"),
+        )
+
     def test_target_must_be_positive(self):
         with self.assertRaisesRegex(EvaluationSamplingError, "positive"):
             build_sampling_plan(self.database, self.root / "bad", target=0)

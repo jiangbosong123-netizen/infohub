@@ -13,6 +13,8 @@ from pathlib import Path
 from urllib.parse import urlsplit, urlunsplit
 
 SCHEMA_VERSION = "evaluation-sampling-plan-v1"
+SAMPLING_VERSION = "p12c-v2"
+CONTENT_RULE = "legacy-source-text-v2"
 FORBIDDEN_EXPORT_FIELDS = {
     "title", "title_en", "title_zh", "summary", "raw_summary", "text", "url",
     "database_path", "payload_ref",
@@ -40,6 +42,21 @@ def _sha(value: str) -> str:
 
 def _json(value: object) -> str:
     return json.dumps(value, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+
+
+def legacy_item_content(item) -> dict[str, str]:
+    """Frozen annotation content of a legacy item: source title and source excerpt only.
+
+    The legacy curation pipeline overwrites ``summary`` with model output; only
+    ``raw_summary`` keeps the connector's original excerpt. Rows without ``raw_summary``
+    predate that column and were model-processed, so they freeze as title-only rather than
+    presenting a possibly model-written summary as source text.
+    """
+    return {"title": str(item["title"] or ""), "text": str(item["raw_summary"] or "")}
+
+
+def legacy_content_sha256(content: dict[str, str]) -> str:
+    return _sha(_json(content))
 
 
 def _canonical_url(value: str) -> str:
@@ -146,8 +163,8 @@ def _load_pool(db: sqlite3.Connection, *, seed: str) -> list[dict]:
                ORDER BY item.id"""
     for item in db.execute(query):
         item_id = int(item["id"])
-        title = str(item["title"] or "")
-        raw_text = str(item["raw_summary"] if item["raw_summary"] is not None else item["summary"] or "")
+        content = legacy_item_content(item)
+        title, raw_text = content["title"], content["text"]
         canonical = _canonical_url(str(item["url"] or ""))
         language = _language(title, str(item["title_en"] or ""), str(item["title_zh"] or ""))
         kind = _document_kind(item["source_key"], item["source_type"], str(item["event_type"] or ""), canonical)
@@ -169,7 +186,7 @@ def _load_pool(db: sqlite3.Connection, *, seed: str) -> list[dict]:
             "candidate_id": f"candidate-{_sha(f'{seed}:{item_id}')[:20]}",
             "document_ref": f"legacy-item:{item_id}",
             "object_ref": f"private-db:items/{item_id}",
-            "content_sha256": _sha(_json({"title": title, "text": raw_text})),
+            "content_sha256": legacy_content_sha256(content),
             "source_ref": str(item["source_key"]),
             "source_tier": str(item["source_tier"]),
             "language": language,
@@ -283,7 +300,8 @@ def build_sampling_plan(
     }))
     manifest = {
         "schema_version": SCHEMA_VERSION,
-        "sampling_version": "p12c-v1",
+        "sampling_version": SAMPLING_VERSION,
+        "content_rule": CONTENT_RULE,
         "seed": seed,
         "target_documents": target,
         "database_snapshot_fingerprint": snapshot_fingerprint,
@@ -305,7 +323,8 @@ def build_sampling_plan(
     }
     report = {
         "schema_version": SCHEMA_VERSION,
-        "sampling_version": "p12c-v1",
+        "sampling_version": SAMPLING_VERSION,
+        "content_rule": CONTENT_RULE,
         "database_snapshot_fingerprint": snapshot_fingerprint,
         "pool": pool_coverage,
         "selected": selected_coverage,
