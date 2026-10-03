@@ -1,0 +1,20 @@
+{
+  "acceptance": {
+    "active_release_is_required_for_new_valid_tone_publication": true,
+    "analysis_runtime_and_calibration_are_exactly_bound": true,
+    "database_trigger_rejects_missing_activation_provenance": true,
+    "publication_rechecks_release_inside_write_transaction": true,
+    "rollback_blocks_new_publications_but_preserves_exact_retries": true,
+    "result_report_change_log_and_api_expose_activation_provenance": true
+  },
+  "phase": "P15e-4c-2",
+  "production_changed": false,
+  "schema_version": "p15e4c2-tone-publication-activation-gate-evidence-v1",
+  "scope": "transactional valid-tone publication gate bound to the active release",
+  "verification": {
+    "documentation_contract": "openapi 3.1 and documentation package valid",
+    "focused_tests": 88,
+    "python_311_full_tests": 653,
+    "python_312_full_tests": 653
+  }
+}

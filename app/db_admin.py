@@ -3692,6 +3692,75 @@ def _tone_release_activation_foundation(db: sqlite3.Connection) -> None:
     _execute_script(db, TONE_RELEASE_ACTIVATION_SCHEMA_SQL)
 
 
+TONE_PUBLICATION_ACTIVATION_GATE_SQL = """
+ALTER TABLE analysis_results
+    ADD COLUMN tone_activation_id TEXT REFERENCES tone_release_activations(id);
+CREATE INDEX idx_analysis_results_tone_activation
+    ON analysis_results(tone_activation_id);
+CREATE TRIGGER analysis_results_tone_activation_gate
+BEFORE INSERT ON analysis_results
+WHEN NOT (
+    (NEW.tone_activation_id IS NULL AND NOT EXISTS(
+        SELECT 1 FROM analysis_runs AS run
+        WHERE run.id=NEW.run_id
+          AND run.task_type='tone' AND NEW.result_status='valid'))
+    OR
+    (NEW.tone_activation_id IS NOT NULL AND EXISTS(
+        SELECT 1
+        FROM analysis_runs AS run
+        JOIN tone_release_activations AS activation
+          ON activation.id=NEW.tone_activation_id
+        JOIN tone_release_activation_transitions AS transition
+          ON transition.activation_id=activation.id
+        WHERE run.id=NEW.run_id
+          AND run.task_type='tone' AND NEW.result_status='valid'
+          AND transition.to_state='active'
+          AND NOT EXISTS(
+              SELECT 1 FROM tone_release_activation_transitions AS later
+              WHERE later.activation_id=transition.activation_id
+                AND later.version>transition.version)
+          AND json_valid(activation.runtime_config_json)
+          AND json_extract(activation.runtime_config_json,'$.provider')=run.provider
+          AND json_extract(activation.runtime_config_json,'$.requested_model')
+              =run.requested_model
+          AND json_extract(activation.runtime_config_json,'$.prompt_template_id')
+              =run.prompt_template_id
+          AND json_extract(activation.runtime_config_json,'$.prompt_sha256')
+              =run.prompt_sha256
+          AND json_extract(activation.runtime_config_json,'$.pipeline_version')
+              =run.pipeline_version
+          AND json(json_extract(activation.runtime_config_json,'$.parameters'))
+              =json(run.parameters_json)
+          AND json_extract(activation.runtime_config_json,'$.output_schema_version')
+              =run.output_schema_version
+          AND run.prepared_at>=activation.created_at
+          AND NEW.created_at>=activation.created_at
+          AND NEW.available_at>=activation.created_at
+          AND json_valid(NEW.validated_output_json)
+          AND json_extract(NEW.validated_output_json,'$.status')='valid'
+          AND json_array_length(
+              json_extract(NEW.validated_output_json,'$.data.assessments'))>0
+          AND NOT EXISTS(
+              SELECT 1 FROM json_each(
+                  json_extract(NEW.validated_output_json,'$.data.assessments')) AS assessment
+              WHERE json_type(
+                        assessment.value,'$.confidence.calibrated_confidence') IS NULL
+                 OR json_type(
+                        assessment.value,'$.confidence.calibrated_confidence')
+                        NOT IN ('integer','real')
+                 OR json_extract(
+                        assessment.value,'$.confidence.calibration_version')
+                        IS NOT json_extract(
+                            activation.runtime_config_json,'$.calibration_version'))))
+)
+BEGIN SELECT RAISE(ABORT,'valid tone publication requires active release'); END;
+"""
+
+
+def _tone_publication_activation_gate(db: sqlite3.Connection) -> None:
+    _execute_script(db, TONE_PUBLICATION_ACTIVATION_GATE_SQL)
+
+
 # Migration 1 freezes the exact legacy schema at main@88a2a1e. Future schema
 # changes must append a new Migration instead of editing this definition.
 MIGRATIONS = (
@@ -3865,6 +3934,9 @@ MIGRATIONS = (
     Migration(43, "controlled tone release activation ledger",
               TONE_RELEASE_ACTIVATION_SCHEMA_SQL,
               _tone_release_activation_foundation),
+    Migration(44, "bind valid tone publication to active release",
+              TONE_PUBLICATION_ACTIVATION_GATE_SQL,
+              _tone_publication_activation_gate),
 )
 CURRENT_SCHEMA_VERSION = MIGRATIONS[-1].version
 REQUIRED_MIGRATION_COLUMNS = {
@@ -4289,7 +4361,7 @@ EXPECTED_IDENTITY_AUXILIARY_COLUMNS = {
     "analysis_results": {
         "id", "run_id", "attempt_id", "schema_version", "raw_output_ref",
         "raw_output_sha256", "validated_output_json", "validation_report_json",
-        "result_status", "created_at", "available_at",
+        "result_status", "created_at", "available_at", "tone_activation_id",
     },
     "analysis_publication_versions": {
         "id", "subject_type", "subject_version_id", "task_type", "result_id",
@@ -4600,6 +4672,7 @@ EXPECTED_INGEST_TRIGGERS = {
     "analysis_attempt_authorizations_no_update", "analysis_attempt_authorizations_no_delete",
     "analysis_attempts_no_update", "analysis_attempts_no_delete",
     "analysis_results_no_update", "analysis_results_no_delete",
+    "analysis_results_tone_activation_gate",
     "analysis_publication_versions_no_update", "analysis_publication_versions_no_delete",
     "analysis_publications_no_delete",
 }
@@ -6016,74 +6089,13 @@ def _assert_current_schema(db: sqlite3.Connection) -> None:
             invalid_event_revisions += 1
     invalid_analysis_runs = 0
     for run in db.execute("SELECT * FROM analysis_runs"):
+        valid_run = True
         try:
             manifest = json.loads(run["input_manifest_json"])
             parameters = json.loads(run["parameters_json"])
         except (TypeError, json.JSONDecodeError):
-            invalid_analysis_runs += 1
-    invalid_analysis_attempts = 0
-    for authorization in db.execute("SELECT * FROM analysis_attempt_authorizations"):
-        run = db.execute(
-            "SELECT provider FROM analysis_runs WHERE id=?", (authorization["run_id"],)
-        ).fetchone()
-        policy = db.execute(
-            "SELECT * FROM analysis_budget_policies WHERE id=?",
-            (authorization["budget_policy_id"],),
-        ).fetchone()
-        attempt = db.execute(
-            "SELECT * FROM analysis_attempts WHERE authorization_id=?", (authorization["id"],)
-        ).fetchone()
-        should_allow = bool(policy) and (
-            authorization["reserved_cost_microusd"] <= policy["per_attempt_limit_microusd"]
-        )
-        if (
-            not run or not policy or run["provider"] != authorization["provider"]
-            or policy["provider"] != authorization["provider"]
-            or (authorization["decision"] == "allowed" and not should_allow)
-            or (attempt is not None and authorization["decision"] != "allowed")
-            or (attempt is not None and (
-                attempt["run_id"] != authorization["run_id"]
-                or attempt["attempt_number"] != authorization["attempt_number"]
-                or attempt["attempt_kind"] != authorization["attempt_kind"]
-            ))
-        ):
-            invalid_analysis_attempts += 1
-    invalid_analysis_results = 0
-    for result in db.execute("SELECT * FROM analysis_results"):
-        run = db.execute("SELECT * FROM analysis_runs WHERE id=?", (result["run_id"],)).fetchone()
-        attempt = db.execute(
-            "SELECT * FROM analysis_attempts WHERE id=? AND run_id=?",
-            (result["attempt_id"], result["run_id"]),
-        ).fetchone()
-        try:
-            output = json.loads(result["validated_output_json"])
-            report = json.loads(result["validation_report_json"])
-        except (TypeError, json.JSONDecodeError):
-            output = report = None
-        if (
-            not run or not attempt or attempt["status"] not in {"succeeded", "refused"}
-            or not isinstance(output, dict) or not isinstance(report, dict)
-            or result["schema_version"] != run["output_schema_version"]
-            or output.get("schema_version") != run["output_schema_version"]
-            or output.get("subject") != {
-                "type": run["subject_type"], "version_id": run["subject_version_id"]
-            }
-            or report.get("status") != "passed"
-        ):
-            invalid_analysis_results += 1
-    for pointer in db.execute("SELECT * FROM analysis_publications"):
-        publication = db.execute(
-            "SELECT * FROM analysis_publication_versions WHERE id=?",
-            (pointer["current_publication_id"],),
-        ).fetchone()
-        if (
-            not publication
-            or publication["subject_type"] != pointer["subject_type"]
-            or publication["subject_version_id"] != pointer["subject_version_id"]
-            or publication["task_type"] != pointer["task_type"]
-        ):
-            invalid_analysis_results += 1
-            continue
+            valid_run = False
+            manifest = parameters = None
         inputs = db.execute(
             "SELECT * FROM analysis_inputs WHERE run_id=? ORDER BY ordinal", (run["id"],)
         ).fetchall()
@@ -6118,12 +6130,176 @@ def _assert_current_schema(db: sqlite3.Connection) -> None:
             run["input_manifest_json"].encode("utf-8")
         ).hexdigest()
         if (
-            not isinstance(manifest, dict) or not isinstance(parameters, dict)
+            not valid_run or not isinstance(manifest, dict) or not isinstance(parameters, dict)
             or manifest_hash != run["input_manifest_sha256"]
             or manifest.get("parameters") != parameters
             or not subject_exists or not includes_subject or not valid_inputs
         ):
             invalid_analysis_runs += 1
+    invalid_analysis_attempts = 0
+    for authorization in db.execute("SELECT * FROM analysis_attempt_authorizations"):
+        run = db.execute(
+            "SELECT provider FROM analysis_runs WHERE id=?", (authorization["run_id"],)
+        ).fetchone()
+        policy = db.execute(
+            "SELECT * FROM analysis_budget_policies WHERE id=?",
+            (authorization["budget_policy_id"],),
+        ).fetchone()
+        attempt = db.execute(
+            "SELECT * FROM analysis_attempts WHERE authorization_id=?", (authorization["id"],)
+        ).fetchone()
+        should_allow = bool(policy) and (
+            authorization["reserved_cost_microusd"] <= policy["per_attempt_limit_microusd"]
+        )
+        if (
+            not run or not policy or run["provider"] != authorization["provider"]
+            or policy["provider"] != authorization["provider"]
+            or (authorization["decision"] == "allowed" and not should_allow)
+            or (attempt is not None and authorization["decision"] != "allowed")
+            or (attempt is not None and (
+                attempt["run_id"] != authorization["run_id"]
+                or attempt["attempt_number"] != authorization["attempt_number"]
+                or attempt["attempt_kind"] != authorization["attempt_kind"]
+            ))
+        ):
+            invalid_analysis_attempts += 1
+    invalid_analysis_results = 0
+    from .analysis_runs import AnalysisRunError
+    from .analysis_results import (
+        TONE_RELEASE_VALIDATOR_VERSION, _tone_release_binding,
+    )
+    for result in db.execute("SELECT * FROM analysis_results"):
+        run = db.execute("SELECT * FROM analysis_runs WHERE id=?", (result["run_id"],)).fetchone()
+        attempt = db.execute(
+            "SELECT * FROM analysis_attempts WHERE id=? AND run_id=?",
+            (result["attempt_id"], result["run_id"]),
+        ).fetchone()
+        try:
+            output = json.loads(result["validated_output_json"])
+            report = json.loads(result["validation_report_json"])
+        except (TypeError, json.JSONDecodeError):
+            output = report = None
+        valid_result = not (
+            not run or not attempt or attempt["status"] not in {"succeeded", "refused"}
+            or not isinstance(output, dict) or not isinstance(report, dict)
+            or result["schema_version"] != run["output_schema_version"]
+            or output.get("schema_version") != run["output_schema_version"]
+            or output.get("subject") != {
+                "type": run["subject_type"], "version_id": run["subject_version_id"]
+            }
+            or output.get("status") != result["result_status"]
+            or report.get("status") != "passed"
+            or result["raw_output_ref"] != attempt["raw_response_ref"]
+            or result["raw_output_sha256"] != attempt["raw_response_sha256"]
+            or result["created_at"] != attempt["finished_at"]
+        )
+        if valid_result:
+            tone_release_report = report.get("tone_release")
+            if run["task_type"] == "tone" and result["result_status"] == "valid":
+                try:
+                    binding = _tone_release_binding(
+                        db, run, activation_id=result["tone_activation_id"],
+                        require_active=False,
+                    )
+                    assessments = output["data"]["assessments"]
+                    active_transition = db.execute(
+                        """SELECT occurred_at FROM tone_release_activation_transitions
+                           WHERE activation_id=? AND version=1 AND to_state='active'""",
+                        (binding["activation_id"],),
+                    ).fetchone()
+                    rollback_transition = db.execute(
+                        """SELECT occurred_at FROM tone_release_activation_transitions
+                           WHERE activation_id=? AND version=2 AND to_state='rolled_back'""",
+                        (binding["activation_id"],),
+                    ).fetchone()
+                    publications = db.execute(
+                        "SELECT * FROM analysis_publication_versions WHERE result_id=?",
+                        (result["id"],),
+                    ).fetchall()
+                    expected_report = {
+                        "validator_version": TONE_RELEASE_VALIDATOR_VERSION,
+                        **binding,
+                    }
+                    valid_result = (
+                        result["tone_activation_id"] == binding["activation_id"]
+                        and tone_release_report == expected_report
+                        and isinstance(assessments, list) and bool(assessments)
+                        and all(isinstance(item, dict) for item in assessments)
+                        and all(
+                            item.get("confidence", {}).get("calibrated_confidence")
+                                is not None
+                            and item.get("confidence", {}).get("calibration_version")
+                                == binding["calibration_version"]
+                            for item in assessments
+                        )
+                        and active_transition is not None
+                        and parse_utc(active_transition["occurred_at"])
+                            <= parse_utc(result["available_at"])
+                        and (
+                            rollback_transition is None
+                            or parse_utc(result["available_at"])
+                                <= parse_utc(rollback_transition["occurred_at"])
+                        )
+                        and bool(publications)
+                        and all(item["evidence_status"] == "supported" for item in publications)
+                    )
+                    for publication in publications:
+                        change = db.execute(
+                            "SELECT payload_json FROM change_log WHERE seq=?",
+                            (publication["publication_seq"],),
+                        ).fetchone()
+                        payload = json.loads(change["payload_json"]) if change else None
+                        valid_result = valid_result and (
+                            isinstance(payload, dict)
+                            and payload.get("result_id") == result["id"]
+                            and payload.get("tone_activation_id") == binding["activation_id"]
+                        )
+                except (
+                    AnalysisRunError, KeyError, TypeError, ValueError, json.JSONDecodeError,
+                ):
+                    valid_result = False
+            elif result["tone_activation_id"] is not None or tone_release_report is not None:
+                valid_result = False
+        if not valid_result:
+            invalid_analysis_results += 1
+    for pointer in db.execute("SELECT * FROM analysis_publications"):
+        publication = db.execute(
+            "SELECT * FROM analysis_publication_versions WHERE id=?",
+            (pointer["current_publication_id"],),
+        ).fetchone()
+        result = db.execute(
+            "SELECT * FROM analysis_results WHERE id=?",
+            (publication["result_id"],) if publication else (None,),
+        ).fetchone()
+        run = db.execute(
+            "SELECT * FROM analysis_runs WHERE id=?",
+            (result["run_id"],) if result else (None,),
+        ).fetchone()
+        change = db.execute(
+            "SELECT * FROM change_log WHERE seq=?",
+            (publication["publication_seq"],) if publication else (None,),
+        ).fetchone()
+        try:
+            payload = json.loads(change["payload_json"]) if change else None
+        except (TypeError, json.JSONDecodeError):
+            payload = None
+        if (
+            not publication or not result or not run or not change
+            or publication["subject_type"] != pointer["subject_type"]
+            or publication["subject_version_id"] != pointer["subject_version_id"]
+            or publication["task_type"] != pointer["task_type"]
+            or publication["result_id"] != result["id"]
+            or publication["subject_type"] != run["subject_type"]
+            or publication["subject_version_id"] != run["subject_version_id"]
+            or publication["task_type"] != run["task_type"]
+            or publication["available_at"] != result["available_at"]
+            or change["resource_type"] != "analysis"
+            or change["version_id"] != publication["id"]
+            or not isinstance(payload, dict)
+            or payload.get("result_id") != result["id"]
+            or payload.get("tone_activation_id") != result["tone_activation_id"]
+        ):
+            invalid_analysis_results += 1
     if (
         invalid_events
         or invalid_event_links

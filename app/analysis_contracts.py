@@ -19,6 +19,7 @@ def validate_analysis_data(
     status: str,
     data: object,
     allowed_evidence: set[str],
+    tone_calibration_version: str | None = None,
 ) -> dict:
     if task_type == "tone":
         if schema_version not in TONE_SCHEMA_VERSIONS:
@@ -26,6 +27,7 @@ def validate_analysis_data(
         return validate_tone_data(
             schema_version=schema_version, status=status, data=data,
             allowed_evidence=allowed_evidence,
+            admitted_calibration_version=tone_calibration_version,
         )
     if schema_version in TONE_SCHEMA_VERSIONS:
         raise AnalysisRunError("tone schema does not match its task type")

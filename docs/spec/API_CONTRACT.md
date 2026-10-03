@@ -159,11 +159,14 @@ Example：
 
 ### 5.3 Analysis
 
-`id,view_version_id,state_as_of,task_type,schema_version,subject_ref,input_refs,input_hash,pipeline_version,provider,model_requested,model_resolved,prompt_hash,parameters_hash,analyzed_at,available_at,validation_status,review_status,stale,output,evidence_refs,evidence_status,processing_state`。
+`id,view_version_id,state_as_of,task_type,schema_version,subject_ref,input_refs,input_hash,pipeline_version,provider,model_requested,model_resolved,prompt_hash,parameters_hash,analyzed_at,available_at,validation_status,tone_activation_id,review_status,stale,output,evidence_refs,evidence_status,processing_state`。
 
 `output` 按task_type判别，完整集合由OpenAPI定义，包含策展兼容输出及独立translation/relevance/summarization/importance/entity_linking/event_extraction/event_linking/tone/impact/macro_mapping/report。不会把模型原始thought或凭据输出给消费者。token/成本/错误堆栈属于ops视图。
 
 `id`对应不可变结果；`review_status/evidence_status/stale`是指定时点的发布/复核状态，`view_version_id`标识此状态版本，`state_as_of`是解析截止时间。查询as_of不早于结果available_at；更早则404。后续人工复核不会修改output，而会改变状态版本。ETag同时包含result及view版本，不能因id相同缓存过期复核状态。
+
+`tone_activation_id` 只在 `task_type=tone` 且结果状态为 `valid` 时非空，指向该结果发布时使用的不可变
+release activation。它是溯源标识，不代表该 activation 当前仍处于 active；回滚不会改写旧结果。
 
 ### 5.4 Signal / Report
 

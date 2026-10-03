@@ -6,6 +6,12 @@ from pathlib import Path
 from unittest.mock import patch
 
 from app import config, database, db_admin
+from app.analysis_attempts import authorize_attempt, record_attempt, register_budget_policy
+from app.analysis_results import publish_analysis_result
+from app.analysis_runs import AnalysisInput, AnalysisRunError, prepare_analysis_run
+from app.api_analyses import get_analysis
+from app.ingest import begin_ingest_run, observe_candidate
+from app.jobs import claim_job, enqueue_job
 from app.tone_release_admission import assess_tone_release_evidence
 from app.tone_release_decision import record_tone_release_decision
 from app.tone_release_import import import_tone_release_admission
@@ -40,9 +46,11 @@ class ToneShadowRolloutTests(unittest.TestCase):
         self.addCleanup(temporary.cleanup)
         self.root = Path(temporary.name)
         self.path = self.root / "app.db"
+        self.blobs = self.root / "blobs"
         for mocked in (
             patch.object(database, "DB_PATH", self.path),
             patch.object(config, "DB_PATH", self.path),
+            patch.object(config, "BLOB_PATH", self.blobs),
         ):
             mocked.start()
             self.addCleanup(mocked.stop)
@@ -301,6 +309,124 @@ class ToneShadowRolloutTests(unittest.TestCase):
         path.write_text(json.dumps(request, sort_keys=True))
         return path
 
+    def publishable_document(self):
+        source = {
+            "key": "shadow", "name": "Shadow", "channel": "ai", "tier": "media",
+            "type": "rss", "url": "https://example.test/feed", "interval_minutes": 30,
+        }
+        candidate = {
+            "url": "https://example.test/production-tone",
+            "title": "Production tone evidence", "summary": "Evidence",
+            "published_at": T1, "observed_at": T1,
+            "source_record": {"id": "production-tone", "summary": "Evidence"},
+            "payload_kind": "feed_entry",
+        }
+        ingest_run = begin_ingest_run(source, started_at=T1)
+        observation = observe_candidate(
+            ingest_run, candidate, ordinal=0, observed_at=T1,
+        )
+        from app.crawler.runner import insert_item
+        self.assertTrue(insert_item("shadow", candidate, observation=observation))
+        with database.get_db() as db:
+            row = db.execute(
+                """SELECT document.current_version_id,input.raw_record_id
+                   FROM items AS item
+                   JOIN documents AS document ON document.legacy_item_id=item.id
+                   JOIN document_version_inputs AS input
+                     ON input.version_id=document.current_version_id
+                   WHERE item.url=? AND input.role='primary'""",
+                (candidate["url"],),
+            ).fetchone()
+            dataset_id = db.execute(
+                "SELECT dataset_id FROM dataset_state WHERE singleton=1"
+            ).fetchone()[0]
+            db.execute(
+                """INSERT INTO entities(id,dataset_id,type,status,created_at)
+                   VALUES('organization:example',?,'organization','active',?)""",
+                (dataset_id, T1),
+            )
+            db.execute(
+                """INSERT INTO entity_versions(
+                       id,entity_id,version,type,canonical_name,status,attributes_json,
+                       version_sha256,available_at,created_by)
+                   VALUES('organization:example:v1','organization:example',1,
+                          'organization','Example','active','{}',?,?, 'test')""",
+                ("9" * 64, T1),
+            )
+            db.execute(
+                """UPDATE entities SET current_version_id='organization:example:v1'
+                   WHERE id='organization:example'"""
+            )
+        return row["current_version_id"], row["raw_record_id"]
+
+    def completed_tone_attempt(self, key, document_id, raw_id, *, now=T1, **changes):
+        job = enqueue_job(
+            kind="analysis", idempotency_key=f"job:{key}", subject_id=document_id,
+            input_version=document_id, scheduled_for=now,
+        )
+        job = claim_job(worker_id="tone-worker", lease_seconds=300, now=now)
+        values = {
+            "job_id": job.id, "lease_token": job.lease_token,
+            "expected_input_version": document_id,
+            "subject_type": "document", "subject_version_id": document_id,
+            "task_type": "tone", "output_schema_version": TONE_SCHEMA_VERSION,
+            "inputs": (AnalysisInput("primary", document_id, None, raw_id),),
+            "provider": "fixture", "requested_model": "fixture-tone-v1",
+            "prompt_template_id": "tone-v1", "prompt_sha256": "a" * 64,
+            "rendered_input_ref": f"cas://rendered/{key}",
+            "rendered_input_sha256": "e" * 64,
+            "pipeline_version": "tone-contracts-v1",
+            "parameters": {"temperature": 0},
+            "idempotency_key": f"analysis:{key}", "now": now,
+        }
+        values.update(changes)
+        run = prepare_analysis_run(**values)
+        register_budget_policy(
+            provider="fixture", daily_limit_microusd=10_000,
+            per_attempt_limit_microusd=1_000, effective_from=T0,
+            idempotency_key="policy:tone-publication", now=T0,
+        )
+        authorization = authorize_attempt(
+            run_id=run.id, job_id=job.id, lease_token=job.lease_token,
+            expected_input_version=document_id, attempt_kind="primary",
+            reserved_cost_microusd=100, idempotency_key=f"auth:{key}", now=now,
+        )
+        attempt = record_attempt(
+            authorization_id=authorization.id, job_id=job.id,
+            lease_token=job.lease_token, expected_input_version=document_id,
+            status="succeeded", started_at=now, finished_at=now,
+            resolved_model="fixture-tone-v1", usage_status="reported",
+            input_tokens=10, output_tokens=5, cost_microusd=50,
+            pricing_version="fixture-v1", raw_response_ref=f"cas://response/{key}",
+            raw_response_sha256="f" * 64, now=now,
+        )
+        return job, run, attempt
+
+    @staticmethod
+    def valid_tone_output(document_id, raw_id, *, calibration="tone-temperature-good"):
+        return {
+            "schema_version": TONE_SCHEMA_VERSION,
+            "subject": {"type": "document", "version_id": document_id},
+            "status": "valid", "evidence_ids": [raw_id],
+            "data": {"vocabulary_version": "tone-vocabulary-v1", "assessments": [{
+                "speaker": {"kind": "author", "entity_id": None, "label": "Publisher"},
+                "target": {"entity_id": "organization:example", "type": "organization"},
+                "aspect": "business_outlook", "polarity": "positive", "intensity": 0.6,
+                "evidence": [{
+                    "evidence_id": raw_id, "quote": "Evidence",
+                    "locator": {
+                        "type": "json_pointer", "json_pointer": "/source_record/summary",
+                        "start_offset": 0, "end_offset": 8,
+                        "offset_unit": "unicode_code_point",
+                    },
+                }],
+                "confidence": {
+                    "raw_confidence": 0.7, "calibrated_confidence": 0.68,
+                    "calibration_version": calibration, "uncertainty_reason": None,
+                },
+            }]},
+        }
+
     def test_approved_admission_creates_idempotent_planned_rollout(self):
         first = self.create()
         second = self.create()
@@ -314,7 +440,7 @@ class ToneShadowRolloutTests(unittest.TestCase):
                 "SELECT COUNT(*) FROM analysis_publications"
             ).fetchone()[0], 0)
         self.assertEqual(
-            db_admin.verify_database(self.path, require_current=True).schema_version, 43
+            db_admin.verify_database(self.path, require_current=True).schema_version, 44
         )
 
     def test_config_is_bounded_and_cannot_enable_serving(self):
@@ -384,7 +510,7 @@ class ToneShadowRolloutTests(unittest.TestCase):
             db_admin.apply_migrations(db, db_admin.MIGRATIONS[:41])
             db.execute("INSERT INTO sources(key,name,channel,type) VALUES('x','X','ai','rss')")
         report = db_admin.migrate_database(predecessor)
-        self.assertEqual(report.applied_versions, (42, 43))
+        self.assertEqual(report.applied_versions, (42, 43, 44))
         self.assertEqual(db_admin.verify_database(report.backup_path).schema_version, 41)
         with database.get_db(predecessor) as db:
             self.assertEqual(db.execute(
@@ -511,7 +637,7 @@ class ToneShadowRolloutTests(unittest.TestCase):
             with self.assertRaisesRegex(Exception, "immutable"):
                 db.execute("UPDATE tone_release_activations SET profile_id='changed'")
         self.assertEqual(
-            db_admin.verify_database(self.path, require_current=True).schema_version, 43
+            db_admin.verify_database(self.path, require_current=True).schema_version, 44
         )
 
     def test_database_verifier_rejects_raw_activation_artifact_tampering(self):
@@ -536,6 +662,133 @@ class ToneShadowRolloutTests(unittest.TestCase):
             db_admin.DatabaseVerificationError, "activation ledger",
         ):
             db_admin.verify_database(self.path, require_current=True)
+
+    def test_valid_tone_publication_is_activation_bound_and_retry_survives_rollback(self):
+        completed, evaluation = self.completed_rollout()
+        activation = self.activate(completed, evaluation)
+        document_id, raw_id = self.publishable_document()
+        job, run, attempt = self.completed_tone_attempt(
+            "valid-tone", document_id, raw_id,
+        )
+        output = self.valid_tone_output(document_id, raw_id)
+        published = publish_analysis_result(
+            job_id=job.id, lease_token=job.lease_token,
+            expected_input_version=document_id, run_id=run.id, attempt_id=attempt.id,
+            validated_output=output, review_status="unreviewed",
+            evidence_status="supported", idempotency_key="result:valid-tone", now=T1,
+        )
+        with database.get_db() as db:
+            result = db.execute(
+                "SELECT * FROM analysis_results WHERE run_id=?", (run.id,),
+            ).fetchone()
+            payload = json.loads(db.execute(
+                "SELECT payload_json FROM change_log WHERE version_id=?",
+                (published.changes[0].version_id,),
+            ).fetchone()[0])
+            report = json.loads(result["validation_report_json"])
+            api_view = get_analysis(
+                db, request_id="tone-release-test", analysis_id=result["id"],
+            ).data
+        self.assertEqual(result["tone_activation_id"], activation.activation_id)
+        self.assertEqual(payload["tone_activation_id"], activation.activation_id)
+        self.assertEqual(api_view.tone_activation_id, activation.activation_id)
+        self.assertEqual(
+            report["tone_release"]["calibration_version"], "tone-temperature-good"
+        )
+        rollback_request = self.rollback_request(activation)
+        with database.get_db() as db:
+            rollback_tone_release(
+                db, activation_id=activation.activation_id,
+                expected_previous_transition_id=activation.transition_id,
+                registry_path=self.registry, request_path=rollback_request,
+            )
+        repeated = publish_analysis_result(
+            job_id=job.id, lease_token=job.lease_token,
+            expected_input_version=document_id, run_id=run.id, attempt_id=attempt.id,
+            validated_output=output, review_status="unreviewed",
+            evidence_status="supported", idempotency_key="result:valid-tone", now=T2,
+        )
+        self.assertEqual(published.to_dict(), repeated.to_dict())
+        blocked_job, blocked_run, blocked_attempt = self.completed_tone_attempt(
+            "blocked-after-rollback", document_id, raw_id, now=T2,
+        )
+        with self.assertRaisesRegex(AnalysisRunError, "active release"):
+            publish_analysis_result(
+                job_id=blocked_job.id, lease_token=blocked_job.lease_token,
+                expected_input_version=document_id, run_id=blocked_run.id,
+                attempt_id=blocked_attempt.id, validated_output=output,
+                review_status="unreviewed", evidence_status="supported",
+                idempotency_key="result:blocked-after-rollback", now=T2,
+            )
+        db_admin.verify_database(self.path, require_current=True)
+
+    def test_valid_tone_publication_rejects_runtime_calibration_and_evidence_mismatch(self):
+        completed, evaluation = self.completed_rollout()
+        self.activate(completed, evaluation)
+        document_id, raw_id = self.publishable_document()
+        wrong_job, wrong_run, wrong_attempt = self.completed_tone_attempt(
+            "wrong-runtime", document_id, raw_id,
+            requested_model="fixture-tone-v2",
+        )
+        output = self.valid_tone_output(document_id, raw_id)
+        with self.assertRaisesRegex(AnalysisRunError, "active release profile"):
+            publish_analysis_result(
+                job_id=wrong_job.id, lease_token=wrong_job.lease_token,
+                expected_input_version=document_id, run_id=wrong_run.id,
+                attempt_id=wrong_attempt.id, validated_output=output,
+                review_status="unreviewed", evidence_status="supported",
+                idempotency_key="result:wrong-runtime", now=T1,
+            )
+        job, run, attempt = self.completed_tone_attempt(
+            "wrong-calibration", document_id, raw_id,
+        )
+        with self.assertRaisesRegex(AnalysisRunError, "active calibration version"):
+            publish_analysis_result(
+                job_id=job.id, lease_token=job.lease_token,
+                expected_input_version=document_id, run_id=run.id, attempt_id=attempt.id,
+                validated_output=self.valid_tone_output(
+                    document_id, raw_id, calibration="other-calibration",
+                ),
+                review_status="unreviewed", evidence_status="supported",
+                idempotency_key="result:wrong-calibration", now=T1,
+            )
+        with self.assertRaisesRegex(AnalysisRunError, "supported evidence"):
+            publish_analysis_result(
+                job_id=job.id, lease_token=job.lease_token,
+                expected_input_version=document_id, run_id=run.id, attempt_id=attempt.id,
+                validated_output=output, review_status="unreviewed",
+                evidence_status="partial", idempotency_key="result:partial-tone", now=T1,
+            )
+
+    def test_database_trigger_rejects_valid_tone_without_activation_provenance(self):
+        completed, evaluation = self.completed_rollout()
+        self.activate(completed, evaluation)
+        document_id, raw_id = self.publishable_document()
+        _, run, attempt = self.completed_tone_attempt(
+            "direct-without-activation", document_id, raw_id,
+        )
+        output = self.valid_tone_output(document_id, raw_id)
+        with database.get_db() as db:
+            stored_attempt = db.execute(
+                "SELECT * FROM analysis_attempts WHERE id=?", (attempt.id,),
+            ).fetchone()
+            with self.assertRaisesRegex(Exception, "active release"):
+                db.execute(
+                    """INSERT INTO analysis_results(
+                           id,run_id,attempt_id,schema_version,raw_output_ref,
+                           raw_output_sha256,validated_output_json,
+                           validation_report_json,result_status,created_at,available_at,
+                           tone_activation_id)
+                       VALUES(?,?,?,?,?,?,?,?,?,?,?,NULL)""",
+                    (
+                        "direct-result-without-activation", run.id, attempt.id,
+                        TONE_SCHEMA_VERSION, stored_attempt["raw_response_ref"],
+                        stored_attempt["raw_response_sha256"],
+                        json.dumps(output, sort_keys=True, separators=(",", ":")),
+                        '{"status":"passed"}', "valid",
+                        stored_attempt["finished_at"], T1,
+                    ),
+                )
 
     def test_activation_requires_completed_rollout(self):
         planned = self.create()
@@ -610,12 +863,26 @@ class ToneShadowRolloutTests(unittest.TestCase):
             db_admin.apply_migrations(db, db_admin.MIGRATIONS[:42])
             db.execute("INSERT INTO sources(key,name,channel,type) VALUES('x','X','ai','rss')")
         report = db_admin.migrate_database(predecessor)
-        self.assertEqual(report.applied_versions, (43,))
+        self.assertEqual(report.applied_versions, (43, 44))
         self.assertEqual(db_admin.verify_database(report.backup_path).schema_version, 42)
         with database.get_db(predecessor) as db:
             self.assertEqual(db.execute(
                 "SELECT COUNT(*) FROM tone_release_activations"
             ).fetchone()[0], 0)
+
+    def test_migration_44_preserves_schema_43_database(self):
+        predecessor = self.root / "schema43.db"
+        with database.get_db(predecessor) as db:
+            db_admin.apply_migrations(db, db_admin.MIGRATIONS[:43])
+            db.execute("INSERT INTO sources(key,name,channel,type) VALUES('x','X','ai','rss')")
+        report = db_admin.migrate_database(predecessor)
+        self.assertEqual(report.applied_versions, (44,))
+        self.assertEqual(db_admin.verify_database(report.backup_path).schema_version, 43)
+        with database.get_db(predecessor) as db:
+            columns = {
+                row["name"] for row in db.execute("PRAGMA table_info(analysis_results)")
+            }
+            self.assertIn("tone_activation_id", columns)
 
 
 if __name__ == "__main__":

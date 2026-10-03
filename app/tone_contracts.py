@@ -175,7 +175,7 @@ def _evidence(value: object, allowed_evidence: set[str], schema_version: str) ->
     }
 
 
-def _confidence(value: object) -> dict:
+def _confidence(value: object, admitted_calibration_version: str | None) -> dict:
     if not isinstance(value, Mapping):
         raise AnalysisRunError("tone confidence must be an object")
     _exact_keys(
@@ -196,17 +196,32 @@ def _confidence(value: object) -> dict:
         raise AnalysisRunError(
             "tone calibrated_confidence and calibration_version must be declared together"
         )
-    if calibrated is not None:
-        raise AnalysisRunError("calibrated tone confidence is unavailable before calibration admission")
+    if admitted_calibration_version is None:
+        if calibrated is not None:
+            raise AnalysisRunError(
+                "calibrated tone confidence is unavailable before calibration admission"
+            )
+        accepted_calibration = None
+    else:
+        if calibrated is None or calibration_version != admitted_calibration_version:
+            raise AnalysisRunError(
+                "valid tone confidence requires the active calibration version"
+            )
+        accepted_calibration = admitted_calibration_version
     return {
         "raw_confidence": raw,
-        "calibrated_confidence": None,
-        "calibration_version": None,
+        "calibrated_confidence": calibrated,
+        "calibration_version": accepted_calibration,
         "uncertainty_reason": uncertainty_reason,
     }
 
 
-def _assessment(value: object, allowed_evidence: set[str], schema_version: str) -> dict:
+def _assessment(
+    value: object,
+    allowed_evidence: set[str],
+    schema_version: str,
+    admitted_calibration_version: str | None,
+) -> dict:
     if not isinstance(value, Mapping):
         raise AnalysisRunError("tone assessment must be an object")
     _exact_keys(
@@ -220,7 +235,7 @@ def _assessment(value: object, allowed_evidence: set[str], schema_version: str) 
     if polarity not in POLARITIES:
         raise AnalysisRunError("tone polarity is unsupported")
     intensity = _probability(value["intensity"], "tone intensity", nullable=True)
-    confidence = _confidence(value["confidence"])
+    confidence = _confidence(value["confidence"], admitted_calibration_version)
     if polarity == "unknown":
         if intensity is not None:
             raise AnalysisRunError("unknown tone polarity requires null intensity")
@@ -258,9 +273,10 @@ def _assessment(value: object, allowed_evidence: set[str], schema_version: str) 
 
 
 def validate_tone_data(
-    *, schema_version: str, status: str, data: object, allowed_evidence: set[str]
+    *, schema_version: str, status: str, data: object, allowed_evidence: set[str],
+    admitted_calibration_version: str | None = None,
 ) -> dict:
-    """Validate tone output while the task remains review-only and uncalibrated."""
+    """Validate review output or one activation-bound production result."""
     if not isinstance(data, Mapping):
         raise AnalysisRunError("tone data must be an object")
     if status not in {"valid", "needs_review", "insufficient_evidence", "refused"}:
@@ -268,15 +284,22 @@ def validate_tone_data(
     if status not in {"valid", "needs_review"}:
         _exact_keys(data, {"reason_code"})
         return {"reason_code": _text(data["reason_code"], "tone reason_code", 100)}
-    if status == "valid":
+    if status == "valid" and admitted_calibration_version is None:
         raise AnalysisRunError("tone output cannot be valid before quote and quality admission")
+    if status != "valid":
+        admitted_calibration_version = None
     _exact_keys(data, {"vocabulary_version", "assessments"})
     if data["vocabulary_version"] != TONE_VOCABULARY_VERSION:
         raise AnalysisRunError("tone vocabulary_version is unsupported")
     assessments = data["assessments"]
     if not isinstance(assessments, list) or not assessments:
         raise AnalysisRunError("tone assessments must be a non-empty list")
-    clean = [_assessment(item, allowed_evidence, schema_version) for item in assessments]
+    clean = [
+        _assessment(
+            item, allowed_evidence, schema_version, admitted_calibration_version
+        )
+        for item in assessments
+    ]
     return {"vocabulary_version": TONE_VOCABULARY_VERSION, "assessments": clean}
 
 

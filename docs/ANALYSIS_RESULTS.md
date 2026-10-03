@@ -14,3 +14,9 @@ raw/calibrated confidence 和 intensity 必须位于 0..1。NaN、坏 JSON、伪
 仅保留兼容读取；具体边界见 [TONE_ANALYSIS_CONTRACT.md](TONE_ANALYSIS_CONTRACT.md) 和
 [TONE_EVIDENCE_VERIFICATION.md](TONE_EVIDENCE_VERIFICATION.md)。impact 等其余任务的专用字段约束随对应
 能力 PR 增加。未通过固定评估集前，出现结构合法结果也不表示模型质量已达标。
+
+P15e-4c-2 对新的 tone `valid` 结果增加独立发布门禁。结果必须绑定唯一 active tone activation，run 的
+provider/model/prompt/pipeline/parameters/output schema 必须与该 activation 的冻结 runtime 完全一致，
+每条 assessment 必须使用其 calibration version，并且 publication 的 evidence status 必须为 `supported`。
+门禁在 publication 写事务内再次查询，防止检查后发生 rollback 的竞态。`analysis_results`、验证报告和
+change payload 都保存 `tone_activation_id`；API 也返回该字段。非 tone 或非 `valid` 结果必须为 null。

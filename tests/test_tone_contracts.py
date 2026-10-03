@@ -82,6 +82,28 @@ class ToneContractTests(unittest.TestCase):
                 data=tone_data(confidence=confidence), allowed_evidence={"raw-1"},
             )
 
+    def test_activation_bound_valid_output_requires_exact_calibration(self):
+        confidence = {
+            "raw_confidence": 0.8,
+            "calibrated_confidence": 0.74,
+            "calibration_version": "calibration-v1",
+            "uncertainty_reason": None,
+        }
+        clean = validate_analysis_data(
+            task_type="tone", schema_version=TONE_SCHEMA_VERSION, status="valid",
+            data=tone_data(confidence=confidence), allowed_evidence={"raw-1"},
+            tone_calibration_version="calibration-v1",
+        )
+        self.assertEqual(
+            clean["assessments"][0]["confidence"]["calibrated_confidence"], 0.74
+        )
+        with self.assertRaisesRegex(AnalysisRunError, "active calibration version"):
+            validate_analysis_data(
+                task_type="tone", schema_version=TONE_SCHEMA_VERSION, status="valid",
+                data=tone_data(confidence=confidence), allowed_evidence={"raw-1"},
+                tone_calibration_version="calibration-v2",
+            )
+
     def test_unknown_is_not_neutral_and_requires_an_explanation(self):
         unknown_confidence = {
             "raw_confidence": None,

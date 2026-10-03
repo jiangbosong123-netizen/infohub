@@ -91,6 +91,7 @@ class ApiAnalysisTests(unittest.TestCase):
         self.assertEqual(data["task_type"], "summarization")
         self.assertEqual(data["review_status"], "accepted")
         self.assertEqual(data["processing_state"], "complete")
+        self.assertIsNone(data["tone_activation_id"])
         self.assertFalse(data["stale"])
         self.assertEqual(data["evidence_refs"], [self.fixture.raw])
         self.assertEqual(data["input_refs"][0]["evidence_id"], self.fixture.raw)

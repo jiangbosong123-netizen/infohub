@@ -111,7 +111,7 @@ class ToneReleaseImportTests(unittest.TestCase):
             ).fetchone()[0], 0)
         self.assertEqual(
             db_admin.verify_database(self.database_path, require_current=True).schema_version,
-            43,
+            44,
         )
 
     def test_candidate_record_is_recomputed_and_tampering_fails(self):
@@ -168,7 +168,7 @@ class ToneReleaseImportTests(unittest.TestCase):
             db_admin.apply_migrations(db, db_admin.MIGRATIONS[:39])
             db.execute("INSERT INTO sources(key,name,channel,type) VALUES('x','X','ai','rss')")
         report = db_admin.migrate_database(predecessor)
-        self.assertEqual(report.applied_versions, (40, 41, 42, 43))
+        self.assertEqual(report.applied_versions, (40, 41, 42, 43, 44))
         self.assertEqual(db_admin.verify_database(report.backup_path).schema_version, 39)
         with database.get_db(predecessor) as db:
             self.assertEqual(db.execute(
