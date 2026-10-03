@@ -66,8 +66,10 @@ the implementation PR series proceeded. It was restored on 2026-09-27 after `mai
 - D23 (`single-owner-v1`, 2026-10-03) resolves U09: the owner is the only human annotator. Multi-person
   gold keeps its definition but is unreachable for now; owner-blind labels with a delayed intra-annotator
   recheck support only *experimental* quality claims, and versioned algorithm (silver) labels may enter
-  train/dev but never act as evaluation truth. The protocol is recorded in `DECISIONS.md` §5; no annotation
-  state, intake, recheck, metric or labeling tool for it is implemented yet.
+  train/dev but never act as evaluation truth. The protocol is recorded in `DECISIONS.md` §5. D23-a adds
+  the `owner_labeled` and `algorithm_labeled` dataset states with tier-separation validation (relevance, tone
+  and impact) and a hash-bound blind owner-label intake built on the shared review-intake core. No recheck,
+  experimental metric, labeling tool, silver labeler or real owner label exists yet.
 
 ## Status rule
 

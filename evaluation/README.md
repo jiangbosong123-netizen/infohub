@@ -18,8 +18,9 @@
   盲重标自复核（至少 30 对、关键标签同人 κ≥0.70），只支持 **experimental** 结论；
 - **silver**：版本化算法标注器批量生成，只进 train/dev，不能作为任何评估真值，也不能评估生成它的标注器。
 
-协议已确立，状态、导入、自复核、指标和本地标注工具按小 PR 逐项实现，进度见
-[实施状态](../docs/spec/IMPLEMENTATION_STATUS.md)。
+数据集状态 `owner_labeled` / `algorithm_labeled` 与 owner 盲标导入命令已实现，见
+[`docs/OWNER_LABEL_INTAKE.md`](../docs/OWNER_LABEL_INTAKE.md)。自复核、experimental 指标、本地标注工具和
+silver 标注器按小 PR 逐项实现，进度见 [实施状态](../docs/spec/IMPLEMENTATION_STATUS.md)。
 
 验证命令：
 

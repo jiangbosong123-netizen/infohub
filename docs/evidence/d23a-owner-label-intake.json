@@ -1,0 +1,36 @@
+{
+  "phase": "D23-a",
+  "scope": "Owner and silver annotation states with blind single-owner label intake",
+  "recorded_at": "2026-10-03T00:00:00Z",
+  "production_changed": false,
+  "database_changed": false,
+  "paid_model_calls": 0,
+  "validation": {
+    "focused_tests": 36,
+    "python_3_11_full_tests": 707,
+    "python_3_12_full_tests": 707,
+    "synthetic_private_owner_drill": {
+      "batch_schema": "owner-label-batch-v1",
+      "tasks": [
+        "relevance",
+        "tone",
+        "impact"
+      ],
+      "owner_labels_final_but_not_gold": "passed",
+      "annotation_protocol_locks_owner": "passed",
+      "blind_no_model_attestation": "passed",
+      "cross_task_batch_rejected": "passed",
+      "relabel_and_tier_switch_rejected": "passed",
+      "task_label_contract_enforced": "passed",
+      "owner_provenance_tampering_rejected": "passed",
+      "silver_restricted_to_train_dev": "passed",
+      "tier_provenance_cannot_ride_on_other_states": "passed",
+      "gold_impact_gap_unchanged_by_owner_labels": "passed",
+      "mutation_checks": [
+        "tier provenance guard",
+        "silver split guard"
+      ]
+    }
+  },
+  "known_boundary": "Owner labels are experimental truth only. This unit does not sample real cases, render cases for labeling, run the delayed recheck, compute experimental metrics, implement a silver labeler, or change gold, tone release or production."
+}
