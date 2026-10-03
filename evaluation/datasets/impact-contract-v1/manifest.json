@@ -1,0 +1,37 @@
+{
+  "annotation_schema_version": "infohub.impact-annotation/1.0",
+  "created_at": "2026-10-03",
+  "dataset_version": "impact-contract-v1",
+  "impact_output_schema_version": "impact/1.0",
+  "impact_target_plan": {
+    "adjudicated_cases": 300,
+    "assessments": 300,
+    "chinese_cases": 100,
+    "documents": 300,
+    "english_cases": 100,
+    "event_groups": 150,
+    "insufficient_or_conflicting_cases": 100,
+    "required_phenomena": {
+      "conditional_plan": 30,
+      "conflicting_evidence": 30,
+      "cross_entity": 30,
+      "direct_effect": 30,
+      "insufficient_evidence": 30,
+      "numeric_revision": 30,
+      "prompt_injection": 30,
+      "unknown_direction": 30
+    },
+    "security_cases": 50,
+    "source_kinds": 3
+  },
+  "impact_vocabulary_version": "impact-vocabulary-v1",
+  "purpose": "synthetic bilingual impact annotation fixtures; not model-quality gold",
+  "schema_version": "evaluation-dataset-v1",
+  "target_plan": {
+    "documents": 600,
+    "event_groups": 150,
+    "impact_annotations": 300,
+    "security_cases": 50
+  },
+  "task_contract": "infohub.impact-evaluation/1.0"
+}

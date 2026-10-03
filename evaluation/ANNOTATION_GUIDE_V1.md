@@ -23,5 +23,8 @@
 - impact：按 event version × target × aspect × horizon 标方向、机制、假设与证据。证据不足为
   `insufficient_evidence`，不是 neutral；实际股价涨跌不作为新闻语义真值。
 
+Impact 的固定字段、事件证据角色和困难切片以
+[`docs/IMPACT_ANNOTATION_GUIDE.md`](../docs/IMPACT_ANNOTATION_GUIDE.md) 为准；通用指南不能替代专用契约。
+
 数字、主体、否定、时态和证据引用属于关键字段。一个关键错误可阻断该能力发布。标注修改追加新数据集版本，
 不能覆盖已用于报告的旧 gold。

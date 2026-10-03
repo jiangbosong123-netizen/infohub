@@ -1,0 +1,73 @@
+{
+  "annotation_state_counts": {
+    "synthetic_fixture": 16
+  },
+  "assessments": 16,
+  "cases": 16,
+  "dataset_version": "impact-contract-v1",
+  "direction_counts": {
+    "mixed": 1,
+    "negative": 4,
+    "neutral": 1,
+    "positive": 6,
+    "unknown": 4
+  },
+  "evidence_judgment_counts": {
+    "conflicting": 1,
+    "insufficient": 4,
+    "supported": 11
+  },
+  "language_counts": {
+    "en": 8,
+    "zh": 8
+  },
+  "phenomenon_counts": {
+    "conditional_plan": 5,
+    "conflicting_evidence": 1,
+    "cross_entity": 3,
+    "direct_effect": 6,
+    "insufficient_evidence": 4,
+    "numeric_revision": 1,
+    "prompt_injection": 2,
+    "unknown_direction": 4
+  },
+  "publishable_impact_gold": false,
+  "source_kind_counts": {
+    "synthetic": 16
+  },
+  "split_counts": {
+    "dev": 4,
+    "security": 2,
+    "test": 6,
+    "train": 4
+  },
+  "status_counts": {
+    "insufficient_evidence": 4,
+    "needs_review": 12
+  },
+  "target_gaps": {
+    "adjudicated_cases": 300,
+    "assessments": 284,
+    "chinese_cases": 92,
+    "documents": 284,
+    "english_cases": 92,
+    "event_groups": 134,
+    "insufficient_or_conflicting_cases": 95,
+    "phenomenon:conditional_plan": 25,
+    "phenomenon:conflicting_evidence": 29,
+    "phenomenon:cross_entity": 27,
+    "phenomenon:direct_effect": 24,
+    "phenomenon:insufficient_evidence": 26,
+    "phenomenon:numeric_revision": 29,
+    "phenomenon:prompt_injection": 28,
+    "phenomenon:unknown_direction": 26,
+    "security_cases": 48,
+    "source_kinds": 3
+  },
+  "warnings": [
+    "synthetic impact fixtures validate the contract only; they are not quality gold",
+    "impact quality claims remain blocked until the private adjudicated plan passes",
+    "time/source blind holdout is not verified",
+    "private event evidence roles and normalized artifacts are not verified"
+  ]
+}
