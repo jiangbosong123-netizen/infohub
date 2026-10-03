@@ -44,8 +44,11 @@ the implementation PR series proceeded. It was restored on 2026-09-27 after `mai
   human decision validation and controlled append-only admission. P15e-4a/4b add a shadow-only rollout,
   frozen full population, deterministic sample, immutable observations and a passed evaluation completion
   gate. P15e-4c-1 binds one completed rollout to an independently authorized production profile and
-  terminal rollback ledger. No real private gold, model execution, `valid` tone publication, portal read
-  switch or production deployment has been performed; the publication transaction gate remains next.
+  terminal rollback ledger. P15e-4c-2 adds schema 44 and requires every new `valid` tone result to match
+  the active release runtime and calibration inside the publication transaction, with activation provenance
+  exposed by the analysis API. Rollback closes new writes while immutable results and exact retries remain
+  readable. No real private gold, model execution, real release activation, valid production tone result,
+  portal read switch or production deployment has been performed.
 - P16 impact, P20 macro and sentiment outputs, the remaining portal cutover and final Windows
   consumer drills are later phases. A target endpoint in `openapi.yaml` is not proof that its route
   exists.

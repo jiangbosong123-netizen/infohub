@@ -2918,15 +2918,31 @@ components:
           anyOf:
           - {type: number, minimum: 0, maximum: 1}
           - {type: 'null'}
-        calibrated_confidence: {type: 'null'}
-        calibration_version: {type: 'null'}
+        calibrated_confidence:
+          anyOf:
+          - {type: number, minimum: 0, maximum: 1}
+          - {type: 'null'}
+        calibration_version:
+          anyOf:
+          - {type: string, minLength: 1, maxLength: 100}
+          - {type: 'null'}
         uncertainty_reason:
           anyOf:
           - {type: string, minLength: 1, maxLength: 500}
           - {type: 'null'}
       required: [raw_confidence, calibrated_confidence, calibration_version, uncertainty_reason]
       additionalProperties: false
-      description: P15a forbids calibrated values until calibration admission succeeds.
+      allOf:
+      - if:
+          properties:
+            calibrated_confidence: {type: number}
+        then:
+          properties:
+            calibration_version: {type: string, minLength: 1}
+        else:
+          properties:
+            calibration_version: {type: 'null'}
+      description: Calibrated values require the exact active tone release calibration.
     ToneAssessment:
       type: object
       properties:
@@ -2980,7 +2996,7 @@ components:
       oneOf:
       - {$ref: '#/components/schemas/ToneReviewOutput'}
       - {$ref: '#/components/schemas/ToneUnavailableOutput'}
-      description: P15a is review-only. Valid publication and calibrated confidence remain closed pending quote and quality admission.
+      description: Valid tone output requires quote verification and an active admitted release profile.
     ImpactAssessment:
       type: object
       properties:
@@ -3238,6 +3254,11 @@ components:
           - passed
           - failed
           - needs_review
+        tone_activation_id:
+          anyOf:
+          - {type: string, minLength: 1, maxLength: 128}
+          - {type: 'null'}
+          description: Exact release activation used by a valid tone result; null otherwise.
         review_status:
           type: string
           enum:
@@ -3280,6 +3301,7 @@ components:
       - available_at
       - knowledge_cutoff
       - validation_status
+      - tone_activation_id
       - review_status
       - stale
       - evidence_refs

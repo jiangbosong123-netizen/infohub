@@ -1,8 +1,9 @@
-# 文本语调输出契约（P15a）
+# 文本语调输出契约（P15a–P15e-4c-2）
 
-P15a 只建立可审计的输出结构，不调用模型、不生成历史情绪、不启用生产任务，也不改变 Windows
-生产环境。当前任务仍处于实验期：结构合法的结果只能写成 `needs_review`；`valid` 会被验证器拒绝。
-逐字引用核验和固定评估集契约已经分别由 P15b/P15c 建立；真实私有 gold、模型基线和质量放行仍将在后续小 PR 完成。
+P15a 建立可审计的输出结构，P15b 至 P15e 逐步增加引用核验、评估、admission、shadow rollout、
+人工激活和发布门禁。系统现在只在存在一个精确匹配的 active release 时允许新的 `valid` 结果；普通实验
+run 仍只能写成 `needs_review`。代码没有调用真实模型、生成历史情绪、激活真实 release、启用生产任务，
+也没有改变 Windows 生产环境。
 
 ## 1. 语义边界
 
@@ -22,7 +23,8 @@ tone 表示**文本中某个 speaker 对某个 target 的表达倾向**，粒度
 - subject：tone 只接受不可变 document version；event version 留给 impact 等事件级任务。
 - 顶层仍使用 `analysis_results` 的通用信封：schema_version、subject、status、evidence_ids、data。
 - `insufficient_evidence` / `refused` 的 data 只能包含非空 `reason_code`。
-- 当前 `valid` 被关闭；实验结果只能使用 `needs_review`，并进入现有追加式结果与 publication 账本。
+- `valid` 只对迁移 44 的 production gate 开放：run 必须在激活后创建，且 provider、model、prompt、
+  pipeline、parameters、output schema 与 active profile 完全一致。其余实验结果继续使用 `needs_review`。
 
 ## 3. `data` 结构
 
@@ -78,11 +80,12 @@ polarity 为 positive、negative、neutral、mixed、unknown。非 unknown 必�
 payload 的字符串叶子，offset 使用 Unicode code point、半开区间 `[start,end)`。结构验证核对非负、顺序、
 `end-start == len(quote)` 与 run 输入白名单；进入发布写事务前还会重新验证 CAS 路径、SHA-256、文件大小、UTF-8
 JSON、pointer 和逐字切片。验证报告保存 payload/quote hash 和 locator。1.0 没有可判定字段坐标系，因此只保留
-兼容读取，不标 quote verification passed。即使 1.1 引用完全匹配，当前仍禁止 `valid`，因为引用正确不等于
-情绪分类质量已经通过固定评估集。
+兼容读取，不标 quote verification passed。1.1 引用完全匹配只是 `valid` 的必要条件；还必须绑定已通过完整
+评估、admission、shadow rollout 和人工激活的 exact release。
 
-raw_confidence 是未校准模型自报值，可为 null。P15a 拒绝任何非空 calibrated_confidence；至少 200 条
-可裁定 held-out、ECE 门槛和 calibration version 通过 admission 后，才能在新版本契约中启用校准值。
+raw_confidence 是未校准模型自报值，可为 null。`needs_review` 继续拒绝任何非空 calibrated_confidence。
+`valid` 的每条 assessment 必须提供 0..1 calibrated_confidence，并且 calibration_version 必须等于 active
+release 中已 admission 的版本。
 
 ## 4. 后续放行顺序
 
@@ -104,7 +107,9 @@ raw_confidence 是未校准模型自报值，可为 null。P15a 拒绝任何非�
    同 bundle 冲突。P15e-4a 已增加只绑定 approved admission 的 shadow-only rollout 计划与追加式状态机；P15e-4b
    冻结完整候选总体、确定性抽样并以不可变 observation 重算错误率和分歧率，只有 passed evaluation 才能完成
    rollout。P15e-4c-1 已建立独立人工激活/回滚账本，把 exact candidate artifact、生产 runtime profile、授权人与
-   passed shadow evaluation 绑定，且同一时间只允许一个 active profile；它尚未放开 `valid`。P15e-4c-2 将把新的
-   tone publication 事务接入该门禁，不覆盖旧结果。
+   passed shadow evaluation 绑定，且同一时间只允许一个 active profile。P15e-4c-2 已在迁移 44 中把新的
+   tone publication 事务接入门禁：写入时再次检查 active 状态和 exact runtime，保存 activation provenance，
+   rollback 后关闭新发布，但不覆盖旧结果。真实私有 gold、模型运行、人工 admission 与 production activation
+   仍未执行。
 
 任何阶段失败都只关闭新的 tone publication；不可变输入、attempt、旧结果和人工修正继续保留。

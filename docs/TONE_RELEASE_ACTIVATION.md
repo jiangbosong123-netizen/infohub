@@ -32,4 +32,9 @@ python -m app.tone_release_activation rollback \
   --request /protected/release/rollback-request.json
 ```
 
-本 PR 仍不调用模型、不放开 `valid`、不移动 analysis publication pointer，也不部署 Windows。P15e-4c-2 才会让新的 tone `valid` publication 在事务内匹配当前 active profile，并在 rollback 后立即拒绝新发布；既有不可变结果继续保留。
+P15e-4c-2 已通过迁移 44 将新的 tone `valid` publication 接入该账本。发布前和 publication 的同一写事务内
+都会重新检查 active 状态、exact runtime、calibration 与证据状态；成功结果保存 activation ID，rollback 后
+立即拒绝新发布。对已经成功提交的同一请求，幂等重试仍返回原结果，旧的不可变结果继续保留。完整规则见
+[TONE_PUBLICATION_GATE.md](TONE_PUBLICATION_GATE.md)。
+
+这些代码仍未调用真实模型、创建真实生产 activation、移动现有 production pointer 或部署 Windows。

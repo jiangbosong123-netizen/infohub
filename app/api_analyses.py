@@ -54,6 +54,7 @@ class AnalysisView(_StrictModel):
     available_at: str
     validation_status: Literal["passed"] = "passed"
     result_status: Literal["valid", "needs_review", "insufficient_evidence", "refused"]
+    tone_activation_id: str | None = Field(default=None, max_length=128)
     review_status: Literal["unreviewed", "accepted", "rejected", "corrected"]
     stale: bool
     output: dict[str, JsonValue]
@@ -181,7 +182,8 @@ def get_analysis(
         prompt_hash=row["prompt_sha256"],
         parameters_hash=hashlib.sha256(rfc8785.dumps(parameters)).hexdigest(),
         analyzed_at=row["finished_at"], available_at=row["available_at"],
-        result_status=row["result_status"], review_status=row["review_status"],
+        result_status=row["result_status"], tone_activation_id=row["tone_activation_id"],
+        review_status=row["review_status"],
         stale=row["current_publication_id"] != row["publication_id"], output=output,
         evidence_refs=evidence_refs, evidence_status=row["evidence_status"],
         processing_state=processing_state,

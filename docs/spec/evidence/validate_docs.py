@@ -43,6 +43,9 @@ assert not horizon.is_valid({'bucket':'quarter','min_days':1,'max_days':90})
 assert horizon.is_valid({'bucket':'quarter','min_days':8,'max_days':90})
 assert not Draft202012Validator(schemas['Confidence']).is_valid({
     'raw_confidence':0.7,'calibrated_confidence':0.7,'calibration_version':None,'uncertainty_reason':None})
+assert not Draft202012Validator(schemas['ToneConfidence']).is_valid({
+    'raw_confidence':0.7,'calibrated_confidence':None,
+    'calibration_version':'orphan-calibration','uncertainty_reason':None})
 cutoff_validator=Draft202012Validator({'$ref':'#/components/schemas/KnowledgeCutoff',
     'components':contract['components']},format_checker=FormatChecker())
 checkpoint=dict(schemas['KnowledgeCutoff']['examples'][1])
