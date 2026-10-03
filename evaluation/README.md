@@ -80,6 +80,11 @@ python -m app.evaluation_sampling \
 `report.json` 用于检查中英文、来源、SEC/美股、事件组和困难负例覆盖缺口。候选仍是
 `unlabeled`；语言、类型、公司和困难负例均为抽样启发式信息，不能作为模型质量真值。
 
+冻结内容（`content_sha256` 所 hash 的 `{"title","text"}`）只取来源原文：标题与 `raw_summary`。旧 AI 策展会
+用模型输出覆盖 `items.summary`，因此没有 `raw_summary` 的旧行冻结为仅标题，不把可能由模型改写的摘要当作
+原文给标注者看（`sampling_version=p12c-v2`、`content_rule=legacy-source-text-v2`）。规则变化会改变这些行的
+内容 hash，`p12c-v1` 生成的候选需要重新抽样。
+
 Mac 隔离副本上的 600 条真实候选抽样已验证命令与数量分层，汇总记录见
 [`p24-curation-evaluation-rehearsal.json`](../docs/evidence/p24-curation-evaluation-rehearsal.json)。
 其中英文 352、中文 248、美股关联 247、SEC 相关 67；这只满足候选抽样数量，
