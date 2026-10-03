@@ -56,9 +56,11 @@ the implementation PR series proceeded. It was restored on 2026-09-27 after `mai
   conditional plans, direct effects, conflicting evidence, numeric revisions, cross-entity effects,
   insufficient evidence and prompt injection. P16c adds hash-bound, no-model human impact review intake for
   first and second independent reviewers; both opinions remain provisional and any prior evidence signature is
-  invalidated by the new cases hash. The fixture and private intake remain non-publishable contract data.
+  invalidated by the new cases hash. P16d adds a read-only fixed-pair agreement report with direction Cohen
+  kappa as the gate field, diagnostic status/evidence-judgment kappa, and exact agreement on every controlled
+  assessment component. The fixture and private intake remain non-publishable contract data.
   `valid` and calibrated impact remain closed; no impact model, private labels or production result exists.
-  P16 agreement/adjudication/evidence review/metrics/admission, P20 macro and sentiment outputs, the remaining
+  P16 adjudication/evidence review/metrics/admission, P20 macro and sentiment outputs, the remaining
   portal cutover and final Windows consumer drills are later phases. A target endpoint in `openapi.yaml` is not
   proof that its route exists.
 

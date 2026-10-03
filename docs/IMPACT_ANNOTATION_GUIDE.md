@@ -91,8 +91,9 @@ Unicode code point 半开区间和 quote SHA-256。generated metadata 或截断�
 
 P16b 只实现标注契约、合成 fixture 和放行失败状态。P16c 已增加 hash 绑定、无模型辅助的双人
 review intake；具体边界见 [`docs/IMPACT_REVIEW_INTAKE.md`](IMPACT_REVIEW_INTAKE.md)。它仍不会填写最终
-labels，也不会把意见变成 gold。双人一致性、裁定、私有证据复核、指标、校准和 release admission
-仍拆成后续小 PR；现有 tone 工作流不能改字段名后冒充 impact 工作流。
+labels，也不会把意见变成 gold。P16d 增加固定 reviewer pair 的只读一致性报告，见
+[`docs/IMPACT_REVIEW_AGREEMENT.md`](IMPACT_REVIEW_AGREEMENT.md)。裁定、私有证据复核、指标、校准和
+release admission 仍拆成后续小 PR；现有 tone 工作流不能改字段名后冒充 impact 工作流。
 
 ## 6. 正式数据集放行
 

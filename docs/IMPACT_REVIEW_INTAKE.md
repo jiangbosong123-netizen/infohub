@@ -65,7 +65,8 @@ python -m app.impact_review_intake \
 
 ## 当前仍未开放
 
-本单元只实现 hash 绑定、私有正文边界、双人 provisional intake 和失败原子性。impact 专用 reviewer
-agreement、第三人 adjudication、私有证据复核、模型 prediction run、指标、校准和 release admission
+本单元只实现 hash 绑定、私有正文边界、双人 provisional intake 和失败原子性。两份意见的只读一致性
+报告见 [`docs/IMPACT_REVIEW_AGREEMENT.md`](IMPACT_REVIEW_AGREEMENT.md)（P16d）。第三人 adjudication、
+私有证据复核、模型 prediction run、指标、校准和 release admission
 仍需独立 PR。在这些条件完成前，`publishable_impact_gold` 与生产 `valid` impact publication 均保持
 false，Windows 生产环境不会被升级。

@@ -44,7 +44,9 @@ python -c "from app.impact_evaluation import validate_impact_evaluation_dataset 
 裁定、私有证据复核、模型指标或 release admission，`publishable_impact_gold` 必须保持 false。
 P16c 的 hash 绑定人工批次导入见
 [`docs/IMPACT_REVIEW_INTAKE.md`](../docs/IMPACT_REVIEW_INTAKE.md)。它只保留第一、第二名 reviewer 的
-provisional 意见，不填写最终 labels，也不接受合成 fixture 或模型辅助批次。
+provisional 意见，不填写最终 labels，也不接受合成 fixture 或模型辅助批次。P16d 的固定 reviewer pair
+一致性报告（direction κ、逐字段 exact agreement）见
+[`docs/IMPACT_REVIEW_AGREEMENT.md`](../docs/IMPACT_REVIEW_AGREEMENT.md)。
 
 标注定义见 [ANNOTATION_GUIDE_V1.md](ANNOTATION_GUIDE_V1.md)。分类基线报告必须同时输出 confusion、逐类 support、macro F1、coverage、abstain、missing 和 Wilson 95% 区间。
 
