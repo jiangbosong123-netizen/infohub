@@ -194,6 +194,7 @@ def transition_tone_shadow_rollout(
     expected_previous_transition_id: str,
     actor: str,
     reason: str,
+    shadow_evaluation_id: str | None = None,
     now: str | None = None,
 ) -> ToneShadowRollout:
     if to_state not in STATES:
@@ -205,6 +206,10 @@ def transition_tone_shadow_rollout(
         raise ToneShadowRolloutError("tone shadow rollout changed; refresh before transitioning")
     if to_state not in TRANSITIONS.get(current.state, set()):
         raise ToneShadowRolloutError("invalid tone shadow rollout transition")
+    if (to_state == "completed") != (shadow_evaluation_id is not None):
+        raise ToneShadowRolloutError(
+            "completed tone shadow rollout requires exactly one passing evaluation"
+        )
     version = current.transition_version + 1
     transition_id = f"tone-shadow-transition-{_digest({'rollout_id': rollout_id, 'version': version, 'from': current.state, 'to': to_state})[:24]}"
     occurred_at = _time(now)
@@ -212,11 +217,12 @@ def transition_tone_shadow_rollout(
         db.execute(
             """INSERT INTO tone_shadow_rollout_transitions(
                    id,rollout_id,version,previous_transition_id,from_state,to_state,
-                   actor,reason,occurred_at)
-               VALUES(?,?,?,?,?,?,?,?,?)""",
+                   actor,reason,occurred_at,shadow_evaluation_id)
+               VALUES(?,?,?,?,?,?,?,?,?,?)""",
             (
                 transition_id, rollout_id, version, current.transition_id,
                 current.state, to_state, operator, explanation, occurred_at,
+                shadow_evaluation_id,
             ),
         )
     except sqlite3.IntegrityError as exc:

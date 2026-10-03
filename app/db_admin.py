@@ -7,13 +7,13 @@ import json
 import os
 import sqlite3
 from dataclasses import asdict, dataclass
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Callable, Iterable
 from uuid import uuid4
 
 from . import config, database
-from .timeutil import utc_now
+from .timeutil import parse_utc, utc_now
 
 
 class DatabaseSafetyError(RuntimeError):
@@ -3396,6 +3396,186 @@ def _tone_shadow_rollout_foundation(db: sqlite3.Connection) -> None:
     _execute_script(db, TONE_SHADOW_ROLLOUT_SCHEMA_SQL)
 
 
+TONE_SHADOW_OBSERVATION_SCHEMA_SQL = """
+ALTER TABLE tone_shadow_rollout_transitions
+    ADD COLUMN shadow_evaluation_id TEXT REFERENCES tone_shadow_evaluations(id);
+
+CREATE TABLE tone_shadow_batches (
+    id TEXT PRIMARY KEY,
+    rollout_id TEXT NOT NULL UNIQUE REFERENCES tone_shadow_rollouts(id),
+    population_manifest_sha256 TEXT NOT NULL CHECK(length(population_manifest_sha256)=64),
+    population_count INTEGER NOT NULL CHECK(population_count>0),
+    selected_count INTEGER NOT NULL CHECK(selected_count>0 AND selected_count<=population_count),
+    created_by TEXT NOT NULL CHECK(length(trim(created_by))>0),
+    created_at TEXT NOT NULL
+);
+CREATE TABLE tone_shadow_batch_members (
+    batch_id TEXT NOT NULL REFERENCES tone_shadow_batches(id),
+    ordinal INTEGER NOT NULL CHECK(ordinal>=0),
+    subject_version_id TEXT NOT NULL REFERENCES document_versions(id),
+    selection_hash TEXT NOT NULL CHECK(length(selection_hash)=64),
+    PRIMARY KEY(batch_id,subject_version_id),
+    UNIQUE(batch_id,ordinal)
+);
+CREATE TABLE tone_shadow_population_members (
+    batch_id TEXT NOT NULL REFERENCES tone_shadow_batches(id),
+    ordinal INTEGER NOT NULL CHECK(ordinal>=0),
+    subject_version_id TEXT NOT NULL REFERENCES document_versions(id),
+    selection_hash TEXT NOT NULL CHECK(length(selection_hash)=64),
+    selected INTEGER NOT NULL CHECK(selected IN (0,1)),
+    PRIMARY KEY(batch_id,subject_version_id),
+    UNIQUE(batch_id,ordinal)
+);
+CREATE TABLE tone_shadow_observations (
+    id TEXT PRIMARY KEY,
+    batch_id TEXT NOT NULL REFERENCES tone_shadow_batches(id),
+    subject_version_id TEXT NOT NULL,
+    outcome TEXT NOT NULL CHECK(outcome IN ('matched','disagreed','error')),
+    candidate_result_sha256 TEXT CHECK(
+        candidate_result_sha256 IS NULL OR length(candidate_result_sha256)=64),
+    reference_result_sha256 TEXT CHECK(
+        reference_result_sha256 IS NULL OR length(reference_result_sha256)=64),
+    error_code TEXT,
+    observed_at TEXT NOT NULL,
+    recorded_by TEXT NOT NULL CHECK(length(trim(recorded_by))>0),
+    UNIQUE(batch_id,subject_version_id),
+    FOREIGN KEY(batch_id,subject_version_id)
+        REFERENCES tone_shadow_batch_members(batch_id,subject_version_id),
+    CHECK((outcome IN ('matched','disagreed')
+             AND candidate_result_sha256 IS NOT NULL
+             AND reference_result_sha256 IS NOT NULL
+             AND error_code IS NULL)
+       OR (outcome='error' AND error_code IS NOT NULL))
+);
+CREATE TABLE tone_shadow_evaluations (
+    id TEXT PRIMARY KEY,
+    batch_id TEXT NOT NULL UNIQUE REFERENCES tone_shadow_batches(id),
+    decision TEXT NOT NULL CHECK(decision IN ('passed','failed')),
+    metrics_json TEXT NOT NULL,
+    metrics_sha256 TEXT NOT NULL CHECK(length(metrics_sha256)=64),
+    evaluated_by TEXT NOT NULL CHECK(length(trim(evaluated_by))>0),
+    reason TEXT NOT NULL CHECK(length(trim(reason))>0),
+    evaluated_at TEXT NOT NULL
+);
+
+CREATE TRIGGER tone_shadow_batches_running_only
+BEFORE INSERT ON tone_shadow_batches
+WHEN NOT EXISTS(
+    SELECT 1 FROM tone_shadow_rollouts AS rollout
+    JOIN tone_shadow_rollout_transitions AS transition
+      ON transition.rollout_id=rollout.id
+    WHERE rollout.id=NEW.rollout_id AND transition.to_state='running'
+      AND NOT EXISTS(
+          SELECT 1 FROM tone_shadow_rollout_transitions AS later
+          WHERE later.rollout_id=transition.rollout_id
+            AND later.version>transition.version))
+BEGIN SELECT RAISE(ABORT,'tone shadow batch requires running rollout'); END;
+CREATE TRIGGER tone_shadow_batches_no_update BEFORE UPDATE ON tone_shadow_batches
+BEGIN SELECT RAISE(ABORT,'tone shadow batches are immutable'); END;
+CREATE TRIGGER tone_shadow_batches_no_delete BEFORE DELETE ON tone_shadow_batches
+BEGIN SELECT RAISE(ABORT,'tone shadow batches are immutable'); END;
+CREATE TRIGGER tone_shadow_batch_members_no_update BEFORE UPDATE ON tone_shadow_batch_members
+BEGIN SELECT RAISE(ABORT,'tone shadow batch members are immutable'); END;
+CREATE TRIGGER tone_shadow_batch_members_no_delete BEFORE DELETE ON tone_shadow_batch_members
+BEGIN SELECT RAISE(ABORT,'tone shadow batch members are immutable'); END;
+CREATE TRIGGER tone_shadow_batch_members_no_late_insert
+BEFORE INSERT ON tone_shadow_batch_members
+WHEN (SELECT COUNT(*) FROM tone_shadow_batch_members WHERE batch_id=NEW.batch_id)
+     >= (SELECT selected_count FROM tone_shadow_batches WHERE id=NEW.batch_id)
+BEGIN SELECT RAISE(ABORT,'tone shadow batch manifest is complete'); END;
+CREATE TRIGGER tone_shadow_batch_members_selected_only
+BEFORE INSERT ON tone_shadow_batch_members
+WHEN NOT EXISTS(
+    SELECT 1 FROM tone_shadow_population_members AS population
+    WHERE population.batch_id=NEW.batch_id
+      AND population.subject_version_id=NEW.subject_version_id
+      AND population.selection_hash=NEW.selection_hash
+      AND population.selected=1)
+BEGIN SELECT RAISE(ABORT,'tone shadow batch member is outside selected population'); END;
+CREATE TRIGGER tone_shadow_population_members_no_update
+BEFORE UPDATE ON tone_shadow_population_members
+BEGIN SELECT RAISE(ABORT,'tone shadow population members are immutable'); END;
+CREATE TRIGGER tone_shadow_population_members_no_delete
+BEFORE DELETE ON tone_shadow_population_members
+BEGIN SELECT RAISE(ABORT,'tone shadow population members are immutable'); END;
+CREATE TRIGGER tone_shadow_population_members_no_late_insert
+BEFORE INSERT ON tone_shadow_population_members
+WHEN (SELECT COUNT(*) FROM tone_shadow_population_members WHERE batch_id=NEW.batch_id)
+     >= (SELECT population_count FROM tone_shadow_batches WHERE id=NEW.batch_id)
+BEGIN SELECT RAISE(ABORT,'tone shadow population manifest is complete'); END;
+CREATE TRIGGER tone_shadow_observations_no_update BEFORE UPDATE ON tone_shadow_observations
+BEGIN SELECT RAISE(ABORT,'tone shadow observations are immutable'); END;
+CREATE TRIGGER tone_shadow_observations_no_delete BEFORE DELETE ON tone_shadow_observations
+BEGIN SELECT RAISE(ABORT,'tone shadow observations are immutable'); END;
+CREATE TRIGGER tone_shadow_observations_running_only
+BEFORE INSERT ON tone_shadow_observations
+WHEN NOT EXISTS(
+    SELECT 1 FROM tone_shadow_batches AS batch
+    JOIN tone_shadow_rollout_transitions AS transition
+      ON transition.rollout_id=batch.rollout_id
+    WHERE batch.id=NEW.batch_id AND transition.to_state='running'
+      AND NOT EXISTS(
+          SELECT 1 FROM tone_shadow_rollout_transitions AS later
+          WHERE later.rollout_id=transition.rollout_id
+            AND later.version>transition.version))
+BEGIN SELECT RAISE(ABORT,'tone shadow observation requires running rollout'); END;
+CREATE TRIGGER tone_shadow_evaluations_complete_insert
+BEFORE INSERT ON tone_shadow_evaluations
+WHEN NOT json_valid(NEW.metrics_json)
+  OR (SELECT COUNT(*) FROM tone_shadow_batch_members WHERE batch_id=NEW.batch_id)
+     <> (SELECT selected_count FROM tone_shadow_batches WHERE id=NEW.batch_id)
+  OR (SELECT COUNT(*) FROM tone_shadow_population_members WHERE batch_id=NEW.batch_id)
+     <> (SELECT population_count FROM tone_shadow_batches WHERE id=NEW.batch_id)
+  OR (SELECT COUNT(*) FROM tone_shadow_observations WHERE batch_id=NEW.batch_id)
+     <> (SELECT selected_count FROM tone_shadow_batches WHERE id=NEW.batch_id)
+BEGIN SELECT RAISE(ABORT,'tone shadow evaluation requires complete batch observations'); END;
+CREATE TRIGGER tone_shadow_evaluations_no_update BEFORE UPDATE ON tone_shadow_evaluations
+BEGIN SELECT RAISE(ABORT,'tone shadow evaluations are immutable'); END;
+CREATE TRIGGER tone_shadow_evaluations_no_delete BEFORE DELETE ON tone_shadow_evaluations
+BEGIN SELECT RAISE(ABORT,'tone shadow evaluations are immutable'); END;
+
+DROP TRIGGER tone_shadow_rollout_transitions_valid_append;
+CREATE TRIGGER tone_shadow_rollout_transitions_valid_append
+BEFORE INSERT ON tone_shadow_rollout_transitions
+WHEN NOT (
+    (NEW.version=1 AND NEW.previous_transition_id IS NULL
+       AND NEW.from_state IS NULL AND NEW.to_state='planned'
+       AND NEW.shadow_evaluation_id IS NULL
+       AND NOT EXISTS(SELECT 1 FROM tone_shadow_rollout_transitions
+                      WHERE rollout_id=NEW.rollout_id))
+    OR
+    (NEW.version>1 AND NEW.previous_transition_id IS NOT NULL
+       AND EXISTS(
+           SELECT 1 FROM tone_shadow_rollout_transitions AS previous
+           WHERE previous.id=NEW.previous_transition_id
+             AND previous.rollout_id=NEW.rollout_id
+             AND previous.version=NEW.version-1
+             AND previous.to_state=NEW.from_state
+             AND NOT EXISTS(
+                 SELECT 1 FROM tone_shadow_rollout_transitions AS later
+                 WHERE later.rollout_id=previous.rollout_id
+                   AND later.version>previous.version))
+       AND ((NEW.from_state='planned' AND NEW.to_state IN ('running','aborted'))
+         OR (NEW.from_state='running' AND NEW.to_state IN ('paused','aborted'))
+         OR (NEW.from_state='running' AND NEW.to_state='completed'
+             AND NEW.shadow_evaluation_id IS NOT NULL
+             AND EXISTS(
+                 SELECT 1 FROM tone_shadow_evaluations AS evaluation
+                 JOIN tone_shadow_batches AS batch ON batch.id=evaluation.batch_id
+                 WHERE evaluation.id=NEW.shadow_evaluation_id
+                   AND evaluation.decision='passed'
+                   AND batch.rollout_id=NEW.rollout_id))
+         OR (NEW.from_state='paused' AND NEW.to_state IN ('running','aborted')))
+       AND (NEW.to_state='completed' OR NEW.shadow_evaluation_id IS NULL))
+)
+BEGIN SELECT RAISE(ABORT,'invalid tone shadow rollout transition'); END;
+"""
+
+
+def _tone_shadow_observation_foundation(db: sqlite3.Connection) -> None:
+    _execute_script(db, TONE_SHADOW_OBSERVATION_SCHEMA_SQL)
+
+
 # Migration 1 freezes the exact legacy schema at main@88a2a1e. Future schema
 # changes must append a new Migration instead of editing this definition.
 MIGRATIONS = (
@@ -3563,6 +3743,9 @@ MIGRATIONS = (
     Migration(41, "controlled tone shadow rollout plan",
               TONE_SHADOW_ROLLOUT_SCHEMA_SQL,
               _tone_shadow_rollout_foundation),
+    Migration(42, "complete tone shadow observation gate",
+              TONE_SHADOW_OBSERVATION_SCHEMA_SQL,
+              _tone_shadow_observation_foundation),
 )
 CURRENT_SCHEMA_VERSION = MIGRATIONS[-1].version
 REQUIRED_MIGRATION_COLUMNS = {
@@ -3622,6 +3805,9 @@ EXPECTED_TABLES = LEGACY_ANCHORS | {
     "sync_snapshot_pages",
     "tone_release_admissions",
     "tone_shadow_rollouts", "tone_shadow_rollout_transitions",
+    "tone_shadow_batches", "tone_shadow_batch_members",
+    "tone_shadow_population_members",
+    "tone_shadow_observations", "tone_shadow_evaluations",
 }
 EXPECTED_ITEM_COLUMNS = {
     "id", "source_id", "url", "title", "title_zh", "summary", "raw_summary",
@@ -4107,7 +4293,26 @@ EXPECTED_API_AUTH_COLUMNS = {
     },
     "tone_shadow_rollout_transitions": {
         "id", "rollout_id", "version", "previous_transition_id", "from_state",
-        "to_state", "actor", "reason", "occurred_at",
+        "to_state", "actor", "reason", "occurred_at", "shadow_evaluation_id",
+    },
+    "tone_shadow_batches": {
+        "id", "rollout_id", "population_manifest_sha256", "population_count",
+        "selected_count", "created_by", "created_at",
+    },
+    "tone_shadow_batch_members": {
+        "batch_id", "ordinal", "subject_version_id", "selection_hash",
+    },
+    "tone_shadow_population_members": {
+        "batch_id", "ordinal", "subject_version_id", "selection_hash", "selected",
+    },
+    "tone_shadow_observations": {
+        "id", "batch_id", "subject_version_id", "outcome",
+        "candidate_result_sha256", "reference_result_sha256", "error_code",
+        "observed_at", "recorded_by",
+    },
+    "tone_shadow_evaluations": {
+        "id", "batch_id", "decision", "metrics_json", "metrics_sha256",
+        "evaluated_by", "reason", "evaluated_at",
     },
 }
 EXPECTED_INGEST_TRIGGERS = {
@@ -4124,6 +4329,17 @@ EXPECTED_INGEST_TRIGGERS = {
     "tone_shadow_rollouts_no_delete", "tone_shadow_rollout_transitions_valid_append",
     "tone_shadow_rollout_transitions_no_update",
     "tone_shadow_rollout_transitions_no_delete",
+    "tone_shadow_batches_running_only", "tone_shadow_batches_no_update",
+    "tone_shadow_batches_no_delete", "tone_shadow_batch_members_no_update",
+    "tone_shadow_batch_members_no_delete", "tone_shadow_batch_members_no_late_insert",
+    "tone_shadow_batch_members_selected_only",
+    "tone_shadow_population_members_no_update",
+    "tone_shadow_population_members_no_delete",
+    "tone_shadow_population_members_no_late_insert",
+    "tone_shadow_observations_no_update", "tone_shadow_observations_no_delete",
+    "tone_shadow_observations_running_only",
+    "tone_shadow_evaluations_complete_insert", "tone_shadow_evaluations_no_update",
+    "tone_shadow_evaluations_no_delete",
     "api_request_audit_no_update", "api_request_audit_no_delete",
     "api_key_audit_no_update", "api_key_audit_no_delete",
     "report_generation_reviews_valid_approval", "report_generation_reviews_no_update",
@@ -4731,6 +4947,20 @@ def _assert_current_schema(db: sqlite3.Connection) -> None:
                         and transition["to_state"]
                         in legal_rollout_transitions.get(previous["to_state"], set())
                     )
+                if transition["to_state"] == "completed":
+                    evaluation = db.execute(
+                        """SELECT evaluation.decision,batch.rollout_id
+                           FROM tone_shadow_evaluations AS evaluation
+                           JOIN tone_shadow_batches AS batch ON batch.id=evaluation.batch_id
+                           WHERE evaluation.id=?""",
+                        (transition["shadow_evaluation_id"],),
+                    ).fetchone()
+                    valid = valid and (
+                        evaluation is not None and evaluation["decision"] == "passed"
+                        and evaluation["rollout_id"] == rollout["id"]
+                    )
+                else:
+                    valid = valid and transition["shadow_evaluation_id"] is None
                 previous = transition
         except (KeyError, TypeError, ValueError, json.JSONDecodeError):
             valid = False
@@ -4739,6 +4969,137 @@ def _assert_current_schema(db: sqlite3.Connection) -> None:
     if invalid_tone_rollouts:
         raise DatabaseVerificationError(
             f"tone shadow rollout ledger has {invalid_tone_rollouts} invalid row(s)"
+        )
+    invalid_tone_shadow_batches = 0
+    for batch in db.execute("SELECT * FROM tone_shadow_batches ORDER BY id"):
+        try:
+            rollout = db.execute(
+                "SELECT * FROM tone_shadow_rollouts WHERE id=?", (batch["rollout_id"],)
+            ).fetchone()
+            population = db.execute(
+                """SELECT * FROM tone_shadow_population_members
+                   WHERE batch_id=? ORDER BY ordinal""", (batch["id"],)
+            ).fetchall()
+            selected = db.execute(
+                """SELECT * FROM tone_shadow_batch_members
+                   WHERE batch_id=? ORDER BY ordinal""", (batch["id"],)
+            ).fetchall()
+            observations = db.execute(
+                "SELECT * FROM tone_shadow_observations WHERE batch_id=?",
+                (batch["id"],),
+            ).fetchall()
+            population_ids = [row["subject_version_id"] for row in population]
+            expected_manifest = hashlib.sha256(json.dumps(
+                population_ids, ensure_ascii=False, sort_keys=True,
+                separators=(",", ":"), allow_nan=False,
+            ).encode()).hexdigest()
+            valid = (
+                rollout is not None
+                and len(population) == batch["population_count"]
+                and len(selected) == batch["selected_count"]
+                and population_ids == sorted(population_ids)
+                and [row["ordinal"] for row in population] == list(range(len(population)))
+                and [row["ordinal"] for row in selected] == list(range(len(selected)))
+                and expected_manifest == batch["population_manifest_sha256"]
+            )
+            expected_selected = []
+            for row in population:
+                expected_hash = hashlib.sha256(
+                    f"{batch['rollout_id']}\0{row['subject_version_id']}".encode()
+                ).hexdigest()
+                expected_flag = int(expected_hash[:16], 16) % 10_000 < rollout["sample_bps"]
+                valid = valid and (
+                    row["selection_hash"] == expected_hash
+                    and row["selected"] == int(expected_flag)
+                )
+                if expected_flag:
+                    expected_selected.append((row["subject_version_id"], expected_hash))
+            valid = valid and [
+                (row["subject_version_id"], row["selection_hash"]) for row in selected
+            ] == expected_selected
+            valid = valid and all(
+                any(member["subject_version_id"] == observation["subject_version_id"]
+                    for member in selected)
+                for observation in observations
+            )
+            observation_deadline = parse_utc(batch["created_at"]) + timedelta(
+                hours=json.loads(rollout["config_json"])["observation_window_hours"]
+            )
+            valid = valid and all(
+                parse_utc(batch["created_at"])
+                <= parse_utc(observation["observed_at"])
+                <= observation_deadline
+                for observation in observations
+            )
+            for observation in observations:
+                candidate_hash = observation["candidate_result_sha256"]
+                reference_hash = observation["reference_result_sha256"]
+                hashes_are_valid = all(
+                    value is None
+                    or (
+                        len(value) == 64
+                        and value == value.lower()
+                        and all(character in "0123456789abcdef" for character in value)
+                    )
+                    for value in (candidate_hash, reference_hash)
+                )
+                if observation["outcome"] in {"matched", "disagreed"}:
+                    evidence_is_valid = (
+                        candidate_hash is not None
+                        and reference_hash is not None
+                        and observation["error_code"] is None
+                    )
+                else:
+                    evidence_is_valid = (
+                        candidate_hash is None
+                        and isinstance(observation["error_code"], str)
+                        and bool(observation["error_code"].strip())
+                    )
+                valid = valid and hashes_are_valid and evidence_is_valid
+            evaluation = db.execute(
+                "SELECT * FROM tone_shadow_evaluations WHERE batch_id=?", (batch["id"],)
+            ).fetchone()
+            if evaluation is not None:
+                counts = {row["outcome"]: row["count"] for row in db.execute(
+                    """SELECT outcome,COUNT(*) AS count FROM tone_shadow_observations
+                       WHERE batch_id=? GROUP BY outcome""", (batch["id"],)
+                )}
+                total = batch["selected_count"]
+                config = json.loads(rollout["config_json"])
+                metrics = {
+                    "selected_count": total,
+                    "observed_count": sum(counts.values()),
+                    "matched_count": counts.get("matched", 0),
+                    "disagreement_count": counts.get("disagreed", 0),
+                    "error_count": counts.get("error", 0),
+                    "error_bps": counts.get("error", 0) * 10_000 // total,
+                    "disagreement_bps": counts.get("disagreed", 0) * 10_000 // total,
+                    "maximum_error_bps": config["maximum_error_bps"],
+                    "maximum_disagreement_bps": config["maximum_disagreement_bps"],
+                }
+                metrics_json = json.dumps(
+                    metrics, ensure_ascii=False, sort_keys=True, separators=(",", ":"),
+                    allow_nan=False,
+                )
+                decision = "passed" if (
+                    metrics["observed_count"] >= config["minimum_observations"]
+                    and metrics["error_bps"] <= config["maximum_error_bps"]
+                    and metrics["disagreement_bps"] <= config["maximum_disagreement_bps"]
+                ) else "failed"
+                valid = valid and (
+                    len(observations) == total
+                    and evaluation["metrics_json"] == metrics_json
+                    and evaluation["metrics_sha256"]
+                    == hashlib.sha256(metrics_json.encode()).hexdigest()
+                    and evaluation["decision"] == decision
+                )
+        except (KeyError, TypeError, ValueError, json.JSONDecodeError, ZeroDivisionError):
+            valid = False
+        if not valid:
+            invalid_tone_shadow_batches += 1
+    if invalid_tone_shadow_batches:
+        raise DatabaseVerificationError(
+            f"tone shadow evaluation ledger has {invalid_tone_shadow_batches} invalid batch(es)"
         )
     search_state = db.execute(
         "SELECT singleton,status FROM curation_search_state"

@@ -22,5 +22,6 @@ planned -> running -> completed
 hash、核对 approved admission 身份并重放整个状态链。一个 admission 只能建立一个配置确定的 rollout。
 
 本阶段中的 `running` 仅表示允许后续 shadow worker 采集对照结果，并不代表已有 worker，也不代表任何请求会看到
-候选结果。P15e-4b 需要另行定义不可变 shadow observation、错误/分歧统计和达标检查；P15e-4c 才能设计独立的人工
-切换与即时回滚，二者都不能复用当前会直接移动正式指针的通用 publication 写入函数。
+候选结果。P15e-4b 已定义完整总体清单、确定性抽样、不可变 observation、错误/分歧统计和完成门槛，详见
+`TONE_SHADOW_EVALUATION.md`。P15e-4c 才能设计独立的人工切换与即时回滚，且不能复用当前会直接移动正式指针的
+通用 publication 写入函数。

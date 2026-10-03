@@ -1,0 +1,19 @@
+{
+  "acceptance": {
+    "complete_population_is_frozen": true,
+    "deterministic_sampling_is_recomputable": true,
+    "every_selected_subject_requires_one_observation": true,
+    "failed_or_missing_evaluation_cannot_complete_rollout": true,
+    "formal_publication_unchanged": true,
+    "metrics_and_decision_are_recomputed_by_database_verification": true
+  },
+  "phase": "P15e-4b",
+  "production_changed": false,
+  "schema_version": "p15e4b-tone-shadow-evaluation-evidence-v1",
+  "scope": "frozen shadow population, immutable observations and fail-closed quality gate",
+  "verification": {
+    "focused_tests": 32,
+    "python_3_11_full_tests": 641,
+    "python_3_12_full_tests": 641
+  }
+}
