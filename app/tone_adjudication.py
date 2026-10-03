@@ -22,7 +22,7 @@ from .evaluation import (
     _validate_human_reviews,
 )
 from .tone_evaluation import _validate_tone_label, validate_tone_evaluation_dataset
-from .tone_review_intake import _copy_holdout_record, _require_verified_holdout
+from .review_intake import copy_holdout_record, require_verified_holdout
 
 BATCH_VERSION = "human-tone-adjudication-batch-v1"
 
@@ -73,7 +73,7 @@ def adjudicate_tone(
     cases_bytes = (source / "cases.jsonl").read_bytes()
     source_manifest = _load_json(source / "manifest.json")
     cases = _load_cases(source / "cases.jsonl")
-    _require_verified_holdout(source, source_manifest)
+    require_verified_holdout(source, source_manifest, "tone review")
 
     batch_manifest = _load_json(batch / "manifest.json")
     if not isinstance(batch_manifest, dict) or batch_manifest.get("schema_version") != BATCH_VERSION:
@@ -165,7 +165,7 @@ def adjudicate_tone(
             "".join(json.dumps(case, ensure_ascii=False, sort_keys=True) + "\n" for case in cases),
             encoding="utf-8",
         )
-        _copy_holdout_record(source, staging, source_manifest)
+        copy_holdout_record(source, staging, source_manifest, "tone review")
         result = validate_tone_evaluation_dataset(staging)
         if output.exists():
             raise EvaluationDatasetError("tone adjudication output appeared during import")

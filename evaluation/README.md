@@ -201,6 +201,8 @@ cases 文件的 SHA-256、`reviewer_id`、`source="human"`、`independent=true`�
 `model_assistance=false`。每行 review 包含 `case_id`、冻结的 `content_sha256`、
 带时区的 `recorded_at`，以及形如 `{"relevance":"unknown"}` 的 `labels`。
 可用标签为 `relevant`、`not_relevant`、`unknown`；单批次不允许重复 case。
+manifest 与每行 review 都不能带额外字段，batch 必须位于仓库外或 `evaluation/private/`。这些规则由
+`app.review_intake` 统一实现，与 tone、impact intake 相同。
 
 ```bash
 python -m app.evaluation_review_intake \
