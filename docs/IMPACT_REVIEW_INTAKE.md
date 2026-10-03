@@ -49,6 +49,9 @@ manifest 使用 `human-impact-review-batch-v1`，并且只能包含以下字段�
 - 任一行错误、重复或未知 case、空 batch、字段多余或输出目录已存在时，不创建部分输出。
 - blind holdout 未通过 leakage review 时，在读取 batch 之前即拒绝。
 
+这些规则由共享的 `app.review_intake` 实现，与 relevance、tone intake 完全相同；impact 只提供 batch
+schema、`_validate_impact_label`、`impact_review_batch_*` manifest key 和 `impact_evidence_review` 签名字段。
+
 调用方式：
 
 ```bash

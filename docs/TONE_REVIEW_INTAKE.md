@@ -40,6 +40,10 @@ reviewer_id，以及以下人工声明：
 - provisional dataset 的最终 labels 必须保持空；AI 预标注不能作为人工意见导入。
 - 新 labels 会改变 cases hash，因此旧 `tone_evidence_review` 签名必定作废且不会复制到新版本。
 - 任一行错误时不创建输出目录，不留下部分数据集。
+- manifest 只能包含上述 8 个字段，额外字段（如备注）会被拒绝，避免未入 hash 语义的旁路信息。
+
+导入规则由 `app.review_intake` 统一实现，relevance、tone 与 impact 只在 batch schema、label 校验器、
+manifest key 前缀和 evidence 签名字段上不同；`tests/test_review_intake.py` 对三者执行同一组规则测试。
 
 调用方式：
 

@@ -15,7 +15,7 @@ from pathlib import Path, PurePosixPath
 
 from .evaluation import EvaluationDatasetError, _load_cases, _load_json, _require_text, _review_time
 from .tone_evaluation import _verified_private_evidence, validate_tone_evaluation_dataset
-from .tone_review_intake import _copy_holdout_record, _require_verified_holdout
+from .review_intake import copy_holdout_record, require_verified_holdout
 
 ARTIFACT_SCHEMA_VERSION = "tone-private-artifacts-v1"
 REVIEW_VERSION = "tone-evidence-review-v1"
@@ -127,7 +127,7 @@ def freeze_tone_private_evidence_review(
     source_cases_bytes = source_cases_path.read_bytes()
     source_manifest = _load_json(source_manifest_path)
     cases = _load_cases(source_cases_path)
-    _require_verified_holdout(source, source_manifest)
+    require_verified_holdout(source, source_manifest, "tone review")
     if not cases or any(
         case.get("text_storage") != "restricted_reference"
         or case["annotation"].get("state") != "adjudicated"
@@ -276,7 +276,7 @@ def freeze_tone_private_evidence_review(
         )
         (staging / "cases.jsonl").write_bytes(source_cases_bytes)
         (staging / "tone-evidence-review.json").write_bytes(review_bytes)
-        _copy_holdout_record(source, staging, source_manifest)
+        copy_holdout_record(source, staging, source_manifest, "tone review")
         if not _verified_private_evidence(output_manifest, staging):
             raise EvaluationDatasetError("frozen tone evidence review failed hash verification")
         result = validate_tone_evaluation_dataset(staging)
