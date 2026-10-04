@@ -8,6 +8,7 @@ from collections import Counter
 from dataclasses import asdict, dataclass
 from pathlib import Path
 
+from .agreement_stats import CategoricalAgreement, categorical_agreement, empty_confusion
 from .evaluation import ALLOWED_SPLITS, EvaluationDatasetError, _load_cases, _require_text
 from .impact_contracts import DIRECTIONS
 from .impact_evaluation import (
@@ -46,14 +47,6 @@ class ComponentAgreement:
     matches: int
     total: int
     agreement: float | None
-
-
-@dataclass(frozen=True)
-class CategoricalAgreement:
-    confusion: dict[str, dict[str, int]]
-    observed_agreement: float | None
-    expected_agreement: float | None
-    cohen_kappa: float | None
 
 
 @dataclass(frozen=True)
@@ -116,19 +109,6 @@ def _component_value(label: dict, component: str) -> object:
     return label[component]
 
 
-def _categorical(confusion: dict[str, dict[str, int]], paired: int) -> CategoricalAgreement:
-    if not paired:
-        return CategoricalAgreement(confusion, None, None, None)
-    labels = tuple(confusion)
-    observed = sum(confusion[label][label] for label in labels) / paired
-    expected = sum(
-        sum(confusion[label].values()) * sum(confusion[first][label] for first in labels)
-        for label in labels
-    ) / (paired * paired)
-    kappa = (observed - expected) / (1 - expected) if expected < 1 else None
-    return CategoricalAgreement(confusion, observed, expected, kappa)
-
-
 def measure_impact_agreement(
     dataset_path: Path | str,
     *,
@@ -147,10 +127,7 @@ def measure_impact_agreement(
     rows = _load_cases(Path(dataset_path) / "cases.jsonl")
     if split is not None:
         rows = [case for case in rows if case["split"] == split]
-    confusions = {
-        field: {first: {second: 0 for second in labels} for first in labels}
-        for field, labels in CATEGORICAL_FIELDS.items()
-    }
+    confusions = {field: empty_confusion(labels) for field, labels in CATEGORICAL_FIELDS.items()}
     component_matches = Counter({name: 0 for name in COMPONENTS})
     split_counts: Counter[str] = Counter()
     language_counts: Counter[str] = Counter()
@@ -180,7 +157,7 @@ def measure_impact_agreement(
         source_counts[case["source_kind"]] += 1
 
     categorical = {
-        field: _categorical(confusion, paired) for field, confusion in confusions.items()
+        field: categorical_agreement(confusion, paired) for field, confusion in confusions.items()
     }
     warnings: list[str] = []
     if paired:

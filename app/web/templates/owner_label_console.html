@@ -25,7 +25,8 @@
 </head>
 <body><main>
   <header>
-    <h1>所有者盲标 · relevance</h1>
+    <h1>{% if mode == "recheck" %}延时自复核（盲）{% else %}所有者盲标{% endif %} · relevance</h1>
+    {% if mode == "recheck" %}<div class="muted">这些样本你至少 7 天前标过；这里不显示当时的标签，请按定义重新独立判断。</div>{% endif %}
     <div class="muted">数据集 {{ dataset_version }} · 标注人 {{ owner_id }} · 定义 {{ definition }}</div>
     <div class="metrics">
       <div class="metric"><strong>{{ progress.labeled }} / {{ progress.total }}</strong><span class="muted">已标</span></div>
@@ -82,7 +83,7 @@
     });
   </script>
   {% else %}
-  <section class="card"><h2>本数据集的待标样本已全部完成</h2>
+  <section class="card"><h2>{% if mode == "recheck" %}当前到期的自复核样本已全部完成{% else %}本数据集的待标样本已全部完成{% endif %}</h2>
     <p>relevant {{ progress.labels.relevant }} · not_relevant {{ progress.labels.not_relevant }} · unknown {{ progress.labels.unknown }}</p>
     <p class="muted">停止服务后运行 <code>python -m app.owner_label_console export …</code> 导出批次，再用
       <code>python -m app.owner_label_intake --task relevance …</code> 冻结为新的数据集版本。</p>

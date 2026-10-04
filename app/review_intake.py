@@ -23,13 +23,16 @@ from typing import Any
 
 from .evaluation import (
     OWNER_PROTOCOL_VERSION,
+    OWNER_RECHECK_MIN_GAP,
     EvaluationDatasetError,
     _load_cases,
     _parse_cases,
     _require_text,
     _review_time,
+    _time,
     _verified_holdout,
     owner_protocol,
+    owner_recheck_sample,
 )
 
 BATCH_MANIFEST_FIELDS = frozenset({
@@ -37,6 +40,7 @@ BATCH_MANIFEST_FIELDS = frozenset({
     "source_cases_sha256", "reviewer_id", "source", "independent", "model_assistance",
 })
 OWNER_BATCH_VERSION = "owner-label-batch-v1"
+OWNER_RECHECK_BATCH_VERSION = "owner-recheck-batch-v1"
 OWNER_BATCH_MANIFEST_FIELDS = frozenset({
     "schema_version", "task", "label_definition", "source_dataset_version",
     "source_manifest_sha256", "source_cases_sha256", "owner_id", "source", "blind",
@@ -378,17 +382,7 @@ def run_owner_label_intake(
     source, batch, output = Path(source), Path(batch), Path(output)
     _check_paths(label, source, batch, output)
     loaded = _load_source(task, label, source, dataset_version)
-    bound = _load_batch(label, batch, OWNER_BATCH_VERSION, OWNER_BATCH_MANIFEST_FIELDS, loaded)
-    if bound.manifest.get("task") != task.task_id:
-        raise EvaluationDatasetError(f"owner label batch is not for task {task.task_id}")
-    owner = _require_text(bound.manifest.get("owner_id"), "owner_id", "batch")
-    if (
-        bound.manifest.get("source") != "human"
-        or bound.manifest.get("blind") is not True
-        or bound.manifest.get("model_assistance") is not False
-    ):
-        raise EvaluationDatasetError("owner label batch requires a blind, no-model human attestation")
-    definition = _require_text(bound.manifest.get("label_definition"), "label_definition", "batch")
+    bound, owner, definition = _owner_batch(task, label, batch, loaded, OWNER_BATCH_VERSION)
     declared = owner_protocol(loaded.manifest)
     if declared is not None and declared["owner_id"] != owner:
         raise EvaluationDatasetError("owner label batch owner differs from the dataset owner")
@@ -448,6 +442,79 @@ def run_owner_label_intake(
         unlabeled_cases=states.get("unlabeled", 0),
         publishable_gold=task.is_publishable(result),
     )
+
+
+def _owner_batch(task: ReviewIntakeTask, label: str, batch: Path, source: _Source,
+                 schema_version: str) -> tuple[_Batch, str, str]:
+    bound = _load_batch(label, batch, schema_version, OWNER_BATCH_MANIFEST_FIELDS, source)
+    if bound.manifest.get("task") != task.task_id:
+        raise EvaluationDatasetError(f"{label} batch is not for task {task.task_id}")
+    owner = _require_text(bound.manifest.get("owner_id"), "owner_id", "batch")
+    definition = _require_text(bound.manifest.get("label_definition"), "label_definition", "batch")
+    if (
+        bound.manifest.get("source") != "human"
+        or bound.manifest.get("blind") is not True
+        or bound.manifest.get("model_assistance") is not False
+    ):
+        raise EvaluationDatasetError(f"{label} batch requires a blind, no-model human attestation")
+    return bound, owner, definition
+
+
+def run_owner_recheck_intake(
+    task: ReviewIntakeTask,
+    source: Path | str,
+    batch: Path | str,
+    output: Path | str,
+    *,
+    dataset_version: str,
+) -> dict:
+    """Attach delayed blind relabels by the same owner; final labels never change here."""
+    label = "owner recheck"
+    source, batch, output = Path(source), Path(batch), Path(output)
+    _check_paths(label, source, batch, output)
+    loaded = _load_source(task, label, source, dataset_version)
+    bound, owner, definition = _owner_batch(task, label, batch, loaded, OWNER_RECHECK_BATCH_VERSION)
+    declared = owner_protocol(loaded.manifest)
+    if declared is None or declared["owner_id"] != owner or declared["label_definition"] != definition:
+        raise EvaluationDatasetError("owner recheck must use the dataset's owner and label definition")
+    sample = set(owner_recheck_sample(loaded.cases))
+    rechecked = 0
+    for row, case in _rows(task, label, batch, bound, loaded):
+        case_id = case["case_id"]
+        annotation = case["annotation"]
+        if case_id not in sample:
+            raise EvaluationDatasetError(f"owner recheck case {case_id} is not in the recheck sample")
+        if annotation.get("state") != "owner_labeled" or "owner_recheck" in annotation:
+            raise EvaluationDatasetError(f"owner recheck case {case_id} is not awaiting a recheck")
+        if _time(row["recorded_at"], case_id) - _time(
+            annotation["owner_label"]["recorded_at"], case_id
+        ) < OWNER_RECHECK_MIN_GAP:
+            raise EvaluationDatasetError(
+                f"owner recheck case {case_id} is less than 7 days after its first label"
+            )
+        annotation["owner_recheck"] = {
+            "owner_id": owner,
+            "source": "human",
+            "blind": True,
+            "model_assistance": False,
+            "content_sha256": case["content_sha256"],
+            "recorded_at": row["recorded_at"],
+            "labels": row["labels"],
+        }
+        rechecked += 1
+    _publish(
+        task, label, source, output, loaded, bound,
+        dataset_version=dataset_version,
+        prefix="owner_recheck_batch",
+        schema_version=OWNER_RECHECK_BATCH_VERSION,
+    )
+    return {
+        "task": task.task_id,
+        "source_dataset_version": loaded.report.dataset_version,
+        "dataset_version": dataset_version,
+        "owner_id": owner,
+        "rechecked_cases": rechecked,
+    }
 
 
 def review_intake_cli(description: str, importer: Callable[..., Any]) -> int:

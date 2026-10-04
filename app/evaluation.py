@@ -4,9 +4,10 @@ from __future__ import annotations
 
 import hashlib
 import json
+import math
 import re
 from dataclasses import asdict, dataclass
-from datetime import datetime
+from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Iterable
 
@@ -24,6 +25,12 @@ LABELER_FIELDS = frozenset({
     "labeler_id", "labeler_version", "config_sha256", "content_sha256", "generated_at",
 })
 SILVER_SPLITS = {"train", "dev"}
+# D23 delayed blind recheck: a seeded, recomputable sample of the test split, relabelled by
+# the same owner at least seven days after the first label.
+OWNER_RECHECK_VERSION = "owner-recheck-v1"
+OWNER_RECHECK_MIN_GAP = timedelta(days=7)
+OWNER_RECHECK_MIN_CASES = 30
+OWNER_RECHECK_FRACTION = 0.10
 GOLD_STATES = {"adjudicated", "synthetic_fixture"}
 SCHEMA_VERSION = "evaluation-dataset-v1"
 MINIMUM_GOLD_TARGETS = {"documents": 600, "event_groups": 150,
@@ -163,6 +170,49 @@ def owner_protocol_id(manifest: dict) -> str | None:
     return protocol["owner_id"] if protocol else None
 
 
+def owner_recheck_sample(cases: Iterable[dict]) -> list[str]:
+    """Return the fixed recheck sample: max(30, 10%) of test cases ranked by a seeded hash."""
+    test_ids = sorted(case["case_id"] for case in cases if case.get("split") == "test")
+    size = min(len(test_ids), max(OWNER_RECHECK_MIN_CASES, math.ceil(len(test_ids) * OWNER_RECHECK_FRACTION)))
+    ranked = sorted(
+        test_ids,
+        key=lambda case_id: hashlib.sha256(f"{OWNER_RECHECK_VERSION}:{case_id}".encode("utf-8")).hexdigest(),
+    )
+    return ranked[:size]
+
+
+def _time(value: object, case_id: str) -> datetime:
+    _review_time(value, case_id)
+    return datetime.fromisoformat(str(value).replace("Z", "+00:00"))
+
+
+def _validate_owner_recheck(case_id: str, annotation: dict, digest: str, owner_id: str,
+                            in_sample: bool) -> None:
+    recheck = annotation["owner_recheck"]
+    if not in_sample:
+        raise EvaluationDatasetError(f"case {case_id} is not in the {OWNER_RECHECK_VERSION} sample")
+    if not isinstance(recheck, dict) or set(recheck) != OWNER_LABEL_FIELDS:
+        raise EvaluationDatasetError(f"case {case_id} has invalid owner_recheck provenance")
+    if (
+        recheck["owner_id"] != owner_id
+        or recheck["source"] != "human"
+        or recheck["blind"] is not True
+        or recheck["model_assistance"] is not False
+    ):
+        raise EvaluationDatasetError(
+            f"case {case_id} owner recheck must be blind, human and by the declared owner"
+        )
+    if recheck["content_sha256"] != digest:
+        raise EvaluationDatasetError(f"case {case_id} owner recheck lacks frozen-content binding")
+    if not isinstance(recheck["labels"], dict) or not recheck["labels"]:
+        raise EvaluationDatasetError(f"case {case_id} owner recheck has no labels")
+    first = _time(annotation["owner_label"]["recorded_at"], case_id)
+    if _time(recheck["recorded_at"], case_id) - first < OWNER_RECHECK_MIN_GAP:
+        raise EvaluationDatasetError(
+            f"case {case_id} owner recheck must follow the first label by at least 7 days"
+        )
+
+
 def _validate_owner_label(case_id: str, annotation: dict, digest: str, owner_id: str | None) -> None:
     if owner_id is None:
         raise EvaluationDatasetError(
@@ -185,6 +235,9 @@ def _validate_owner_label(case_id: str, annotation: dict, digest: str, owner_id:
     _review_time(record["recorded_at"], case_id)
     if not isinstance(record["labels"], dict) or not record["labels"] or record["labels"] != annotation["labels"]:
         raise EvaluationDatasetError(f"case {case_id} owner label does not match final labels")
+    if "owner_resolution" in annotation:
+        # Resolving a recheck disagreement needs its own reviewed format; fail closed until then.
+        raise EvaluationDatasetError(f"case {case_id} owner resolutions are not supported yet")
 
 
 def _validate_silver_label(case_id: str, split: str, annotation: dict, digest: str) -> None:
@@ -289,6 +342,7 @@ def validate_evaluation_dataset(path: Path | str) -> EvaluationReport:
         raise EvaluationDatasetError("manifest target_plan must be an object")
 
     owner_id = owner_protocol_id(manifest)
+    recheck_sample = set(owner_recheck_sample(cases))
     ids: set[str] = set()
     hashes: dict[str, str] = {}
     group_splits: dict[tuple[str, str], str] = {}
@@ -361,7 +415,7 @@ def validate_evaluation_dataset(path: Path | str) -> EvaluationReport:
         if annotation.get("generated_by_model") and state in {"single_annotator", "adjudicated", "owner_labeled"}:
             raise EvaluationDatasetError(f"case {case_id} cannot use model output as gold")
         # Tiers never mix: provenance of one tier on a case of another is a hidden upgrade path.
-        if state != "owner_labeled" and "owner_label" in annotation:
+        if state != "owner_labeled" and ("owner_label" in annotation or "owner_recheck" in annotation):
             raise EvaluationDatasetError(f"case {case_id} carries owner_label outside owner tier")
         if state != "algorithm_labeled" and "labeler" in annotation:
             raise EvaluationDatasetError(f"case {case_id} carries labeler outside silver tier")
@@ -372,6 +426,8 @@ def validate_evaluation_dataset(path: Path | str) -> EvaluationReport:
                 raise EvaluationDatasetError(f"case {case_id} mixes {state} with multi-reviewer provenance")
         if state == "owner_labeled":
             _validate_owner_label(case_id, annotation, digest, owner_id)
+            if "owner_recheck" in annotation:
+                _validate_owner_recheck(case_id, annotation, digest, owner_id, case_id in recheck_sample)
         if state == "algorithm_labeled":
             _validate_silver_label(case_id, split, annotation, digest)
         if state == "single_annotator":

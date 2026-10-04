@@ -347,6 +347,8 @@ def validate_tone_evaluation_dataset(path: Path | str) -> ToneEvaluationReport:
         if state in {"owner_labeled", "algorithm_labeled"}:
             # Owner and silver labels follow the same contract but never count as gold assessments.
             _validate_tone_label(case)
+        if isinstance(annotation.get("owner_recheck"), dict):
+            _validate_tone_label(case, annotation["owner_recheck"].get("labels"))
         language = case["language"]
         languages[language] = languages.get(language, 0) + 1
         if polarity is not None:
