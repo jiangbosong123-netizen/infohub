@@ -5,20 +5,29 @@ from __future__ import annotations
 import hashlib
 import json
 import math
+import re
 from datetime import datetime
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import Iterable
 
-from .evaluation import EvaluationDatasetError, _load_cases, _load_json, validate_evaluation_dataset
+from .evaluation import EvaluationDatasetError, _load_cases, _load_json, _verified_holdout, validate_evaluation_dataset
 
-METRICS_VERSION="classification-metrics-v3"
+METRICS_VERSION="classification-metrics-v4"
 EVALUATION_SPLITS={"train","dev","test","security"}
+SLICE_NAME=re.compile(r"[a-z0-9][a-z0-9_:-]{0,63}")
+# D23 single-owner-v1: tiers decide what a score may claim; silver is never evaluation truth.
+TIERS={"adjudicated":"gold","owner_labeled":"owner","algorithm_labeled":"silver","synthetic_fixture":"synthetic"}
 
 @dataclass(frozen=True)
 class ClassMetrics:
  label:str; support:int; predicted:int; true_positive:int
  precision:float|None; recall:float|None; f1:float|None
+
+@dataclass(frozen=True)
+class SliceMetrics:
+ total:int; correct:int; accuracy:float; accuracy_wilson_95:tuple[float,float]
+ abstained:int; confusion:dict[str,dict[str,int]]
 
 @dataclass(frozen=True)
 class ClassificationReport:
@@ -28,6 +37,10 @@ class ClassificationReport:
  covered:int; coverage:float; abstained:int; missing_predictions:int
  macro_f1:float; labels:tuple[str,...]; scored_labels:tuple[str,...]; per_class:tuple[ClassMetrics,...]
  confusion:dict[str,dict[str,int]]; quality_claim_allowed:bool; warnings:tuple[str,...]
+ # Defaults keep reports built by older callers fail-closed: no tier, no experimental claim.
+ annotation_tier:str="other"; experimental_claim_allowed:bool=False
+ claim_blockers:tuple[str,...]=("report predates annotation tiers",)
+ slices:dict[str,SliceMetrics]=field(default_factory=dict)
  def to_dict(self): return asdict(self)
 
 def _wilson(successes:int,total:int,z:float=1.959963984540054)->tuple[float,float]:
@@ -94,12 +107,15 @@ def evaluate_classification(dataset_path:Path|str,prediction_run_path:Path|str)-
   not isinstance(label,str) or not label for label in abstain_labels):
   raise EvaluationDatasetError("abstain_labels must be a nonempty string list")
  abstain=set(abstain_labels)
- by_id={}
+ by_id={}; slice_tags={}
  for row in predictions:
   case_id=row.get("case_id"); predicted=row.get("predicted_label")
   if not isinstance(case_id,str) or not isinstance(predicted,str): raise EvaluationDatasetError("prediction rows require string IDs and labels")
   if case_id in by_id: raise EvaluationDatasetError(f"duplicate prediction for {case_id}")
-  by_id[case_id]=predicted
+  tags=row.get("slices",[])
+  if not isinstance(tags,list) or tags!=sorted(set(tags)) or any(not isinstance(tag,str) or not SLICE_NAME.fullmatch(tag) for tag in tags):
+   raise EvaluationDatasetError(f"prediction {case_id} has invalid slices")
+  by_id[case_id]=predicted; slice_tags[case_id]=tags
  cases=_load_cases(root/"cases.jsonl")
  selected=cases if split=="all" else [case for case in cases if case["split"]==split]
  if not selected: raise EvaluationDatasetError(f"dataset has no cases in {split} split")
@@ -127,6 +143,24 @@ def evaluate_classification(dataset_path:Path|str,prediction_run_path:Path|str)-
   per.append(ClassMetrics(label,support,pred,tp,precision,recall,f1))
  total=len(actual);correct=sum(a==p for a,p in zip(actual,predicted));abstained=sum(p in abstain for p in predicted);covered=total-abstained
  macro=sum(item.f1 or 0.0 for item in per)/len(per) if per else 0.0
+ states={case["annotation"]["state"] for case in selected}
+ tier=TIERS.get(next(iter(states)),"other") if len(states)==1 else "mixed"
+ slices={}
+ for name in sorted({tag for case in selected for tag in slice_tags.get(case["case_id"],[])}):
+  pairs=[(a,p) for case,a,p in zip(selected,actual,predicted) if name in slice_tags.get(case["case_id"],[])]
+  hits=sum(a==p for a,p in pairs)
+  matrix={a:{p:0 for p in labels} for a in labels}
+  for a,p in pairs: matrix[a][p]+=1
+  slices[name]=SliceMetrics(len(pairs),hits,hits/len(pairs),_wilson(hits,len(pairs)),sum(p in abstain for _,p in pairs),matrix)
+ blockers=[]
+ if schema!="prediction-run-v2" or split!="test": blockers.append("experimental claims require a v2 run on the test split")
+ if tier!="owner": blockers.append(f"experimental claims require owner-tier truth, not {tier}")
+ if missing: blockers.append("missing predictions")
+ if covered==0: blockers.append("no covered predictions")
+ manifest=_load_json(root/"manifest.json")
+ if manifest.get("split_policy")=="blind-holdout" and not _verified_holdout(manifest,cases,root):
+  blockers.append("blind holdout is not verified")
+ if tier=="owner": blockers.append("owner recheck (D23 delayed blind relabel, kappa >= 0.70) is not completed")
  quality_allowed=(schema=="prediction-run-v2" and split=="test"
                   and dataset.publishable_gold and missing==0 and covered>0
                   and all(case["annotation"]["state"]=="adjudicated" for case in selected))
@@ -135,7 +169,11 @@ def evaluate_classification(dataset_path:Path|str,prediction_run_path:Path|str)-
  if split=="security":warnings.append("security cases are reported separately from natural-distribution accuracy")
  if not quality_allowed:warnings.append("quality claim blocked: requires verified gold and complete v2 blind-test predictions")
  if total<30:warnings.append("sample support is below 30; do not generalize point estimates")
- return ClassificationReport(METRICS_VERSION,dataset.dataset_version,str(run.get("prediction_run_id")),task,split,total,correct,correct/total if total else 0.0,_wilson(correct,total),covered,covered/total if total else 0.0,abstained,missing,macro,labels,scored_labels,tuple(per),confusion,quality_allowed,tuple(warnings))
+ if tier=="owner":warnings.append("owner tier: single annotator; any claim is experimental, never gold")
+ if tier=="silver":warnings.append("silver labels are not evaluation truth; this is agreement with silver, not accuracy")
+ for name,item in slices.items():
+  if item.total<30:warnings.append(f"slice {name} has support below 30")
+ return ClassificationReport(METRICS_VERSION,dataset.dataset_version,str(run.get("prediction_run_id")),task,split,total,correct,correct/total if total else 0.0,_wilson(correct,total),covered,covered/total if total else 0.0,abstained,missing,macro,labels,scored_labels,tuple(per),confusion,quality_allowed,tuple(warnings),tier,not blockers,tuple(blockers),slices)
 
 def write_classification_report(dataset_path,run_path,output_path):
  report=evaluate_classification(dataset_path,run_path)

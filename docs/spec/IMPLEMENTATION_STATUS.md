@@ -71,8 +71,11 @@ the implementation PR series proceeded. It was restored on 2026-09-27 after `mai
   and impact) and a hash-bound blind owner-label intake built on the shared review-intake core. D23-b binds
   the protocol to a label-definition version, publishes `relevance-definition-v1`, and adds a loopback-only
   relevance labeling console that re-verifies frozen source content, never reads model fields, and exports
-  owner batches. No recheck, experimental metric, tone/impact labeling UI, silver labeler or real owner label
-  exists yet.
+  owner batches. D23-c adds `classification-metrics-v4` (annotation tier, explicit experimental-claim
+  blockers, prediction slices) and a hash-bound prediction run for the legacy stored `tmt` field, sliced into
+  LLM-only, policy-forced and unscored rows. A real 600-case relevance dataset is admitted privately and awaits
+  owner labels; no recheck, tone/impact labeling UI or silver labeler exists yet, so every owner-tier number is
+  still preliminary.
 
 ## Status rule
 

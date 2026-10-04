@@ -91,7 +91,26 @@ python -m app.owner_label_intake --task relevance --dataset ... --batch .../owne
 
 数据库建议使用一致性快照副本（例如 `db-backup` 产物），抽样、入册和标注期间保持不变；源内容变化会被拒绝。
 
+## 用 owner 标签评估旧 `tmt`
+
+`classification-metrics-v4` 报告标出 `annotation_tier`（gold / owner / silver / synthetic / mixed）、
+`experimental_claim_allowed` 与逐条 `claim_blockers`，并按预测行的 `slices` 输出分片 support、准确率、
+Wilson 区间与 confusion。owner 层只有在 test split、预测完整、（blind holdout 时）holdout 已核验且延时自复核
+完成后才允许 experimental 结论；自复核尚未实现，因此当前报告都是**初步数字**，blocker 会明确写出原因。
+silver 层的数字只能称“与 silver 的一致率”。
+
+```bash
+python -m app.legacy_relevance_run \
+  --dataset /absolute/private/path/relevance-owner-v1 \
+  --database /absolute/private/path/app-snapshot.db \
+  --output /absolute/private/path/legacy-tmt-test-run
+```
+
+旧库存储的 `tmt` 是 `官方来源 OR 关注公司 OR LLM 判断`（`app/ai/pipeline.py` `_keep_tmt`），不是纯 LLM
+输出。因此每条预测带分片：`llm_only`（非官方、无关注公司，存储值就是 LLM 判断）、`policy_forced`（被产品规则
+强制保留）、`unscored`（从未处理，计为弃权）。生成 run 前逐条按同一快照重算冻结内容 hash，防止用另一份数据库
+的字段评估。输出目录包含 hash 绑定的 `run.json`、`predictions.jsonl` 与 `report.json`。
+
 ## 仍未实现
 
-延时自复核抽样与同人一致性、experimental 指标结论、tone/impact 的标注界面、silver 标注器均在后续 PR。
-现在可以产出 relevance owner 标签，但还不能据此发布任何质量结论。
+延时自复核抽样与同人一致性、tone/impact 的标注界面、silver 标注器均在后续 PR。

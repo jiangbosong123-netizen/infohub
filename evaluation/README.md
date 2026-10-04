@@ -19,8 +19,10 @@
 - **silver**：版本化算法标注器批量生成，只进 train/dev，不能作为任何评估真值，也不能评估生成它的标注器。
 
 数据集状态 `owner_labeled` / `algorithm_labeled`、owner 盲标导入命令与 relevance 本地标注台已实现，见
-[`docs/OWNER_LABEL_INTAKE.md`](../docs/OWNER_LABEL_INTAKE.md)。自复核、experimental 指标、本地标注工具和
-silver 标注器按小 PR 逐项实现，进度见 [实施状态](../docs/spec/IMPLEMENTATION_STATUS.md)。
+[`docs/OWNER_LABEL_INTAKE.md`](../docs/OWNER_LABEL_INTAKE.md)。延时自复核、tone/impact 标注界面和 silver
+标注器仍按小 PR 逐项实现，进度见 [实施状态](../docs/spec/IMPLEMENTATION_STATUS.md)。owner 标签可用
+`app.legacy_relevance_run` 评估旧 `tmt` 字段；`classification-metrics-v4` 报告会标出标注层级和 experimental
+结论的阻断原因。
 
 验证命令：
 
