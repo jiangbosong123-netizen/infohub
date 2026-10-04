@@ -6,10 +6,11 @@ Existing URLs never get reused. Singleton events may merge after translation;
 the original URL then redirects to the surviving event. Original articles stay
 intact, and every membership records its match evidence.
 """
+import heapq
 import json
 import re
 import uuid
-from collections import defaultdict
+from collections import Counter, defaultdict
 from datetime import datetime, timedelta, timezone
 from difflib import SequenceMatcher
 
@@ -161,12 +162,14 @@ def refresh_derived() -> dict:
             if row['tmt'] == 0:
                 db.execute('DELETE FROM story_items WHERE item_id=?',(row['id'],))
             else:
-                candidates = defaultdict(int)
+                # Counter.update counts in C and heapq.nsmallest is documented as equivalent to
+                # sorted(...)[:n]; both keep titles-v3 results identical while a full reindex of
+                # tens of thousands of items no longer sorts every candidate list completely.
+                candidates = Counter()
                 for token in _keys(row):
-                    for sid in by_token[token]:
-                        candidates[sid] += 1
+                    candidates.update(by_token[token])
                 best_id, best_score = None, 0.0
-                for sid in sorted(candidates,key=lambda s:(-candidates[s],s))[:120]:
+                for sid in heapq.nsmallest(120, candidates, key=lambda s:(-candidates[s],s)):
                     if sid == old_id:
                         continue
                     score = match_score(row,anchors[sid])

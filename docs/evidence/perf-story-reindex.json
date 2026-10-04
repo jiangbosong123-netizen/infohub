@@ -1,0 +1,29 @@
+{
+  "scope": "Exact-semantics speedup of the legacy titles-v3 story reindex (app/stories.py refresh_derived)",
+  "recorded_at": "2026-10-04T00:00:00Z",
+  "environment": "macOS isolated copy of the Mac legacy database (89,575 items, schema 0 -> 44); no network, no model calls",
+  "production_changed": false,
+  "trigger": "First upgrade of a database whose 57,924 story memberships carry titles-v2 re-clusters every item inside prepare-release",
+  "profile_before": {
+    "prepare_release_seconds_cprofile": 909.1,
+    "refresh_derived_seconds": 904.0,
+    "sorted_calls": 101775,
+    "sorted_tottime_seconds": 345.2,
+    "sort_key_calls": 997068724
+  },
+  "change": "Count candidate stories with Counter.update and select the top 120 with heapq.nsmallest, documented as equivalent to sorted(...)[:n]",
+  "equivalence_check": {
+    "method": "two prepare-release runs on fresh copies with uuid4 replaced by the same deterministic counter",
+    "story_items_sha256_prefix": {"old": "1785dbdb73d61b96", "new": "1785dbdb73d61b96"},
+    "story_partitions_equal": true,
+    "story_groups": 43650,
+    "match_scores_equal": true,
+    "scored_items": 57924,
+    "redirected_stories": 3896,
+    "item_topics_equal": true,
+    "stories_columns_equal_except": ["heat"],
+    "heat_note": "heat decays with wall-clock time (ranking.item_heat uses now); the runs started minutes apart"
+  },
+  "timing_seconds": {"old_deterministic": 606.4, "new_deterministic": 284.9},
+  "full_tests": {"python_3_11": 734, "python_3_12": 734}
+}
