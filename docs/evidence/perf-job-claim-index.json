@@ -1,0 +1,22 @@
+{
+  "scope": "Schema 45: ordered partial index for durable job claims",
+  "recorded_at": "2026-10-04T00:00:00Z",
+  "environment": "macOS isolated cutover-rehearsal copy during the legacy curation import (89,575 items, 358,300 jobs)",
+  "production_changed": false,
+  "problem": {
+    "query": "claim_job: state IN (pending,retry_wait) AND due AND dataset_epoch=? AND kind IN (...) ORDER BY priority DESC,next_attempt_at,scheduled_for,created_at,id LIMIT 1",
+    "plan_before": ["SEARCH jobs USING INDEX idx_jobs_epoch_claim (dataset_epoch=? AND state=? AND next_attempt_at<?)", "USE TEMP B-TREE FOR ORDER BY"],
+    "pending_jobs": 347688,
+    "claim_query_ms_before": [92.4, 93.2, 94.2],
+    "observed_import_throughput_jobs_per_second": {"2000_pending": 47.0, "358300_pending": 9.4}
+  },
+  "change": "CREATE INDEX idx_jobs_claim_order ON jobs(dataset_epoch, priority DESC, next_attempt_at, scheduled_for, created_at, id) WHERE state IN ('pending','retry_wait')",
+  "result_on_copy": {
+    "plan_after": ["SEARCH jobs USING INDEX idx_jobs_claim_order (dataset_epoch=?)"],
+    "claim_query_ms_after": [0.03, 0.0, 0.0],
+    "index_build_seconds": 0.37,
+    "same_first_job": true,
+    "same_first_50_claim_order": true
+  },
+  "tests": {"new": 3, "mutation_check": "removing the index fails the plan and migration tests", "python_3_11": 737, "python_3_12": 737}
+}
