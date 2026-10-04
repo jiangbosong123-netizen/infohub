@@ -12,6 +12,7 @@ from pathlib import Path
 from typing import Iterable
 
 from .evaluation import EvaluationDatasetError, _load_cases, _load_json, _verified_holdout, validate_evaluation_dataset
+from .owner_recheck import KEY_LABELS, owner_recheck_report
 
 METRICS_VERSION="classification-metrics-v4"
 EVALUATION_SPLITS={"train","dev","test","security"}
@@ -160,7 +161,12 @@ def evaluate_classification(dataset_path:Path|str,prediction_run_path:Path|str)-
  manifest=_load_json(root/"manifest.json")
  if manifest.get("split_policy")=="blind-holdout" and not _verified_holdout(manifest,cases,root):
   blockers.append("blind holdout is not verified")
- if tier=="owner": blockers.append("owner recheck (D23 delayed blind relabel, kappa >= 0.70) is not completed")
+ if tier=="owner":
+  if task not in KEY_LABELS or KEY_LABELS[task][0]!=label_path:
+   blockers.append(f"no owner recheck definition for {task}.{label_path}")
+  else:
+   recheck=owner_recheck_report(root,task)
+   blockers.extend(f"owner recheck: {item}" for item in recheck.blockers)
  quality_allowed=(schema=="prediction-run-v2" and split=="test"
                   and dataset.publishable_gold and missing==0 and covered>0
                   and all(case["annotation"]["state"]=="adjudicated" for case in selected))

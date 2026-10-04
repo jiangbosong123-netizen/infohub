@@ -30,9 +30,16 @@ from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
 from starlette.middleware.trustedhost import TrustedHostMiddleware
 
-from .evaluation import _parse_cases, owner_protocol, validate_evaluation_dataset
+from .evaluation import (
+    OWNER_RECHECK_MIN_GAP,
+    _parse_cases,
+    _time,
+    owner_protocol,
+    owner_recheck_sample,
+    validate_evaluation_dataset,
+)
 from .evaluation_sampling import legacy_content_sha256, legacy_item_content
-from .review_intake import OWNER_BATCH_VERSION
+from .review_intake import OWNER_BATCH_VERSION, OWNER_RECHECK_BATCH_VERSION
 
 TASK = "relevance"
 LABEL_DEFINITION = "relevance-definition-v1"
@@ -85,7 +92,12 @@ class OwnerLabelSession:
         *,
         owner_id: str,
         order_seed: str = "owner-label-order-v1",
+        mode: str = "label",
+        now: datetime | None = None,
     ) -> None:
+        if mode not in {"label", "recheck"}:
+            raise OwnerConsoleError("mode must be label or recheck")
+        self.mode = mode
         self.dataset = Path(dataset)
         self.database = Path(database)
         self.draft_dir = Path(draft_dir)
@@ -105,24 +117,43 @@ class OwnerLabelSession:
             protocol["owner_id"] != self.owner_id or protocol["label_definition"] != LABEL_DEFINITION
         ):
             raise OwnerConsoleError("dataset belongs to another owner or label definition")
-        cases = [
-            case for case in _parse_cases(cases_bytes.decode("utf-8"))
-            if case["annotation"]["state"] == "unlabeled"
-            and case.get("text_storage") == "restricted_reference"
+        all_cases = _parse_cases(cases_bytes.decode("utf-8"))
+        legacy = [
+            case for case in all_cases
+            if case.get("text_storage") == "restricted_reference"
             and OBJECT_REF.fullmatch(str(case.get("object_ref") or ""))
         ]
-        if not cases:
-            raise OwnerConsoleError("dataset has no unlabeled restricted legacy-item cases")
-        cases.sort(key=lambda case: (
-            SPLIT_ORDER.get(case["split"], len(SPLIT_ORDER)),
-            hashlib.sha256(f"{order_seed}:{case['case_id']}".encode("utf-8")).hexdigest(),
-        ))
+        if mode == "label":
+            cases = [case for case in legacy if case["annotation"]["state"] == "unlabeled"]
+            if not cases:
+                raise OwnerConsoleError("dataset has no unlabeled restricted legacy-item cases")
+            cases.sort(key=lambda case: (
+                SPLIT_ORDER.get(case["split"], len(SPLIT_ORDER)),
+                hashlib.sha256(f"{order_seed}:{case['case_id']}".encode("utf-8")).hexdigest(),
+            ))
+        else:
+            if protocol is None:
+                raise OwnerConsoleError("recheck requires an owner-labeled dataset")
+            moment = now or datetime.now(timezone.utc)
+            by_case = {case["case_id"]: case for case in legacy}
+            # Only sampled first labels at least seven days old; the first label is never shown.
+            cases = [
+                by_case[case_id] for case_id in owner_recheck_sample(all_cases)
+                if case_id in by_case
+                and by_case[case_id]["annotation"]["state"] == "owner_labeled"
+                and "owner_recheck" not in by_case[case_id]["annotation"]
+                and moment - _time(by_case[case_id]["annotation"]["owner_label"]["recorded_at"], case_id)
+                >= OWNER_RECHECK_MIN_GAP
+            ]
+            if not cases:
+                raise OwnerConsoleError("no sampled case is due for a recheck yet")
         self.cases = cases
         self.by_id = {case["case_id"]: case for case in cases}
         self.order = [case["case_id"] for case in cases]
         _require_private(self.draft_dir, "draft directory")
         self.draft_dir.mkdir(exist_ok=True)
-        self.draft_path = self.draft_dir / f"{self.dataset_version}.{self.cases_sha256[:16]}.draft.jsonl"
+        suffix = "draft" if mode == "label" else "recheck.draft"
+        self.draft_path = self.draft_dir / f"{self.dataset_version}.{self.cases_sha256[:16]}.{suffix}.jsonl"
 
     def content(self, case_id: str) -> FrozenContent:
         case = self.by_id.get(case_id)
@@ -245,7 +276,7 @@ class OwnerLabelSession:
         for case_id in drafted:
             self.content(case_id)
         manifest = {
-            "schema_version": OWNER_BATCH_VERSION,
+            "schema_version": OWNER_BATCH_VERSION if self.mode == "label" else OWNER_RECHECK_BATCH_VERSION,
             "task": TASK,
             "label_definition": LABEL_DEFINITION,
             "source_dataset_version": self.dataset_version,
@@ -312,6 +343,7 @@ def create_owner_label_console(session: OwnerLabelSession, *, csrf_token: str) -
                 "owner_id": session.owner_id,
                 "dataset_version": session.dataset_version,
                 "definition": LABEL_DEFINITION,
+                "mode": session.mode,
                 "labels": LABELS,
                 "progress": session.progress(),
                 **context,
@@ -377,6 +409,8 @@ def main() -> int:
     commands = parser.add_subparsers(dest="command", required=True)
     for name in ("serve", "export", "status"):
         command = commands.add_parser(name)
+        command.add_argument("--recheck", action="store_true",
+                             help="delayed blind relabel of the D23 recheck sample")
         command.add_argument("--dataset", required=True, type=Path)
         command.add_argument("--database", required=True, type=Path)
         command.add_argument("--draft-dir", required=True, type=Path)
@@ -387,7 +421,8 @@ def main() -> int:
             command.add_argument("--output", required=True, type=Path)
     args = parser.parse_args()
     session = OwnerLabelSession(
-        args.dataset, args.database, args.draft_dir, owner_id=args.owner_id
+        args.dataset, args.database, args.draft_dir, owner_id=args.owner_id,
+        mode="recheck" if args.recheck else "label",
     )
     if args.command == "status":
         print(json.dumps(session.progress(), ensure_ascii=False, indent=2))

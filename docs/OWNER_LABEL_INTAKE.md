@@ -111,6 +111,26 @@ python -m app.legacy_relevance_run \
 强制保留）、`unscored`（从未处理，计为弃权）。生成 run 前逐条按同一快照重算冻结内容 hash，防止用另一份数据库
 的字段评估。输出目录包含 hash 绑定的 `run.json`、`predictions.jsonl` 与 `report.json`。
 
+## 延时盲复核（D23-d）
+
+单人无法做双人一致性，D23 用同一 owner 的延时盲重标替代：
+
+- **固定样本。** `owner_recheck_sample` 取 test split 的 `max(30, ⌈10%⌉)` 条（不足则全部），按
+  `sha256("owner-recheck-v1:" + case_id)` 排序截取。样本只由 case ID 决定，任何人都可重算，不能挑选。
+- **只在到期后、看不到首次标签时重标。** 标注台 `--recheck` 模式只提供首次标注已满 7 天、尚未复核的样本，
+  使用独立草稿，页面不显示首次标签；导出 `owner-recheck-batch-v1`。
+- **导入。** `python -m app.owner_label_intake --task relevance --kind recheck ...` 只接受样本内、已 owner 标注、
+  尚未复核、同一 owner 与同一定义、距首次标注 ≥7 天的行；写入 `annotation.owner_recheck`，**不改变最终 labels**。
+  校验器对手工改写的数据集执行同样的样本、时间、owner、hash 规则。
+- **报告。** `python -m app.owner_recheck --task relevance --dataset ...` 给出样本进度（到期、未到期、未标注）、
+  关键标签（relevance 标签 / tone polarity / impact direction）的同人 confusion、observed/expected 与 Cohen κ。
+  完成条件：样本全部 owner 标注并复核、至少 30 对、κ 有定义且 ≥0.70、没有未解决分歧。
+- **与指标联动。** `classification-metrics-v4` 对 owner 层直接读取该报告，未完成时逐条列出原因；完成后 owner 层
+  test 报告的 `experimental_claim_allowed` 才可能为 true（`quality_claim_allowed` 仍只属于 gold）。
+
+分歧解决（owner 看过两次标签后写出最终决定与理由）尚未实现：在它实现前，任何复核分歧都会让复核保持未完成，
+数据集中出现 `owner_resolution` 也会被拒绝。
+
 ## 仍未实现
 
-延时自复核抽样与同人一致性、tone/impact 的标注界面、silver 标注器均在后续 PR。
+复核分歧的 owner 解决记录、tone/impact 的标注界面、silver 标注器均在后续 PR。

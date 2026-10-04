@@ -74,8 +74,10 @@ the implementation PR series proceeded. It was restored on 2026-09-27 after `mai
   owner batches. D23-c adds `classification-metrics-v4` (annotation tier, explicit experimental-claim
   blockers, prediction slices) and a hash-bound prediction run for the legacy stored `tmt` field, sliced into
   LLM-only, policy-forced and unscored rows. A real 600-case relevance dataset is admitted privately and awaits
-  owner labels; no recheck, tone/impact labeling UI or silver labeler exists yet, so every owner-tier number is
-  still preliminary.
+  owner labels. D23-d adds the fixed, recomputable recheck sample, a blind recheck console mode, a recheck intake
+  that never changes final labels, and a same-owner kappa report that metrics read directly; experimental
+  claims unblock only after a complete recheck with kappa >= 0.70 and no disagreement. Disagreement
+  resolution, tone/impact labeling UIs and the silver labeler do not exist yet.
 
 ## Status rule
 
