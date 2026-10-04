@@ -25,7 +25,7 @@
 </head>
 <body><main>
   <header>
-    <h1>{% if mode == "recheck" %}延时自复核（盲）{% else %}所有者盲标{% endif %} · relevance</h1>
+    <h1>{% if mode == "recheck" %}延时自复核（盲）{% elif mode == "resolve" %}复核分歧裁定{% else %}所有者盲标{% endif %} · relevance</h1>
     {% if mode == "recheck" %}<div class="muted">这些样本你至少 7 天前标过；这里不显示当时的标签，请按定义重新独立判断。</div>{% endif %}
     <div class="muted">数据集 {{ dataset_version }} · 标注人 {{ owner_id }} · 定义 {{ definition }}</div>
     <div class="metrics">
@@ -56,6 +56,20 @@
     {% if case.text %}<div class="text">{{ case.text }}</div>{% else %}<div class="text empty">（没有原文摘录，只能根据标题判断）</div>{% endif %}
   </section>
   <section class="card">
+    {% if mode == "resolve" %}
+    <p>首次标注：<b>{{ prior.first }}</b> · 7 天后复核：<b>{{ prior.recheck }}</b>。请按定义给出最终标签，并写明理由（会随数据集保存）。</p>
+    <form method="post" action="/label/{{ case.case_id }}">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+      <input type="hidden" name="content_sha256" value="{{ case.content_sha256 }}">
+      <div class="actions">
+        {% for value in labels %}
+        <label><input type="radio" name="label" value="{{ value }}" required{% if current == value %} checked{% endif %}> {{ value }}</label>
+        {% endfor %}
+      </div>
+      <textarea name="reason" required maxlength="1000" rows="3" style="box-sizing:border-box;width:100%;margin:12px 0;padding:10px">{{ current_reason or "" }}</textarea>
+      <button type="submit" class="unknown">保存最终决定</button>
+    </form>
+    {% else %}
     <div class="actions">
       {% for value in labels %}
       <form method="post" action="/label/{{ case.case_id }}" id="form-{{ loop.index }}">
@@ -66,6 +80,7 @@
       </form>
       {% endfor %}
     </div>
+    {% endif %}
     <nav>
       <span>{% if previous %}<a id="previous" href="/case/{{ previous }}"><kbd>←</kbd> 上一条</a>{% endif %}</span>
       <span>{% if current %}当前标签：<b>{{ current }}</b>（再次选择会覆盖草稿）{% endif %}</span>
@@ -75,7 +90,8 @@
   <script nonce="{{ nonce }}">
     document.addEventListener("keydown", function (event) {
       if (event.altKey || event.ctrlKey || event.metaKey) { return; }
-      var form = document.getElementById("form-" + event.key);
+      var form = {% if mode == "resolve" %}null{% else %}document.getElementById("form-" + event.key){% endif %};
+      if (event.target && event.target.tagName === "TEXTAREA") { return; }
       if (form) { form.submit(); return; }
       var link = event.key === "ArrowLeft" ? document.getElementById("previous")
         : event.key === "ArrowRight" ? document.getElementById("following") : null;

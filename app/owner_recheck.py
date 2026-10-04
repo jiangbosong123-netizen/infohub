@@ -80,7 +80,7 @@ def owner_recheck_report(
     sample = owner_recheck_sample(cases)
     now = now or datetime.now(timezone.utc)
     confusion = empty_confusion(classes)
-    not_labeled = rechecked = eligible = waiting = disagreements = 0
+    not_labeled = rechecked = eligible = waiting = disagreements = unresolved = 0
     for case_id in sample:
         annotation = by_id[case_id]["annotation"]
         if annotation["state"] != "owner_labeled":
@@ -98,10 +98,10 @@ def owner_recheck_report(
             raise EvaluationDatasetError(f"case {case_id} has a {key_name} outside the task vocabulary")
         confusion[first][second] += 1
         rechecked += 1
-        disagreements += int(recheck["labels"] != annotation["owner_label"]["labels"])
+        disagreement = recheck["labels"] != annotation["owner_label"]["labels"]
+        disagreements += int(disagreement)
+        unresolved += int(disagreement and "owner_resolution" not in annotation)
     agreement = categorical_agreement(confusion, rechecked)
-    # Resolutions are not supported yet, so every disagreement stays unresolved.
-    unresolved = disagreements
     blockers = []
     if protocol is None:
         blockers.append("dataset has no single-owner annotation protocol")

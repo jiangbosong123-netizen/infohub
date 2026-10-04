@@ -472,8 +472,10 @@ def validate_impact_evaluation_dataset(path: Path | str) -> ImpactEvaluationRepo
         if state in {"owner_labeled", "algorithm_labeled"}:
             # Owner and silver labels follow the same contract but never count as gold assessments.
             _validate_impact_label(case)
-        if isinstance(annotation.get("owner_recheck"), dict):
-            _validate_impact_label(case, annotation["owner_recheck"].get("labels"))
+        for key in ("owner_label", "owner_recheck"):
+            # After a resolution the first label may differ from the final one; both stay checked.
+            if isinstance(annotation.get(key), dict):
+                _validate_impact_label(case, annotation[key].get("labels"))
         language = case["language"]
         languages[language] = languages.get(language, 0) + 1
         source = case.get("source_kind")
