@@ -30,7 +30,11 @@ def _local_page_checks() -> dict:
                ORDER BY s.report_date DESC LIMIT 1"""
         ).fetchone()
         topic = db.execute("SELECT slug FROM topics WHERE enabled=1 ORDER BY position LIMIT 1").fetchone()
-        story = db.execute("SELECT id FROM stories WHERE redirect_to IS NULL ORDER BY id LIMIT 1").fetchone()
+        # Same condition the story route uses: an event without public items is a deliberate
+        # 404 ("暂无公开报道"), e.g. after its members were reclassified as non-TMT.
+        story = db.execute(
+            "SELECT id FROM stories WHERE redirect_to IS NULL AND item_count>0 ORDER BY id LIMIT 1"
+        ).fetchone()
         sample = db.execute(
             "SELECT title FROM items WHERE COALESCE(tmt,1)!=0 AND length(trim(title))>0 ORDER BY id LIMIT 1"
         ).fetchone()
