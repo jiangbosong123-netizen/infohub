@@ -78,7 +78,10 @@ the implementation PR series proceeded. It was restored on 2026-09-27 after `mai
   that never changes final labels, and a same-owner kappa report that metrics read directly; experimental
   claims unblock only after a complete recheck with kappa >= 0.70 and no unresolved disagreement. D23-e adds
   reasoned, unblinded owner resolutions of recheck disagreements that become the final label while both
-  earlier labels stay on record. Tone/impact labeling UIs and the silver labeler do not exist yet.
+  earlier labels stay on record. D23-f adds a versioned relevance LLM labeler (`relevance-llm-v1`) with a
+  call budget and full request/response audit; it is evaluated as a model on the owner test split before
+  its train/dev outputs can be imported as silver, and owner labels always take precedence. The owner
+  approved its small paid use on 2026-10-04 (U08). Tone/impact labeling UIs and silver labelers do not exist yet.
 
 ## Status rule
 

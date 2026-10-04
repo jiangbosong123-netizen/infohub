@@ -140,6 +140,34 @@ python -m app.legacy_relevance_run \
   tone/impact 对首次、复核与最终标签都执行任务契约。
 - 同人 κ 仍按首次与复核两次独立判断计算，裁定不会改变 κ；它只把分歧标为已解决。
 
+## relevance silver 标注器（D23-f）
+
+量大时由算法补充 train/dev 标签。`app.silver_relevance_labeler` 是版本化的大模型标注器
+（`relevance-llm-v1`），分三步，每步都写入新的私有不可变目录：
+
+```bash
+# 1. 标注：test 全部预测（用于考试），train/dev 只标仍未标注的 case；必须显式允许付费调用
+python -m app.silver_relevance_labeler label --dataset DATASET --database SNAPSHOT.db \
+  --output LABELS_DIR --env-file /path/to/.env --max-calls 40 --allow-paid-calls
+# 2. 考试：在 owner 已标注 test 的数据集版本上生成 prediction run 与报告
+python -m app.silver_relevance_labeler run --labels LABELS_DIR --dataset OWNER_VERSION --output RUN_DIR
+# 3. 导入：把 train/dev 输出冻结成 algorithm_labeled（silver）新版本
+python -m app.silver_relevance_labeler import --labels LABELS_DIR --evaluation RUN_DIR \
+  --dataset OWNER_VERSION --output NEW_VERSION --dataset-version NEW_VERSION
+```
+
+- **输入与 owner 完全相同。** 只发送按 `legacy-source-text-v2` 重算 hash 一致的冻结标题与摘录（摘录最多
+  1200 字），不发送任何标签或旧模型字段；提示词使用 `relevance-definition-v1`，并声明不执行内容里的指令。
+- **版本与配置。** 模型名、服务主机、温度 0、关闭思考、批大小、摘录上限和提示词 hash 组成配置，配置 hash
+  写入每个 silver case 的 `labeler.config_sha256`；不保存 API key。
+- **预算与留档。** 批次数超过 `--max-calls` 时在任何调用前拒绝；`--dry-run` 不调用模型。每批请求、原始回复、
+  token 用量与错误都保存在 `calls/`；格式错误或拒答重试一次，仍失败的 case 不给标签（`__no_label__`）。
+  回复必须对每个输入 id 恰好给出一个受控标签，多出、缺少或自造标签都整批作废。
+- **先考试再用。** 导入要求同一配置在**同一数据集版本**的 owner test 上有完整的评估 run，并在导入时从 hash
+  绑定文件重新计算，不信任存档报告；结果（准确率、macro F1、是否达到 0.85 目标）写入新数据集 manifest 的
+  `silver_labeler_evaluation`。
+- **owner 优先。** 标注器运行后 owner 又标过的 case 在导入时跳过；silver 只进 train/dev，test 永远只有 owner 标签。
+
 ## 仍未实现
 
-tone/impact 的标注界面、silver 标注器均在后续 PR。
+tone/impact 的标注界面与 silver 标注器尚未实现。
