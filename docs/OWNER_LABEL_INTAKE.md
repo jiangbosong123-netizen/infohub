@@ -128,9 +128,18 @@ python -m app.legacy_relevance_run \
 - **与指标联动。** `classification-metrics-v4` 对 owner 层直接读取该报告，未完成时逐条列出原因；完成后 owner 层
   test 报告的 `experimental_claim_allowed` 才可能为 true（`quality_claim_allowed` 仍只属于 gold）。
 
-分歧解决（owner 看过两次标签后写出最终决定与理由）尚未实现：在它实现前，任何复核分歧都会让复核保持未完成，
-数据集中出现 `owner_resolution` 也会被拒绝。
+## 复核分歧裁定（D23-e）
+
+复核与首次标签不同的 case 需要 owner 写出最终决定与理由。这一步**不是盲的**：标注台 `--resolve` 模式同时
+显示首次标签和复核标签，要求选择最终标签并填写 1–1000 字理由；导出的 `owner-resolution-batch-v1` 如实声明
+`blind=false`，用 `owner_label_intake --kind resolution` 导入。
+
+- 只接受仍有未裁定分歧的样本 case；同一 owner、同一定义；时间不早于复核。
+- 写入 `annotation.owner_resolution`（含理由），并把最终 `labels` 改为裁定结果；首次标签与复核标签原样保留。
+- 校验器要求：裁定只存在于确有分歧的复核之后，字段封闭，owner、hash、时间一致，最终 labels 等于裁定标签；
+  tone/impact 对首次、复核与最终标签都执行任务契约。
+- 同人 κ 仍按首次与复核两次独立判断计算，裁定不会改变 κ；它只把分歧标为已解决。
 
 ## 仍未实现
 
-复核分歧的 owner 解决记录、tone/impact 的标注界面、silver 标注器均在后续 PR。
+tone/impact 的标注界面、silver 标注器均在后续 PR。

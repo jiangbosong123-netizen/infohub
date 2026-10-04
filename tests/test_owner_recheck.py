@@ -12,14 +12,18 @@ from app.evaluation_admission import admit_sampling_plan
 from app.evaluation_sampling import build_sampling_plan
 from app.legacy_relevance_run import build_legacy_tmt_run
 from app.owner_label_console import OwnerConsoleError, OwnerLabelSession, create_owner_label_console
-from app.owner_label_intake import import_owner_label_batch, import_owner_recheck_batch
+from app.owner_label_intake import (
+    import_owner_label_batch,
+    import_owner_recheck_batch,
+    import_owner_resolution_batch,
+)
 from app.owner_recheck import owner_recheck_report
 
 FIRST_LABELED_AT = "2026-09-01T00:00:00Z"
 
 
-class OwnerRecheckTests(unittest.TestCase):
-    """The D23 recheck replaces a second annotator with a delayed blind relabel by the owner."""
+class OwnerRecheckFixture(unittest.TestCase):
+    """Owner labels dated 2026-09-01 on a 200-item legacy snapshot (30-case recheck sample)."""
 
     def setUp(self):
         temporary = tempfile.TemporaryDirectory()
@@ -112,6 +116,10 @@ class OwnerRecheckTests(unittest.TestCase):
         self.assertEqual(result["rechecked_cases"], 30)
         return output
 
+
+class OwnerRecheckTests(OwnerRecheckFixture):
+    """The D23 recheck replaces a second annotator with a delayed blind relabel by the owner."""
+
     def test_agreeing_recheck_completes_and_unblocks_experimental_claim(self):
         before = owner_recheck_report(self.dataset, "relevance")
         self.assertFalse(before.complete)
@@ -194,6 +202,93 @@ class OwnerRecheckTests(unittest.TestCase):
         with self.assertRaisesRegex(OwnerConsoleError, "no sampled case is due"):
             OwnerLabelSession(fresh, self.database, self.root / "drafts", owner_id="owner",
                               mode="recheck")
+
+
+class OwnerResolutionTests(OwnerRecheckFixture):
+    """Disagreements get the owner's reasoned final decision; earlier labels stay on record."""
+
+    def test_resolutions_complete_the_recheck_and_become_final_labels(self):
+        flipped = [self.sample[0], self.sample[1]]
+        rechecked = self.recheck_via_console(flip=set(flipped))
+        session = OwnerLabelSession(rechecked, self.database, self.root / "drafts",
+                                    owner_id="owner", mode="resolve")
+        self.assertEqual(session.order, [case_id for case_id in self.sample if case_id in flipped])
+        client = TestClient(create_owner_label_console(session, csrf_token="t"))
+        page = client.get(f"/case/{flipped[0]}").text
+        self.assertIn("首次标注：<b>" + self.truth[flipped[0]], page)
+        self.assertIn("复核：<b>unknown", page)
+        digest = session.by_id[flipped[0]]["content_sha256"]
+        no_reason = client.post(f"/label/{flipped[0]}", data={
+            "csrf_token": "t", "content_sha256": digest, "label": "relevant"})
+        self.assertEqual(no_reason.status_code, 400)
+        for case_id in flipped:
+            session.record(case_id, "not_relevant", session.by_id[case_id]["content_sha256"],
+                           "headline is a market recap, not about a tech company")
+        batch = self.root / "resolution-batch"
+        session.export(batch)
+        manifest = json.loads((batch / "manifest.json").read_text())
+        self.assertEqual((manifest["schema_version"], manifest["blind"]),
+                         ("owner-resolution-batch-v1", False))
+        resolved = self.root / "owner-v3"
+        result = import_owner_resolution_batch("relevance", rechecked, batch, resolved,
+                                               dataset_version="recheck-owner-v3")
+        self.assertEqual(result["resolved_cases"], 2)
+        cases = {case["case_id"]: case for case in self.cases(resolved)}
+        for case_id in flipped:
+            annotation = cases[case_id]["annotation"]
+            self.assertEqual(annotation["labels"], {"relevance": "not_relevant"})
+            self.assertEqual(annotation["owner_label"]["labels"], {"relevance": self.truth[case_id]})
+            self.assertEqual(annotation["owner_recheck"]["labels"], {"relevance": "unknown"})
+        report = owner_recheck_report(resolved, "relevance")
+        self.assertEqual((report.disagreements, report.unresolved_disagreements), (2, 0))
+        self.assertGreaterEqual(report.agreement.cohen_kappa, 0.70)
+        self.assertTrue(report.complete, report.blockers)
+        metrics = build_legacy_tmt_run(resolved, self.database, self.root / "resolved-run")
+        self.assertTrue(metrics["experimental_claim_allowed"], metrics["claim_blockers"])
+
+    def test_resolution_rejections(self):
+        flipped = self.sample[0]
+        rechecked = self.recheck_via_console(flip={flipped})
+        agreeing = self.sample[1]
+        for name, case_id, schema, blind, reason, recorded_at, message in (
+            ("agreeing", agreeing, "owner-resolution-batch-v1", False, "x", "2026-12-01T00:00:00Z",
+             "no open recheck disagreement"),
+            ("claims-blind", flipped, "owner-resolution-batch-v1", True, "x", "2026-12-01T00:00:00Z",
+             "unblinded"),
+            ("no-reason", flipped, "owner-resolution-batch-v1", False, "  ", "2026-12-01T00:00:00Z",
+             "requires a reason"),
+            ("before-recheck", flipped, "owner-resolution-batch-v1", False, "x", "2026-09-10T00:00:00Z",
+             "predates its recheck"),
+        ):
+            with self.subTest(name):
+                batch = self.root / f"resolution-{name}"
+                batch.mkdir()
+                source = rechecked
+                digest = next(c["content_sha256"] for c in self.cases(source) if c["case_id"] == case_id)
+                (batch / "manifest.json").write_text(json.dumps({
+                    "schema_version": schema, "task": "relevance",
+                    "label_definition": "relevance-definition-v1",
+                    "source_dataset_version": "recheck-owner-v2",
+                    "source_manifest_sha256": hashlib.sha256((source / "manifest.json").read_bytes()).hexdigest(),
+                    "source_cases_sha256": hashlib.sha256((source / "cases.jsonl").read_bytes()).hexdigest(),
+                    "owner_id": "owner", "source": "human", "blind": blind, "model_assistance": False,
+                }), encoding="utf-8")
+                (batch / "reviews.jsonl").write_text(json.dumps({
+                    "case_id": case_id, "content_sha256": digest, "recorded_at": recorded_at,
+                    "labels": {"relevance": "relevant"}, "reason": reason,
+                }) + "\n", encoding="utf-8")
+                with self.assertRaisesRegex(EvaluationDatasetError, message):
+                    import_owner_resolution_batch("relevance", source, batch, self.root / f"out-{name}",
+                                                  dataset_version=f"resolution-{name}")
+                self.assertFalse((self.root / f"out-{name}").exists())
+
+    def test_label_and_recheck_modes_never_reveal_prior_labels(self):
+        session = OwnerLabelSession(self.dataset, self.database, self.root / "drafts",
+                                    owner_id="owner", mode="recheck")
+        self.assertIsNone(session.prior_labels(self.sample[0]))
+        page = TestClient(create_owner_label_console(session, csrf_token="t")).get(
+            f"/case/{self.sample[0]}").text
+        self.assertNotIn("首次标注：", page)
 
 
 if __name__ == "__main__":

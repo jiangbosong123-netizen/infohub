@@ -31,6 +31,10 @@ OWNER_RECHECK_VERSION = "owner-recheck-v1"
 OWNER_RECHECK_MIN_GAP = timedelta(days=7)
 OWNER_RECHECK_MIN_CASES = 30
 OWNER_RECHECK_FRACTION = 0.10
+# A resolution is the owner's reasoned final decision after seeing both labels (not blind).
+OWNER_RESOLUTION_FIELDS = frozenset({
+    "owner_id", "source", "model_assistance", "content_sha256", "recorded_at", "labels", "reason",
+})
 GOLD_STATES = {"adjudicated", "synthetic_fixture"}
 SCHEMA_VERSION = "evaluation-dataset-v1"
 MINIMUM_GOLD_TARGETS = {"documents": 600, "event_groups": 150,
@@ -233,11 +237,39 @@ def _validate_owner_label(case_id: str, annotation: dict, digest: str, owner_id:
     if record["content_sha256"] != digest:
         raise EvaluationDatasetError(f"case {case_id} owner label lacks frozen-content binding")
     _review_time(record["recorded_at"], case_id)
-    if not isinstance(record["labels"], dict) or not record["labels"] or record["labels"] != annotation["labels"]:
-        raise EvaluationDatasetError(f"case {case_id} owner label does not match final labels")
-    if "owner_resolution" in annotation:
-        # Resolving a recheck disagreement needs its own reviewed format; fail closed until then.
-        raise EvaluationDatasetError(f"case {case_id} owner resolutions are not supported yet")
+    if not isinstance(record["labels"], dict) or not record["labels"]:
+        raise EvaluationDatasetError(f"case {case_id} owner label has no labels")
+    resolution = annotation.get("owner_resolution")
+    final = resolution.get("labels") if isinstance(resolution, dict) else record["labels"]
+    if final != annotation["labels"]:
+        source = "owner resolution" if resolution is not None else "owner label"
+        raise EvaluationDatasetError(f"case {case_id} {source} does not match final labels")
+
+
+def _validate_owner_resolution(case_id: str, annotation: dict, digest: str, owner_id: str) -> None:
+    resolution = annotation["owner_resolution"]
+    recheck = annotation.get("owner_recheck")
+    if not isinstance(recheck, dict):
+        raise EvaluationDatasetError(f"case {case_id} owner resolution requires a recheck")
+    if recheck["labels"] == annotation["owner_label"]["labels"]:
+        raise EvaluationDatasetError(f"case {case_id} owner resolution is only for recheck disagreements")
+    if not isinstance(resolution, dict) or set(resolution) != OWNER_RESOLUTION_FIELDS:
+        raise EvaluationDatasetError(f"case {case_id} has invalid owner_resolution provenance")
+    if (
+        resolution["owner_id"] != owner_id
+        or resolution["source"] != "human"
+        or resolution["model_assistance"] is not False
+    ):
+        raise EvaluationDatasetError(f"case {case_id} owner resolution must be human, by the declared owner")
+    if resolution["content_sha256"] != digest:
+        raise EvaluationDatasetError(f"case {case_id} owner resolution lacks frozen-content binding")
+    if not isinstance(resolution["labels"], dict) or not resolution["labels"]:
+        raise EvaluationDatasetError(f"case {case_id} owner resolution has no labels")
+    reason = resolution["reason"]
+    if not isinstance(reason, str) or not reason.strip() or len(reason) > 1000:
+        raise EvaluationDatasetError(f"case {case_id} owner resolution requires a reason (1-1000 chars)")
+    if _time(resolution["recorded_at"], case_id) < _time(recheck["recorded_at"], case_id):
+        raise EvaluationDatasetError(f"case {case_id} owner resolution predates its recheck")
 
 
 def _validate_silver_label(case_id: str, split: str, annotation: dict, digest: str) -> None:
@@ -415,7 +447,9 @@ def validate_evaluation_dataset(path: Path | str) -> EvaluationReport:
         if annotation.get("generated_by_model") and state in {"single_annotator", "adjudicated", "owner_labeled"}:
             raise EvaluationDatasetError(f"case {case_id} cannot use model output as gold")
         # Tiers never mix: provenance of one tier on a case of another is a hidden upgrade path.
-        if state != "owner_labeled" and ("owner_label" in annotation or "owner_recheck" in annotation):
+        if state != "owner_labeled" and any(
+            key in annotation for key in ("owner_label", "owner_recheck", "owner_resolution")
+        ):
             raise EvaluationDatasetError(f"case {case_id} carries owner_label outside owner tier")
         if state != "algorithm_labeled" and "labeler" in annotation:
             raise EvaluationDatasetError(f"case {case_id} carries labeler outside silver tier")
@@ -428,6 +462,8 @@ def validate_evaluation_dataset(path: Path | str) -> EvaluationReport:
             _validate_owner_label(case_id, annotation, digest, owner_id)
             if "owner_recheck" in annotation:
                 _validate_owner_recheck(case_id, annotation, digest, owner_id, case_id in recheck_sample)
+            if "owner_resolution" in annotation:
+                _validate_owner_resolution(case_id, annotation, digest, owner_id)
         if state == "algorithm_labeled":
             _validate_silver_label(case_id, split, annotation, digest)
         if state == "single_annotator":

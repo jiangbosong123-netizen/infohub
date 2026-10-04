@@ -41,6 +41,8 @@ BATCH_MANIFEST_FIELDS = frozenset({
 })
 OWNER_BATCH_VERSION = "owner-label-batch-v1"
 OWNER_RECHECK_BATCH_VERSION = "owner-recheck-batch-v1"
+OWNER_RESOLUTION_BATCH_VERSION = "owner-resolution-batch-v1"
+RESOLUTION_ROW_FIELDS = frozenset({"case_id", "content_sha256", "recorded_at", "labels", "reason"})
 OWNER_BATCH_MANIFEST_FIELDS = frozenset({
     "schema_version", "task", "label_definition", "source_dataset_version",
     "source_manifest_sha256", "source_cases_sha256", "owner_id", "source", "blind",
@@ -221,7 +223,8 @@ def _load_batch(
 
 
 def _rows(
-    task: ReviewIntakeTask, label: str, batch_path: Path, batch: _Batch, source: _Source
+    task: ReviewIntakeTask, label: str, batch_path: Path, batch: _Batch, source: _Source,
+    fields: frozenset[str] = REVIEW_ROW_FIELDS,
 ) -> Iterator[tuple[dict, dict]]:
     """Yield (row, case) after the checks every human label row must pass."""
     by_id = {case["case_id"]: case for case in source.cases}
@@ -230,7 +233,7 @@ def _rows(
         raise EvaluationDatasetError(f"{label} batch is empty")
     seen: set[str] = set()
     for row in rows:
-        if set(row) != REVIEW_ROW_FIELDS:
+        if set(row) != fields:
             raise EvaluationDatasetError(f"{label} row has invalid fields")
         case_id = _require_text(row.get("case_id"), "case_id", "review")
         if case_id in seen or case_id not in by_id:
@@ -445,7 +448,7 @@ def run_owner_label_intake(
 
 
 def _owner_batch(task: ReviewIntakeTask, label: str, batch: Path, source: _Source,
-                 schema_version: str) -> tuple[_Batch, str, str]:
+                 schema_version: str, *, blind: bool = True) -> tuple[_Batch, str, str]:
     bound = _load_batch(label, batch, schema_version, OWNER_BATCH_MANIFEST_FIELDS, source)
     if bound.manifest.get("task") != task.task_id:
         raise EvaluationDatasetError(f"{label} batch is not for task {task.task_id}")
@@ -453,10 +456,11 @@ def _owner_batch(task: ReviewIntakeTask, label: str, batch: Path, source: _Sourc
     definition = _require_text(bound.manifest.get("label_definition"), "label_definition", "batch")
     if (
         bound.manifest.get("source") != "human"
-        or bound.manifest.get("blind") is not True
+        or bound.manifest.get("blind") is not blind
         or bound.manifest.get("model_assistance") is not False
     ):
-        raise EvaluationDatasetError(f"{label} batch requires a blind, no-model human attestation")
+        kind = "a blind" if blind else "an unblinded (both labels seen)"
+        raise EvaluationDatasetError(f"{label} batch requires {kind}, no-model human attestation")
     return bound, owner, definition
 
 
@@ -514,6 +518,68 @@ def run_owner_recheck_intake(
         "dataset_version": dataset_version,
         "owner_id": owner,
         "rechecked_cases": rechecked,
+    }
+
+
+def run_owner_resolution_intake(
+    task: ReviewIntakeTask,
+    source: Path | str,
+    batch: Path | str,
+    output: Path | str,
+    *,
+    dataset_version: str,
+) -> dict:
+    """Record the owner's reasoned final label for recheck disagreements (seen both labels)."""
+    label = "owner resolution"
+    source, batch, output = Path(source), Path(batch), Path(output)
+    _check_paths(label, source, batch, output)
+    loaded = _load_source(task, label, source, dataset_version)
+    bound, owner, definition = _owner_batch(
+        task, label, batch, loaded, OWNER_RESOLUTION_BATCH_VERSION, blind=False
+    )
+    declared = owner_protocol(loaded.manifest)
+    if declared is None or declared["owner_id"] != owner or declared["label_definition"] != definition:
+        raise EvaluationDatasetError("owner resolution must use the dataset's owner and label definition")
+    resolved = 0
+    for row, case in _rows(task, label, batch, bound, loaded, RESOLUTION_ROW_FIELDS):
+        case_id = case["case_id"]
+        annotation = case["annotation"]
+        recheck = annotation.get("owner_recheck")
+        if (
+            annotation.get("state") != "owner_labeled"
+            or not isinstance(recheck, dict)
+            or recheck["labels"] == annotation["owner_label"]["labels"]
+            or "owner_resolution" in annotation
+        ):
+            raise EvaluationDatasetError(f"owner resolution case {case_id} has no open recheck disagreement")
+        reason = row["reason"]
+        if not isinstance(reason, str) or not reason.strip() or len(reason) > 1000:
+            raise EvaluationDatasetError(f"owner resolution case {case_id} requires a reason (1-1000 chars)")
+        if _time(row["recorded_at"], case_id) < _time(recheck["recorded_at"], case_id):
+            raise EvaluationDatasetError(f"owner resolution case {case_id} predates its recheck")
+        annotation["owner_resolution"] = {
+            "owner_id": owner,
+            "source": "human",
+            "model_assistance": False,
+            "content_sha256": case["content_sha256"],
+            "recorded_at": row["recorded_at"],
+            "labels": row["labels"],
+            "reason": reason.strip(),
+        }
+        annotation["labels"] = row["labels"]
+        resolved += 1
+    _publish(
+        task, label, source, output, loaded, bound,
+        dataset_version=dataset_version,
+        prefix="owner_resolution_batch",
+        schema_version=OWNER_RESOLUTION_BATCH_VERSION,
+    )
+    return {
+        "task": task.task_id,
+        "source_dataset_version": loaded.report.dataset_version,
+        "dataset_version": dataset_version,
+        "owner_id": owner,
+        "resolved_cases": resolved,
     }
 
 

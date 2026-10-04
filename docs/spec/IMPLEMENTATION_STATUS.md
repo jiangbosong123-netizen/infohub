@@ -76,8 +76,9 @@ the implementation PR series proceeded. It was restored on 2026-09-27 after `mai
   LLM-only, policy-forced and unscored rows. A real 600-case relevance dataset is admitted privately and awaits
   owner labels. D23-d adds the fixed, recomputable recheck sample, a blind recheck console mode, a recheck intake
   that never changes final labels, and a same-owner kappa report that metrics read directly; experimental
-  claims unblock only after a complete recheck with kappa >= 0.70 and no disagreement. Disagreement
-  resolution, tone/impact labeling UIs and the silver labeler do not exist yet.
+  claims unblock only after a complete recheck with kappa >= 0.70 and no unresolved disagreement. D23-e adds
+  reasoned, unblinded owner resolutions of recheck disagreements that become the final label while both
+  earlier labels stay on record. Tone/impact labeling UIs and the silver labeler do not exist yet.
 
 ## Status rule
 
