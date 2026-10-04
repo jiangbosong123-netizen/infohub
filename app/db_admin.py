@@ -3761,6 +3761,21 @@ def _tone_publication_activation_gate(db: sqlite3.Connection) -> None:
     _execute_script(db, TONE_PUBLICATION_ACTIVATION_GATE_SQL)
 
 
+# claim_job orders claimable rows by priority first; idx_jobs_epoch_claim leads with state and
+# next_attempt_at, so every claim sorted the whole backlog (93 ms per claim at 348k pending
+# jobs in the cutover rehearsal). This partial index matches the WHERE and the full ORDER BY,
+# so the first claimable row is read in index order. Claim order is unchanged.
+JOB_CLAIM_ORDER_INDEX_SQL = """
+CREATE INDEX idx_jobs_claim_order
+    ON jobs(dataset_epoch, priority DESC, next_attempt_at, scheduled_for, created_at, id)
+    WHERE state IN ('pending','retry_wait');
+"""
+
+
+def _job_claim_order_index(db: sqlite3.Connection) -> None:
+    _execute_script(db, JOB_CLAIM_ORDER_INDEX_SQL)
+
+
 # Migration 1 freezes the exact legacy schema at main@88a2a1e. Future schema
 # changes must append a new Migration instead of editing this definition.
 MIGRATIONS = (
@@ -3937,6 +3952,8 @@ MIGRATIONS = (
     Migration(44, "bind valid tone publication to active release",
               TONE_PUBLICATION_ACTIVATION_GATE_SQL,
               _tone_publication_activation_gate),
+    Migration(45, "ordered partial index for durable job claims",
+              JOB_CLAIM_ORDER_INDEX_SQL, _job_claim_order_index),
 )
 CURRENT_SCHEMA_VERSION = MIGRATIONS[-1].version
 REQUIRED_MIGRATION_COLUMNS = {

@@ -71,3 +71,11 @@ schedule 的下一次时间保存在 SQLite。进程停机期间错过多个周�
   检查容器镜像 SHA，不要放宽版本检查。
 - 来源异常但 ready：发布本身可接受，pipeline 仍 degraded；根据来源错误和退避时间处理。
 - migrate 失败：web/worker 不应切换。使用已生成备份和迁移报告排查，不能跳过 migrate 强启。
+
+## 任务领取索引（schema 45）
+
+`claim_job` 先按 priority、再按到期时间领取。schema 45 增加只覆盖 `pending/retry_wait` 的有序部分索引
+`idx_jobs_claim_order`，使数据库按索引顺序直接读出第一条可领取任务，不再在每次领取时把整个积压排序。领取顺序
+不变；在 34.8 万条积压的演练副本上，单次领取查询从约 93 ms 降到 0.03 ms（见
+[`docs/evidence/perf-job-claim-index.json`](evidence/perf-job-claim-index.json)）。
+
