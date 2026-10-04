@@ -79,3 +79,10 @@ schedule 的下一次时间保存在 SQLite。进程停机期间错过多个周�
 不变；在 34.8 万条积压的演练副本上，单次领取查询从约 93 ms 降到 0.03 ms（见
 [`docs/evidence/perf-job-claim-index.json`](evidence/perf-job-claim-index.json)）。
 
+## 发布与预算查询索引（schema 46）
+
+每次分析结果发布都会按 `version_id` 查 `change_log` 做幂等检查，每次模型调用授权都会汇总当天已预留预算。
+这两个查询原先没有可用索引，耗时随全部历史线性增长（演练副本 4.8 万行时分别约 15 ms 与 5 ms）。schema 46 增加
+`idx_change_log_version` 与覆盖索引 `idx_analysis_authorizations_budget`，查询语句与结果不变（抽样 300 个已有与
+50 个不存在的 version_id、各 provider × 各日预算汇总全部一致）；`change_log` 查询降到约 0.002 ms。
+

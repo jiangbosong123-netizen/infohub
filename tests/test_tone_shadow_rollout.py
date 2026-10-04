@@ -440,7 +440,7 @@ class ToneShadowRolloutTests(unittest.TestCase):
                 "SELECT COUNT(*) FROM analysis_publications"
             ).fetchone()[0], 0)
         self.assertEqual(
-            db_admin.verify_database(self.path, require_current=True).schema_version, 45
+            db_admin.verify_database(self.path, require_current=True).schema_version, 46
         )
 
     def test_config_is_bounded_and_cannot_enable_serving(self):
@@ -510,7 +510,7 @@ class ToneShadowRolloutTests(unittest.TestCase):
             db_admin.apply_migrations(db, db_admin.MIGRATIONS[:41])
             db.execute("INSERT INTO sources(key,name,channel,type) VALUES('x','X','ai','rss')")
         report = db_admin.migrate_database(predecessor)
-        self.assertEqual(report.applied_versions, (42, 43, 44, 45))
+        self.assertEqual(report.applied_versions, (42, 43, 44, 45, 46))
         self.assertEqual(db_admin.verify_database(report.backup_path).schema_version, 41)
         with database.get_db(predecessor) as db:
             self.assertEqual(db.execute(
@@ -637,7 +637,7 @@ class ToneShadowRolloutTests(unittest.TestCase):
             with self.assertRaisesRegex(Exception, "immutable"):
                 db.execute("UPDATE tone_release_activations SET profile_id='changed'")
         self.assertEqual(
-            db_admin.verify_database(self.path, require_current=True).schema_version, 45
+            db_admin.verify_database(self.path, require_current=True).schema_version, 46
         )
 
     def test_database_verifier_rejects_raw_activation_artifact_tampering(self):
@@ -863,7 +863,7 @@ class ToneShadowRolloutTests(unittest.TestCase):
             db_admin.apply_migrations(db, db_admin.MIGRATIONS[:42])
             db.execute("INSERT INTO sources(key,name,channel,type) VALUES('x','X','ai','rss')")
         report = db_admin.migrate_database(predecessor)
-        self.assertEqual(report.applied_versions, (43, 44, 45))
+        self.assertEqual(report.applied_versions, (43, 44, 45, 46))
         self.assertEqual(db_admin.verify_database(report.backup_path).schema_version, 42)
         with database.get_db(predecessor) as db:
             self.assertEqual(db.execute(
@@ -876,7 +876,7 @@ class ToneShadowRolloutTests(unittest.TestCase):
             db_admin.apply_migrations(db, db_admin.MIGRATIONS[:43])
             db.execute("INSERT INTO sources(key,name,channel,type) VALUES('x','X','ai','rss')")
         report = db_admin.migrate_database(predecessor)
-        self.assertEqual(report.applied_versions, (44, 45))
+        self.assertEqual(report.applied_versions, (44, 45, 46))
         self.assertEqual(db_admin.verify_database(report.backup_path).schema_version, 43)
         with database.get_db(predecessor) as db:
             columns = {
