@@ -93,12 +93,33 @@ class EvaluationMetricTests(unittest.TestCase):
    self.assertEqual(report.missing_predictions,1)
    self.assertEqual(report.abstained,1)
    self.assertFalse(report.quality_claim_allowed)
-   self.assertEqual(report.metrics_version,"classification-metrics-v3")
+   self.assertEqual(report.metrics_version,"classification-metrics-v4")
    self.assertIn("__abstain__",report.labels)
    self.assertNotIn("__abstain__",report.scored_labels)
    self.assertEqual({entry.label for entry in report.per_class},set(report.scored_labels))
    self.assertEqual(report.confusion["relevant"]["__abstain__"],1)
    self.assertAlmostEqual(report.macro_f1,0.8)
+
+ def test_tier_and_experimental_blockers_are_explicit(self):
+  with tempfile.TemporaryDirectory() as td:
+   report=evaluate_classification(DATA,self.v2_run(Path(td),"test"))
+  self.assertEqual(report.annotation_tier,"synthetic")
+  self.assertFalse(report.experimental_claim_allowed)
+  self.assertTrue(any("not synthetic" in item for item in report.claim_blockers))
+  self.assertEqual(report.slices,{})
+
+ def test_prediction_slices_must_be_sorted_identifiers(self):
+  for tags in (["b","a"],["Bad Tag"],"llm_only",["a","a"]):
+   with self.subTest(tags=tags), tempfile.TemporaryDirectory() as td:
+    root=Path(td); run_path=self.v2_run(root,"test")
+    rows=[json.loads(line) for line in (root/"predictions.jsonl").read_text().splitlines()]
+    rows[0]["slices"]=tags
+    lines="".join(json.dumps(row)+"\n" for row in rows)
+    (root/"predictions.jsonl").write_text(lines)
+    run=json.loads(run_path.read_text()); run["predictions_sha256"]=hashlib.sha256(lines.encode()).hexdigest()
+    run_path.write_text(json.dumps(run))
+    with self.assertRaisesRegex(EvaluationDatasetError,"invalid slices"):
+     evaluate_classification(DATA,run_path)
 
  def test_v1_engineering_score_remains_reproducible(self):
   report=evaluate_classification(DATA,RUN)
