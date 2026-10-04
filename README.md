@@ -130,7 +130,8 @@ web port is bound to `127.0.0.1` and reached privately through Tailscale Serve
 A companion deployment manager (separate repository) polls this repository and applies
 fast-forward-only updates of `main`, passing the commit SHA into the container so
 `/api/health` reports the exact running version.
-Day-to-day commands, backups and restores are in [`docs/RUNBOOK.md`](docs/RUNBOOK.md).
+Day-to-day commands, backups and restores are in [`docs/RUNBOOK.md`](docs/RUNBOOK.md). A tested macOS
+launchd alternative with the same roles lives in [`deploy/macos/`](deploy/macos/README.md); only one host may collect.
 
 ## Tests and CI
 

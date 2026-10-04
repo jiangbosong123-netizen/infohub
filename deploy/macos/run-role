@@ -1,0 +1,31 @@
+#!/bin/zsh
+# Start one InfoHub role with the same environment split as compose.yaml:
+# every role reads common.env; only the worker also reads worker.env (model and SEC secrets).
+set -euo pipefail
+PREFIX="${0:A:h:h}"
+ROLE="${1:?usage: run-role web|worker|worker-config|maintenance [cli args...]}"
+shift
+set -a
+source "$PREFIX/config/common.env"
+if [[ "$ROLE" == worker || "$ROLE" == worker-config ]]; then
+  source "$PREFIX/config/worker.env"
+fi
+set +a
+case "$ROLE" in
+  web)
+    export INFOHUB_PROCESS_ROLE=web INFOHUB_ALLOW_NETWORK_TASKS=false INFOHUB_ENABLE_SCHEDULER=false
+    exec "$PREFIX/code/.venv/bin/python" "$PREFIX/code/cli.py" serve ;;
+  worker)
+    export INFOHUB_PROCESS_ROLE=worker
+    export INFOHUB_ALLOW_NETWORK_TASKS="${INFOHUB_ALLOW_NETWORK_TASKS:-true}"
+    export INFOHUB_ENABLE_SCHEDULER="${INFOHUB_ENABLE_SCHEDULER:-true}"
+    exec "$PREFIX/code/.venv/bin/python" "$PREFIX/code/cli.py" worker ;;
+  worker-config)
+    # The exact worker configuration, validated and printed (no secrets) without starting the loop.
+    export INFOHUB_PROCESS_ROLE=worker INFOHUB_ALLOW_NETWORK_TASKS=true INFOHUB_ENABLE_SCHEDULER=true
+    exec "$PREFIX/code/.venv/bin/python" "$PREFIX/code/cli.py" runtime-config ;;
+  maintenance)
+    export INFOHUB_PROCESS_ROLE=maintenance INFOHUB_ALLOW_NETWORK_TASKS=false INFOHUB_ENABLE_SCHEDULER=false
+    exec "$PREFIX/code/.venv/bin/python" "$PREFIX/code/cli.py" "$@" ;;
+  *) echo "unknown role $ROLE" >&2; exit 2 ;;
+esac

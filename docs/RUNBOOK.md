@@ -53,6 +53,9 @@ INFOHUB_LEGACY_DATA_LAYOUT=true .venv/bin/python cli.py runtime-config
 防火墙规则或路由器端口映射。切换与回滚见 [私网 HTTPS 生产入口](PRIVATE_HTTPS_INGRESS.md)，web/worker
 运维边界见 [web/worker 运维说明](WORKER_OPERATIONS.md)。
 
+这台 Mac 上运行同样三种角色的备选方案（launchd）见 [`deploy/macos/README.md`](../deploy/macos/README.md)；
+两台机器不能同时作为生产采集器。
+
 健康检查：
 
 - `/api/live`：web 进程能响应；
