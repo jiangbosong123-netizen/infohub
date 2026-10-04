@@ -3776,6 +3776,21 @@ def _job_claim_order_index(db: sqlite3.Connection) -> None:
     _execute_script(db, JOB_CLAIM_ORDER_INDEX_SQL)
 
 
+# Two lookups ran on every publication and every model-call authorization but had no usable
+# index, so their cost grew with all history: the idempotent change check by version_id scanned
+# change_log, and the daily budget reservation sum scanned every authorization ever made. In the
+# cutover rehearsal they cost 15 ms and 5 ms per job at 48k rows. Queries are unchanged.
+PUBLICATION_LOOKUP_INDEX_SQL = """
+CREATE INDEX idx_change_log_version ON change_log(version_id);
+CREATE INDEX idx_analysis_authorizations_budget
+    ON analysis_attempt_authorizations(provider, budget_day, decision, reserved_cost_microusd);
+"""
+
+
+def _publication_lookup_indexes(db: sqlite3.Connection) -> None:
+    _execute_script(db, PUBLICATION_LOOKUP_INDEX_SQL)
+
+
 # Migration 1 freezes the exact legacy schema at main@88a2a1e. Future schema
 # changes must append a new Migration instead of editing this definition.
 MIGRATIONS = (
@@ -3954,6 +3969,8 @@ MIGRATIONS = (
               _tone_publication_activation_gate),
     Migration(45, "ordered partial index for durable job claims",
               JOB_CLAIM_ORDER_INDEX_SQL, _job_claim_order_index),
+    Migration(46, "indexes for publication idempotency and budget lookups",
+              PUBLICATION_LOOKUP_INDEX_SQL, _publication_lookup_indexes),
 )
 CURRENT_SCHEMA_VERSION = MIGRATIONS[-1].version
 REQUIRED_MIGRATION_COLUMNS = {
