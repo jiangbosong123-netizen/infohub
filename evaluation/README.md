@@ -20,7 +20,7 @@
 
 数据集状态 `owner_labeled` / `algorithm_labeled`、owner 盲标导入命令与 relevance 本地标注台已实现，见
 [`docs/OWNER_LABEL_INTAKE.md`](../docs/OWNER_LABEL_INTAKE.md)。延时盲复核（样本、标注台模式、导入与同人 κ
-报告）与复核分歧裁定也已实现；tone/impact 标注界面和 silver 标注器仍按小 PR 逐项实现，进度见 [实施状态](../docs/spec/IMPLEMENTATION_STATUS.md)。owner 标签可用
+报告）、复核分歧裁定与 relevance 大模型 silver 标注器也已实现；tone/impact 标注界面与 silver 标注器仍按小 PR 逐项实现，进度见 [实施状态](../docs/spec/IMPLEMENTATION_STATUS.md)。owner 标签可用
 `app.legacy_relevance_run` 评估旧 `tmt` 字段；`classification-metrics-v4` 报告会标出标注层级和 experimental
 结论的阻断原因。
 
