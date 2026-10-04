@@ -142,6 +142,24 @@ class EvidenceBackupTests(unittest.TestCase):
             restore_backup_bundle(bundle, restored)
         self.assertFalse(restored.exists())
 
+    def test_portal_smoke_opens_a_public_story_not_an_empty_one(self):
+        with database.get_db() as db:
+            for story_id, count in (("0000-empty-story", 0), ("public-story", 1)):
+                # The empty story sorts first; without public members the portal answers 404.
+                db.execute("""INSERT INTO stories(id,anchor_item_id,title,channel,url,first_at,last_at,
+                                                  item_count,source_count)
+                              VALUES(?,1,'Evidence','ai','https://example.test/one',
+                                     '2026-09-18T12:00:00Z','2026-09-18T12:00:00Z',?,?)""",
+                           (story_id, count, count))
+            db.execute("""INSERT INTO story_items(item_id,story_id,match_reason,match_score)
+                          VALUES(1,'public-story','titles-v3',1.0)
+                          ON CONFLICT(item_id) DO UPDATE SET story_id='public-story'""")
+        bundle = self.root / "backups" / "empty-story.bundle"
+        create_backup_bundle(bundle)
+        result = smoke_restored_bundle(bundle)
+        story = next(entry for entry in result["checks"] if entry["name"] == "story_detail")
+        self.assertEqual((result["status"], story["http_status"]), ("ok", 200))
+
     def test_portal_smoke_catches_read_failure_with_intact_sqlite(self):
         with database.get_db() as db:
             db.execute("UPDATE items SET published_at='invalid-time' WHERE id=1")
