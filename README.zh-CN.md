@@ -110,7 +110,8 @@ blob、备份和心跳持久化在 `./data`。门户端口只绑定 `127.0.0.1`�
 （[私网 HTTPS 生产入口](docs/PRIVATE_HTTPS_INGRESS.md)）。
 
 配套部署管理器（独立仓库）轮询本仓库并以 fast-forward 方式应用 `main` 的更新，把提交 SHA 传入容器，
-使 `/api/health` 报告确切的运行版本。日常命令、备份与恢复见 [运行手册](docs/RUNBOOK.md)。在这台 Mac 上用 launchd
+使 `/api/health` 报告确切的运行版本。日常命令、备份与恢复见 [运行手册](docs/RUNBOOK.md)。第一次生产升级的方案（基于真实数据完整演练）见
+[生产升级方案](docs/CUTOVER_PLAN.md)。在这台 Mac 上用 launchd
 运行同样三种角色的备选方案见 [`deploy/macos/`](deploy/macos/README.md)，两台机器只能有一台采集。
 
 ## 测试与 CI

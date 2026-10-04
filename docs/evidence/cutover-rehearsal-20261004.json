@@ -1,0 +1,62 @@
+{
+  "phase": "cutover rehearsal",
+  "recorded_at": "2026-10-04T00:00:00Z",
+  "environment": "macOS isolated copy of the Mac legacy database; INFOHUB_ENVIRONMENT=development, explicit private paths, no network, no model calls",
+  "production_changed": false,
+  "windows_touched": false,
+  "live_database_modified": false,
+  "source": {
+    "items": 89575,
+    "published_range": "2025-12-09..2026-10-03",
+    "fetched_range": "2026-09-11..2026-10-03",
+    "schema_before": 0,
+    "legacy_story_match_version": "titles-v2",
+    "copy_method": "SQLite online backup, then read-only (mode 0400)",
+    "sha256": "8cab6b8160e8f4ae079cd3952481dfb55b7fbe109cfcd28998cf49816dd01e74"
+  },
+  "code": "main from 8187b9f to 18452b2; schema reached 46 after #152 and #153 were merged mid-rehearsal",
+  "steps": {
+    "prepare_release": {"seconds_before_pr150": 624.2, "seconds_after_pr150_deterministic": 284.9, "seconds_after_pr150_macos_kit": 293.7, "note": "first upgrade re-clusters every titles-v2 membership; only step that needs downtime"},
+    "legacy_backfill": {"seconds": 1148.2, "items_mapped": 89575, "discoveries_mapped": 103112, "reports_mapped": 22, "unexplained": 0},
+    "legacy_topic_backfill": {"seconds": 16.0, "mapped": 95203, "unexplained": 0},
+    "legacy_event_project": {"seconds": 17.6, "stories_seen": 76572, "events_created": 72676, "decisions": 57924},
+    "legacy_curation_import": {
+      "jobs": 358300, "succeeded": 358300, "tasks": {"translation": 89575, "relevance": 89575, "summarization": 89575, "importance": 89575},
+      "result_statuses": {"needs_review": 358174, "insufficient_evidence": 62, "refused": 64},
+      "enqueue_seconds": 916.5,
+      "throughput_jobs_per_second": {"trial_2000_pending": 47.0, "schema_44_358k_pending": 9.4, "schema_45": 30.0, "schema_46": 39.0, "final_segment": 27.9},
+      "interruptions": "stopped three times (two deliberate restarts, one time limit); expired leases were retried and every job succeeded"
+    },
+    "builders": {"search_seconds": 38.5, "search_items": 89575, "hot_seconds": 128.6, "hot_stories": 76572, "topic_statistics_seconds": 5.2, "topics": 56}
+  },
+  "audits": {
+    "db_verify": {"status": "ok", "schema_version": 46, "integrity": "ok", "foreign_key_violations": 0, "seconds": 147.1},
+    "raw_verify": {"records": 89575, "missing": 0, "corrupt": 0},
+    "evidence_verify": {"raw_records": 89575, "analysis_inputs": 358300, "missing": 0, "corrupt": 0},
+    "curation_audit": {"status": "ok", "violations": 0},
+    "projection_audit": {"search_usable": true, "hot_usable": true, "dirty": 0},
+    "event_audit": {"status": "ok", "violations": 0},
+    "coverage_percent": 100.0,
+    "legacy_compare": {
+      "status": "failed_with_explained_differences",
+      "unchanged_tables": 7,
+      "explained": [
+        "sources.channel 1 row and items.channel 107 rows: openai-news moved from stock to ai in the source registry; init-db reclassifies history by design (app/crawler/runner.py)",
+        "stories/story_items: titles-v2 memberships re-clustered as titles-v3"
+      ]
+    }
+  },
+  "bundle": {"size": "4.9G", "backup_seconds": 1135.1, "verify_seconds": 127.9, "restore_seconds": 646.1, "smoke_seconds": 235.8,
+             "smoke_pages_ok": ["home", "topics", "search", "daily_list", "live", "daily_legacy", "topic_detail", "story_detail"],
+             "bundle_unchanged": true},
+  "read_flags_on_restored_copy": {
+    "curation_read_search_hot": "pages 200; search NVIDIA and 英伟达 return results; hot page lists 50 events",
+    "topic_read": "503 by design until the owner approves a sampled topic-statistics admission"
+  },
+  "fixed_during_rehearsal": ["#150 story reindex 2.1x faster with identical results", "#151 macOS kit defects", "#152 job claim index (schema 45)", "#153 publication lookup indexes (schema 46)", "#154 portal smoke picked an empty story"],
+  "known_gaps": [
+    "Windows host offline; no Windows rehearsal and its database is unknown",
+    "real worker not started (would crawl and make paid model calls)",
+    "about 10 database connections per curation job, each parsing 740 schema objects (1.7 ms): fixed overhead left for later"
+  ]
+}

@@ -82,6 +82,12 @@ the implementation PR series proceeded. It was restored on 2026-09-27 after `mai
   call budget and full request/response audit; it is evaluated as a model on the owner test split before
   its train/dev outputs can be imported as silver, and owner labels always take precedence. The owner
   approved its small paid use on 2026-10-04 (U08). Tone/impact labeling UIs and silver labelers do not exist yet.
+- A full cutover rehearsal (2026-10-04) took an isolated copy of the Mac legacy database (89,575 items) from schema
+  0 to 46 with backfill, event projection, 358,300 legacy curation imports, search/hot/topic builders, every audit,
+  bundle backup, isolated restore and portal smoke, offline. It found and fixed a quadratic story reindex, a full
+  backlog sort on every job claim (schema 45) and two history-wide scans on every publication and budget check
+  (schema 46). The resulting plan is `docs/CUTOVER_PLAN.md`; production remains un-upgraded and both hosts are
+  currently not collecting.
 
 ## Status rule
 
