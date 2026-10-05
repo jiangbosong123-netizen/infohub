@@ -3941,6 +3941,18 @@ def _job_child_key_indexes(db: sqlite3.Connection) -> None:
     _execute_script(db, JOB_CHILD_KEY_INDEX_SQL)
 
 
+# GET /api/v1/analyses/{id} and the tone checks in verification find a result's publication
+# versions by result_id, which had no index: each lookup scanned every publication version
+# (about 2.5 s per API request with 358k imported analyses).
+PUBLICATION_RESULT_INDEX_SQL = """
+CREATE INDEX idx_analysis_publication_versions_result ON analysis_publication_versions(result_id);
+"""
+
+
+def _publication_result_index(db: sqlite3.Connection) -> None:
+    _execute_script(db, PUBLICATION_RESULT_INDEX_SQL)
+
+
 # Migration 1 freezes the exact legacy schema at main@88a2a1e. Future schema
 # changes must append a new Migration instead of editing this definition.
 MIGRATIONS = (
@@ -4129,6 +4141,8 @@ MIGRATIONS = (
               STORY_UPDATE_REAL_CHANGES_SQL, _story_update_real_changes),
     Migration(50, "index the job references so routine jobs can be pruned",
               JOB_CHILD_KEY_INDEX_SQL, _job_child_key_indexes),
+    Migration(51, "index publication versions by result",
+              PUBLICATION_RESULT_INDEX_SQL, _publication_result_index),
 )
 CURRENT_SCHEMA_VERSION = MIGRATIONS[-1].version
 REQUIRED_MIGRATION_COLUMNS = {

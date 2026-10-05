@@ -126,9 +126,11 @@ def freeze_calendar_daily(date_str: str, *, now: datetime | None = None) -> dict
         publications = published_curation(db, ids)
         marks = ",".join("?" for _ in ids)
         pointers = {}
+        # CROSS JOIN starts from the report's documents; otherwise the planner scanned every
+        # document publication pointer first (about 1 s with 358k imported analyses).
         for row in db.execute(
             f"""SELECT d.legacy_item_id,p.task_type,p.current_publication_id
-                FROM documents d JOIN analysis_publications p
+                FROM documents d CROSS JOIN analysis_publications p
                   ON p.subject_type='document' AND p.subject_version_id=d.current_version_id
                 WHERE d.legacy_item_id IN ({marks}) AND d.status='active'""", ids
         ):
