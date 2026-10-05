@@ -26,18 +26,20 @@ def curated_top_clusters(
     if not 1 <= limit <= 100:
         raise ValueError("limit must be between 1 and 100")
     current = (now or datetime.now(timezone.utc)).astimezone(timezone.utc)
-    cte, join, visible, _, _ = portal_curation_sql(True)
+    # Correlated EXISTS checks only the recent stories' members; the former uncorrelated
+    # IN (...) evaluated curation visibility for every item of the channel first.
+    cte, join, visible, _, _ = portal_curation_sql(True, streamed=True)
     filters = []
     params: list = [cutoff]
     if channel != "all":
-        filters.append(f"""st.id IN (SELECT si.story_id FROM story_items si
+        filters.append(f"""EXISTS (SELECT 1 FROM story_items si
                           JOIN items i ON i.id=si.item_id {join}
-                          WHERE i.channel=? AND {visible})""")
+                          WHERE si.story_id=st.id AND i.channel=? AND {visible})""")
         params.append(channel)
     if topic:
-        filters.append(f"""st.id IN (SELECT si.story_id FROM story_items si JOIN item_topics it ON it.item_id=si.item_id
+        filters.append(f"""EXISTS (SELECT 1 FROM story_items si JOIN item_topics it ON it.item_id=si.item_id
                          JOIN items i ON i.id=si.item_id {join}
-                         WHERE it.topic_slug=? AND {visible})""")
+                         WHERE si.story_id=st.id AND it.topic_slug=? AND {visible})""")
         params.append(topic)
     where = " AND " + " AND ".join(filters) if filters else ""
     rows = db.execute(

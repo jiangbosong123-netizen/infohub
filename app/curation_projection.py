@@ -18,13 +18,15 @@ def published_curation(db: sqlite3.Connection, item_ids: Iterable[int]) -> dict[
     if len(ids) > 500:
         raise ValueError("curation projection batch exceeds 500 items")
     marks = ",".join("?" for _ in ids)
+    # CROSS JOIN starts from the page's documents; left to itself the planner scanned every
+    # document publication pointer first (about 65 ms per page on the rehearsal-size data).
     rows = db.execute(
         f"""SELECT d.legacy_item_id, d.current_version_id, p.task_type,
                    v.subject_type AS version_subject_type, v.task_type AS version_task_type,
                    v.subject_version_id, v.review_status, v.evidence_status,
                    r.schema_version, r.result_status, r.validated_output_json
             FROM documents d
-            JOIN analysis_publications p ON p.subject_type='document'
+            CROSS JOIN analysis_publications p ON p.subject_type='document'
                 AND p.subject_version_id=d.current_version_id
             JOIN analysis_publication_versions v ON v.id=p.current_publication_id
             JOIN analysis_results r ON r.id=v.result_id
