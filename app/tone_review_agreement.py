@@ -8,6 +8,7 @@ from collections import Counter
 from dataclasses import asdict, dataclass
 from pathlib import Path
 
+from .agreement_stats import categorical_agreement
 from .evaluation import ALLOWED_SPLITS, EvaluationDatasetError, _load_cases, _require_text
 from .tone_contracts import POLARITIES
 from .tone_evaluation import validate_tone_evaluation_dataset
@@ -130,21 +131,11 @@ def measure_tone_agreement(
         source_counts[case["source_kind"]] += 1
 
     warnings: list[str] = []
-    observed: float | None = None
-    expected: float | None = None
-    kappa: float | None = None
-    if paired:
-        observed = sum(confusion[label][label] for label in LABELS) / paired
-        expected = sum(
-            sum(confusion[label].values())
-            * sum(confusion[first][label] for first in LABELS)
-            for label in LABELS
-        ) / (paired * paired)
-        if expected < 1:
-            kappa = (observed - expected) / (1 - expected)
-        else:
-            warnings.append("polarity kappa is undefined when both reviewers use one identical class")
-    else:
+    stats = categorical_agreement(confusion, paired)
+    observed, expected, kappa = stats.observed_agreement, stats.expected_agreement, stats.cohen_kappa
+    if paired and kappa is None:
+        warnings.append("polarity kappa is undefined when both reviewers use one identical class")
+    elif not paired:
         warnings.append("no cases have two reviews by this exact reviewer pair")
     if paired < len(rows):
         warnings.append("reviewer pair does not cover the selected dataset scope")
