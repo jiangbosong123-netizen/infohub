@@ -54,6 +54,17 @@ builder scans stories in bounded ID order, then drains the dirty queue in
 transactions. An item deletion that removes a membership must recalculate the
 surviving story; a story deletion cascades projection and dirty rows.
 
+Schema 49 makes the story trigger fire only when a watched column actually changes.
+`AFTER UPDATE OF` fires whenever a column is merely named in the SET list, and the
+derived refresh rewrites every story active in the last 14 days on each AI tick to
+decay its legacy heat. On the rehearsal-size copy that queued about 22,000 unchanged
+stories every 15 minutes, more than the worker drains (1,000 per minute), so the
+projection never became usable. Metric heat is decayed at read time from
+`computed_at` with the same 18-hour half-life, so unchanged stories need no
+recomputation; after a simulated idle and a 50-item cycle, the incrementally
+maintained metrics equal a full rebuild for all 76,586 stories (heat and
+`computed_at` aside).
+
 This bridge projection does not redefine stable events or NLP confidence.
 Versioned `events` remain the future API entity; these metrics only keep the
 legacy portal honest during migration. The table can be discarded without
