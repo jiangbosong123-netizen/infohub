@@ -360,11 +360,9 @@ def cmd_legacy_backfill(batch_size: int) -> None:
             "legacy-backfill requires INFOHUB_PROCESS_ROLE=maintenance"
         )
     from app.db_admin import verify_database
-    from app.legacy_backfill import backfill_legacy_batch
+    from app.maintenance_runs import run_legacy_backfill
     verify_database(config.DB_PATH, require_current=True)
-    report = backfill_legacy_batch(batch_size)
-    while report.status != "completed":
-        report = backfill_legacy_batch(batch_size)
+    report = run_legacy_backfill(batch_size)
     print(json.dumps(report.to_dict(), ensure_ascii=False, indent=2))
 
 
@@ -374,11 +372,9 @@ def cmd_legacy_topic_backfill(batch_size: int) -> None:
             "legacy-topic-backfill requires INFOHUB_PROCESS_ROLE=maintenance"
         )
     from app.db_admin import verify_database
-    from app.legacy_topic_backfill import backfill_legacy_topics_batch
+    from app.maintenance_runs import run_legacy_topic_backfill
     verify_database(config.DB_PATH, require_current=True)
-    report = backfill_legacy_topics_batch(batch_size)
-    while report.status != "completed":
-        report = backfill_legacy_topics_batch(batch_size)
+    report = run_legacy_topic_backfill(batch_size)
     print(json.dumps(report.to_dict(), ensure_ascii=False, indent=2))
 
 

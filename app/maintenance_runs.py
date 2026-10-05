@@ -12,11 +12,13 @@ from collections.abc import Callable
 from .curation_hot_metrics import advance_hot_metrics
 from .curation_search import advance_search_index
 from .database import get_db, reused_connections
+from .legacy_backfill import LegacyBackfillReport, backfill_legacy_batch
 from .legacy_curation_import import (
     JOB_KIND,
     enqueue_legacy_curation_batch,
     process_one_legacy_curation_import,
 )
+from .legacy_topic_backfill import LegacyTopicBackfillReport, backfill_legacy_topics_batch
 from .topic_statistics import advance_topic_statistics
 
 Progress = Callable[[dict], None]
@@ -28,6 +30,24 @@ BUILDERS = (
     ("hot", advance_hot_metrics, 100),
     ("topic_statistics", advance_topic_statistics, 250),
 )
+
+
+def run_legacy_backfill(batch_size: int) -> LegacyBackfillReport:
+    """Backfill every legacy item, discovery and report (about five connections per item)."""
+    with reused_connections():
+        report = backfill_legacy_batch(batch_size)
+        while report.status != "completed":
+            report = backfill_legacy_batch(batch_size)
+    return report
+
+
+def run_legacy_topic_backfill(batch_size: int) -> LegacyTopicBackfillReport:
+    """Backfill every frozen legacy topic assignment."""
+    with reused_connections():
+        report = backfill_legacy_topics_batch(batch_size)
+        while report.status != "completed":
+            report = backfill_legacy_topics_batch(batch_size)
+    return report
 
 
 def run_legacy_curation_import(

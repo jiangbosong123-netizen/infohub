@@ -10,6 +10,7 @@ from app.legacy_topic_backfill import (
     LegacyTopicBackfillError,
     backfill_legacy_topics_batch,
 )
+from app.maintenance_runs import run_legacy_topic_backfill
 
 
 NOW = "2026-09-23T10:00:00.000000Z"
@@ -112,6 +113,15 @@ class LegacyTopicBackfillTests(unittest.TestCase):
                     "INSERT INTO item_topics(item_id,topic_slug,evidence) VALUES(1,?,?)",
                     (slug, f'["legacy-{slug}"]'),
                 )
+
+    def test_one_command_run_imports_every_batch_once(self):
+        self._seed(topics=("alpha", "beta", "gamma"))
+        report = run_legacy_topic_backfill(1)
+        self.assertEqual(report.status, "completed")
+        self.assertEqual(
+            (report.snapshot_count, report.mapped_count, report.unexplained_count), (3, 3, 0)
+        )
+        self.assertEqual(run_legacy_topic_backfill(1).batch_processed, 0)
 
     def test_freezes_and_resumably_imports_candidate_assertions(self):
         self._seed()
