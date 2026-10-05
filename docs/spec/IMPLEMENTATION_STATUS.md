@@ -88,6 +88,9 @@ the implementation PR series proceeded. It was restored on 2026-09-27 after `mai
   backlog sort on every job claim (schema 45) and two history-wide scans on every publication and budget check
   (schema 46). The resulting plan is `docs/CUTOVER_PLAN.md`; production remains un-upgraded and both hosts are
   currently not collecting.
+- Schema 47 rewrites the 13 queue triggers (search, derived and topic-statistics dirty queues) with their own
+  `ON CONFLICT` clauses. Their `INSERT OR REPLACE/IGNORE` inherited the firing statement's conflict policy, so
+  superseding an analysis publication (an UPSERT) failed while the item was still queued for search indexing.
 
 ## Status rule
 

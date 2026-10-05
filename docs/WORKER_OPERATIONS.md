@@ -86,3 +86,13 @@ schedule 的下一次时间保存在 SQLite。进程停机期间错过多个周�
 `idx_change_log_version` 与覆盖索引 `idx_analysis_authorizations_budget`，查询语句与结果不变（抽样 300 个已有与
 50 个不存在的 version_id、各 provider × 各日预算汇总全部一致）；`change_log` 查询降到约 0.002 ms。
 
+## 队列触发器的冲突处理（schema 47）
+
+搜索、派生分类和主题统计的待处理队列（`curation_search_dirty`、`derived_dirty`、`topic_statistics_dirty`）由触发器
+写入。原触发器使用 `INSERT OR REPLACE` / `INSERT OR IGNORE`，而 SQLite 会用**触发它的那条语句**的冲突策略覆盖触发器
+内的策略：分析结果发布用 UPSERT 更新当前发布指针，其 `DO UPDATE` 带 ABORT 策略，所以同一文档同一任务（翻译、摘要、
+相关性）**再次发布**时，只要该条目还在搜索队列里（搜索开关默认关闭时队列不会被消费），整笔发布就会以
+`UNIQUE constraint failed: curation_search_dirty.item_id` 失败（队列不清空，重试也一直失败）；`UPDATE OR IGNORE` 还会让队列保留旧原因。
+schema 47 把 13 个队列触发器改为触发器自己的 `ON CONFLICT … DO UPDATE/DO NOTHING`（不受外层语句影响），入队结果
+不变，只重建触发器、不改写数据。`tests/test_queue_trigger_conflicts.py` 禁止任何触发器再依赖外层冲突策略。
+
