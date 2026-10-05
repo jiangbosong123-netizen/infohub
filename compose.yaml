@@ -63,7 +63,8 @@ services:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/api/live', timeout=4)"]
       interval: 30s
       timeout: 5s
-      start_period: 20s
+      # serve verifies the whole database before it listens (minutes on a multi-GB database).
+      start_period: 600s
       retries: 3
 
   worker:
@@ -85,5 +86,6 @@ services:
       test: ["CMD", "python", "cli.py", "worker-health"]
       interval: 30s
       timeout: 5s
-      start_period: 30s
+      # The worker also verifies the whole database before its first heartbeat.
+      start_period: 600s
       retries: 3
