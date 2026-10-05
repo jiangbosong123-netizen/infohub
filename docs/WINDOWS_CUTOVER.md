@@ -58,6 +58,25 @@ Mac 旧库（89,575 条，2026-09-11 至 2026-10-03）决定：
 - **用 Mac 的数据**：Mac 上生成一致性副本并通过 Tailscale 发送（Claude 可以准备），Windows 上接收后放入
   `data\app.db`（第 4 步之后、第 6 步之前，把 Windows 原有 `data` 整个保留为归档）。两份数据不能合并。
 
+### 3b. 存储实测（回答决策 U02，约 1 分钟，可与第 3 步一起做）
+
+数据库现在放在 Windows 目录挂载进容器（`.\data`），web 与 worker 两个容器同时读写。下面分别在同类挂载目录和
+Docker 命名卷上测：小文件 fsync、SQLite 逐笔提交、顺序读写，以及两个进程同时写同一个 WAL 库是否丢失更新。
+脚本只在新建的临时子目录里写入、结束即删除，不碰 `data`，不联网：
+
+```powershell
+cmd /c "git show origin/main:deploy/windows/probe_storage.py > %TEMP%\probe_storage.py"
+mkdir probe-tmp
+docker run --rm -v "${PWD}\probe-tmp:/probe" -v "$env:TEMP\probe_storage.py:/probe_storage.py:ro" python:3.12-slim python /probe_storage.py /probe
+docker volume create infohub-probe
+docker run --rm -v infohub-probe:/probe -v "$env:TEMP\probe_storage.py:/probe_storage.py:ro" python:3.12-slim python /probe_storage.py /probe
+docker volume rm infohub-probe
+Remove-Item probe-tmp
+```
+
+把两段输出一起发给 Claude。任一结果的 `verdict` 为 `UNSAFE` 时，该位置不能放运行库。是否把数据搬到命名卷仍按
+`docs/spec/OPERATIONS.md` 另开搬迁 PR，不在本次升级中顺手切换。
+
 ## 4. 升级前完整备份
 
 ```powershell

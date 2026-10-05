@@ -74,7 +74,7 @@ Dual-write 必须由同一进程同一数据库事务完成，不能让两个独
 
 数据库与 WAL 必须位于同一台运行环境的本地磁盘，web/worker 通过同一挂载访问。不要放到 SMB、云盘同步目录或由两台电脑直接打开同一文件。WAL 适合并发读，但仍然只有一个 writer，网络文件系统不满足其共享内存假设。[SQLite WAL](https://sqlite.org/wal.html)
 
-当前 NTFS bind mount 继续作为迁移前基线；转为 Docker named volume/WSL Linux 文件系统要另开数据搬迁 PR，停写、快照、双向核对和恢复演练，不能跟领域迁移一次切完。Linux 文件系统通常更适合 WSL 中 Linux 容器的数据访问，但具体收益仍需本机测量。[Docker WSL 说明](https://docs.docker.com/desktop/features/wsl/)
+当前 NTFS bind mount 继续作为迁移前基线；转为 Docker named volume/WSL Linux 文件系统要另开数据搬迁 PR，停写、快照、双向核对和恢复演练，不能跟领域迁移一次切完。Linux 文件系统通常更适合 WSL 中 Linux 容器的数据访问，但具体收益仍需本机测量（`deploy/windows/probe_storage.py`，用法见 `docs/WINDOWS_CUTOVER.md` 第 3b 步）。[Docker WSL 说明](https://docs.docker.com/desktop/features/wsl/)
 
 原始对象先写临时文件 → fsync/关闭 → hash 校验 → 原子 rename → 提交 DB 引用。引用不存在的对象不能发布。崩溃留下无引用对象可延后 GC；禁止先提交 DB 引用再希望稍后补文件。原始内容哈希不对外暴露内部路径。
 
