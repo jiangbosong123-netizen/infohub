@@ -95,16 +95,16 @@ curl.exe -s http://127.0.0.1:8000/api/ready
 缓存冷热；Windows 的 Docker 挂载目录读写更慢，可能要几分钟）。健康检查为此留了 10 分钟启动宽限，期间 `docker compose ps`
 显示 `starting` 属正常。
 
-## 7. 补历史数据（门户可用，预计约 1–1.5 小时；演练时的旧版本为 3.5–4 小时）
+## 7. 补历史数据（门户可用，Mac 同机实测约 25 分钟；演练时的旧版本为 3.5–4 小时，Windows 可能更慢）
 
 回填期间建议暂停采集，避免与 worker 争用数据库写锁；如果更在意采集连续，也可以不停（会变慢但不会出错）。
 
 ```powershell
 docker compose stop worker
-docker compose run --rm migrate python cli.py legacy-backfill 1000      # 约 19 分钟
+docker compose run --rm migrate python cli.py legacy-backfill 1000      # 约 3 分钟
 docker compose run --rm migrate python cli.py legacy-topic-backfill 1000
 docker compose run --rm migrate python cli.py legacy-event-project
-docker compose run --rm migrate python cli.py legacy-curation-run       # 预计约 45 分钟（含排队）；中断后重新运行即可续跑
+docker compose run --rm migrate python cli.py legacy-curation-run       # 约 20 分钟（含排队）；中断后重新运行即可续跑
 docker compose run --rm migrate python cli.py projection-builders-run   # 约 3 分钟
 docker compose start worker
 ```
