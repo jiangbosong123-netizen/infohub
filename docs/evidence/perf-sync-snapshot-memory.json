@@ -1,0 +1,22 @@
+{
+  "scope": "Bounded-memory sync snapshot build (app/sync_snapshots.py _backup_database, _resource_records, _write_resources)",
+  "recorded_at": "2026-10-06T00:00:00Z",
+  "environment": "macOS isolated rehearsal-size copy (4.9 GB, schema 51, 358,300 published analysis changes); no network, no model calls",
+  "production_changed": false,
+  "problem": "The backup digest read the whole 4.9 GB copy into memory, and each resource was loaded as one sorted list before paging",
+  "change": "Hash the backup in 1 MB blocks; stream records in SQLite BINARY order (checked against UTF-8 byte order), write each page when it fills, and build page arrays from the per-record canonical bytes",
+  "equivalence_check": {
+    "method": "previous and new _write_resources on the same read-only database, all nine resources",
+    "page_size_100": {"manifest_identical": true, "page_files": 3583, "page_files_identical": true},
+    "page_size_1000": {"manifest_identical": true, "page_files": 359, "page_files_identical": true}
+  },
+  "writer_only": {
+    "page_size_100": {"old_seconds": 24.6, "old_peak_rss_mb": 1729, "new_seconds": 18.9, "new_peak_rss_mb": 39},
+    "page_size_1000": {"old_seconds": 24.3, "old_peak_rss_mb": 1729, "new_seconds": 16.9, "new_peak_rss_mb": 37}
+  },
+  "full_build_sync_snapshot": {
+    "old_seconds": 26.2, "old_peak_rss_mb": 4762,
+    "new_seconds": 15.5, "new_peak_rss_mb": 39
+  },
+  "full_tests": {"python_3_11": 814, "python_3_12": 814}
+}

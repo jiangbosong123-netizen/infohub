@@ -22,6 +22,14 @@ the UTF-8 bytes of the stable resource ID. Page files contain an RFC 8785/JCS ca
 Their SHA-256 covers that array exactly. A resource hash covers each canonical record followed by
 one LF; the empty resource hash is SHA-256 of zero bytes.
 
+Records stream from the backup in SQLite `BINARY` order, which for this UTF-8 database is the
+required byte order; each page is written as soon as it fills, and a record arriving out of byte
+order fails the build instead of producing a differently ordered page. The backup digest is hashed
+in 1 MB blocks. Peak memory therefore stays near one page rather than one resource: a 358,300-record
+analyses snapshot of the rehearsal-size copy went from 4.8 GB to 39 MB peak RSS (26 s to 15.5 s), with
+the manifest and all 3,583 page files byte-identical to the previous whole-resource writer
+(`tests/test_sync_snapshot_streaming.py` keeps that comparison for several page sizes).
+
 The immutable manifest fixes:
 
 - dataset ID, epoch and backup-derived high-water;
