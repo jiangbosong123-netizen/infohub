@@ -46,7 +46,7 @@ class QueueTriggerConflictTests(unittest.TestCase):
             db_admin.apply_migrations(db, db_admin.MIGRATIONS[:46])
         before = triggers(self.path)
         report = db_admin.migrate_database(self.path)
-        self.assertEqual(report.applied_versions, (47,))
+        self.assertEqual(report.applied_versions, tuple(range(47, db_admin.CURRENT_SCHEMA_VERSION + 1)))
         self.assertEqual(db_admin.verify_database(report.backup_path).schema_version, 46)
         after = triggers(self.path)
         self.assertEqual(set(after), set(before))
