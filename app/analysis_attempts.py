@@ -58,6 +58,15 @@ def register_budget_policy(
     return policy_id
 
 
+# Allowed reservations for one provider and day. Reservations are never negative (CHECK), so
+# zero rows add nothing; skipping them lets idx_analysis_authorizations_budget seek past a day's
+# free attempts instead of rescanning them on every authorization (a cutover day of 358k
+# zero-cost legacy imports cost about 10 ms per job by the end).
+DAILY_RESERVED_SQL = """SELECT COALESCE(SUM(reserved_cost_microusd),0)
+  FROM analysis_attempt_authorizations
+  WHERE provider=? AND budget_day=? AND decision='allowed' AND reserved_cost_microusd>0"""
+
+
 def authorize_attempt(
     *, run_id: str, job_id: str, lease_token: str, expected_input_version: str | None,
     attempt_kind: str, reserved_cost_microusd: int, idempotency_key: str,
@@ -96,8 +105,7 @@ def authorize_attempt(
             SELECT 1 FROM analysis_budget_policies n WHERE n.supersedes_policy_id=p.id)
           ORDER BY p.effective_from DESC,p.id DESC LIMIT 1""",(run["provider"],current)).fetchone()
         if not policy: raise AnalysisRunError("no active budget policy for analysis provider")
-        reserved=db.execute("""SELECT COALESCE(SUM(reserved_cost_microusd),0)
-          FROM analysis_attempt_authorizations WHERE provider=? AND budget_day=? AND decision='allowed'""",(run["provider"],budget_day)).fetchone()[0]
+        reserved=db.execute(DAILY_RESERVED_SQL,(run["provider"],budget_day)).fetchone()[0]
         allowed=(reserved_cost_microusd<=policy["per_attempt_limit_microusd"] and reserved+reserved_cost_microusd<=policy["daily_limit_microusd"])
         decision="allowed" if allowed else "blocked"
         reason="within_budget" if allowed else "budget_limit_exceeded"

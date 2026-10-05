@@ -95,6 +95,11 @@ schedule 的下一次时间保存在 SQLite。进程停机期间错过多个周�
 `idx_change_log_version` 与覆盖索引 `idx_analysis_authorizations_budget`，查询语句与结果不变（抽样 300 个已有与
 50 个不存在的 version_id、各 provider × 各日预算汇总全部一致）；`change_log` 查询降到约 0.002 ms。
 
+预算汇总仍要扫描当天该 provider 的全部授权：旧数据导入在同一天产生 35.8 万个 0 元授权，求和随之线性变慢，到 25 万个
+时每个任务约 10 ms，占任务耗时的三分之二。预留金额有 `CHECK(reserved_cost_microusd>=0)`，0 元行对总和没有贡献，
+所以汇总改为只取 `reserved_cost_microusd>0` 的行（`DAILY_RESERVED_SQL`），覆盖索引直接跳过 0 元行：同一副本上 9 ms
+降到 0.003 ms，结果不变（随机 2,000 条混合授权的各 provider × 日期汇总逐一相等）。
+
 ## 队列触发器的冲突处理（schema 47）
 
 搜索、派生分类和主题统计的待处理队列（`curation_search_dirty`、`derived_dirty`、`topic_statistics_dirty`）由触发器
