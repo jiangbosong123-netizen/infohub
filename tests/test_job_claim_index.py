@@ -47,7 +47,7 @@ class JobClaimIndexTests(unittest.TestCase):
         with database.get_db(predecessor) as db:
             db_admin.apply_migrations(db, db_admin.MIGRATIONS[:44])
         report = db_admin.migrate_database(predecessor)
-        self.assertEqual(report.applied_versions, (45, 46))
+        self.assertEqual(report.applied_versions, tuple(range(45, db_admin.CURRENT_SCHEMA_VERSION + 1)))
         self.assertEqual(db_admin.verify_database(report.backup_path).schema_version, 44)
         with sqlite3.connect(predecessor) as db:
             sql = db.execute(

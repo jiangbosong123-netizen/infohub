@@ -3791,6 +3791,108 @@ def _publication_lookup_indexes(db: sqlite3.Connection) -> None:
     _execute_script(db, PUBLICATION_LOOKUP_INDEX_SQL)
 
 
+# SQLite replaces a trigger statement's own OR REPLACE / OR IGNORE with the conflict policy of
+# the statement that fired the trigger whenever that statement has one, and an UPSERT's
+# DO UPDATE has one (ABORT). Superseding an analysis publication therefore failed with
+# "UNIQUE constraint failed: curation_search_dirty.item_id" while the item was still queued,
+# and an UPDATE OR IGNORE silently kept a stale queue reason. A trigger's own UPSERT clause is
+# not overridden, so every queue trigger is rewritten with one; the queued rows are unchanged.
+DIRTY_QUEUE_UPSERT_SQL = """
+DROP TRIGGER items_derived_insert;
+CREATE TRIGGER items_derived_insert AFTER INSERT ON items BEGIN
+    INSERT INTO derived_dirty(item_id) VALUES(new.id) ON CONFLICT(item_id) DO NOTHING;
+END;
+DROP TRIGGER items_derived_update;
+CREATE TRIGGER items_derived_update
+AFTER UPDATE OF title,title_zh,summary,raw_summary,companies,score,tmt,event_type,
+                ai_cat,official,extra,published_at,channel ON items BEGIN
+    INSERT INTO derived_dirty(item_id) VALUES(new.id) ON CONFLICT(item_id) DO NOTHING;
+END;
+DROP TRIGGER curation_search_item_ai;
+CREATE TRIGGER curation_search_item_ai AFTER INSERT ON items BEGIN
+    INSERT INTO curation_search_dirty(item_id,reason,queued_at)
+    VALUES(new.id,'item_insert',strftime('%Y-%m-%dT%H:%M:%fZ','now'))
+    ON CONFLICT(item_id) DO UPDATE SET reason=excluded.reason,queued_at=excluded.queued_at;
+END;
+DROP TRIGGER curation_search_item_au;
+CREATE TRIGGER curation_search_item_au AFTER UPDATE OF title,title_zh,summary,raw_summary,tmt ON items BEGIN
+    INSERT INTO curation_search_dirty(item_id,reason,queued_at)
+    VALUES(new.id,'item_update',strftime('%Y-%m-%dT%H:%M:%fZ','now'))
+    ON CONFLICT(item_id) DO UPDATE SET reason=excluded.reason,queued_at=excluded.queued_at;
+END;
+DROP TRIGGER curation_search_document_ai;
+CREATE TRIGGER curation_search_document_ai AFTER INSERT ON documents BEGIN
+    INSERT INTO curation_search_dirty(item_id,reason,queued_at)
+    VALUES(new.legacy_item_id,'document_insert',strftime('%Y-%m-%dT%H:%M:%fZ','now'))
+    ON CONFLICT(item_id) DO UPDATE SET reason=excluded.reason,queued_at=excluded.queued_at;
+END;
+DROP TRIGGER curation_search_document_au;
+CREATE TRIGGER curation_search_document_au AFTER UPDATE OF current_version_id,status ON documents BEGIN
+    INSERT INTO curation_search_dirty(item_id,reason,queued_at)
+    VALUES(new.legacy_item_id,'document_update',strftime('%Y-%m-%dT%H:%M:%fZ','now'))
+    ON CONFLICT(item_id) DO UPDATE SET reason=excluded.reason,queued_at=excluded.queued_at;
+END;
+DROP TRIGGER curation_search_publication_ai;
+CREATE TRIGGER curation_search_publication_ai AFTER INSERT ON analysis_publications
+WHEN new.subject_type='document' AND new.task_type IN ('translation','summarization','relevance') BEGIN
+    INSERT INTO curation_search_dirty(item_id,reason,queued_at)
+    SELECT d.legacy_item_id,'publication_insert',strftime('%Y-%m-%dT%H:%M:%fZ','now')
+    FROM documents d WHERE d.current_version_id=new.subject_version_id
+    ON CONFLICT(item_id) DO UPDATE SET reason=excluded.reason,queued_at=excluded.queued_at;
+END;
+DROP TRIGGER curation_search_publication_au;
+CREATE TRIGGER curation_search_publication_au AFTER UPDATE OF current_publication_id ON analysis_publications
+WHEN new.subject_type='document' AND new.task_type IN ('translation','summarization','relevance') BEGIN
+    INSERT INTO curation_search_dirty(item_id,reason,queued_at)
+    SELECT d.legacy_item_id,'publication_update',strftime('%Y-%m-%dT%H:%M:%fZ','now')
+    FROM documents d WHERE d.current_version_id=new.subject_version_id
+    ON CONFLICT(item_id) DO UPDATE SET reason=excluded.reason,queued_at=excluded.queued_at;
+END;
+DROP TRIGGER topic_statistics_topic_insert;
+CREATE TRIGGER topic_statistics_topic_insert AFTER INSERT ON topic_catalog BEGIN
+  INSERT INTO topic_statistics_dirty(topic_id,reason,queued_at)
+  VALUES(NEW.id,'topic_insert',NEW.created_at)
+  ON CONFLICT(topic_id) DO UPDATE SET reason=excluded.reason,queued_at=excluded.queued_at;
+END;
+DROP TRIGGER topic_statistics_topic_update;
+CREATE TRIGGER topic_statistics_topic_update AFTER UPDATE OF current_version_id,status ON topic_catalog BEGIN
+  INSERT INTO topic_statistics_dirty(topic_id,reason,queued_at)
+  VALUES(NEW.id,'topic_update',strftime('%Y-%m-%dT%H:%M:%fZ','now'))
+  ON CONFLICT(topic_id) DO UPDATE SET reason=excluded.reason,queued_at=excluded.queued_at;
+END;
+DROP TRIGGER topic_statistics_assignment_insert;
+CREATE TRIGGER topic_statistics_assignment_insert AFTER INSERT ON document_topic_assignments BEGIN
+  INSERT INTO topic_statistics_dirty(topic_id,reason,queued_at)
+  SELECT topic_id,'assignment_insert',NEW.available_at FROM topic_versions WHERE id=NEW.topic_version_id
+  ON CONFLICT(topic_id) DO UPDATE SET reason=excluded.reason,queued_at=excluded.queued_at;
+END;
+DROP TRIGGER topic_statistics_review_insert;
+CREATE TRIGGER topic_statistics_review_insert AFTER INSERT ON topic_assignment_reviews BEGIN
+  INSERT INTO topic_statistics_dirty(topic_id,reason,queued_at)
+  SELECT version.topic_id,'review_insert',NEW.reviewed_at
+  FROM document_topic_assignments AS assignment
+  JOIN topic_versions AS version ON version.id=assignment.topic_version_id
+  WHERE assignment.id=NEW.assignment_id
+  ON CONFLICT(topic_id) DO UPDATE SET reason=excluded.reason,queued_at=excluded.queued_at;
+END;
+DROP TRIGGER topic_statistics_event_update;
+CREATE TRIGGER topic_statistics_event_update AFTER UPDATE OF current_version_id,status ON events BEGIN
+  INSERT INTO topic_statistics_dirty(topic_id,reason,queued_at)
+  SELECT DISTINCT version.topic_id,'event_update',strftime('%Y-%m-%dT%H:%M:%fZ','now')
+  FROM topic_versions AS version
+  WHERE version.id IN (
+    SELECT value FROM event_versions AS event_version,json_each(event_version.topics_json)
+    WHERE event_version.id IN (OLD.current_version_id,NEW.current_version_id)
+  )
+  ON CONFLICT(topic_id) DO UPDATE SET reason=excluded.reason,queued_at=excluded.queued_at;
+END;
+"""
+
+
+def _dirty_queue_upsert(db: sqlite3.Connection) -> None:
+    _execute_script(db, DIRTY_QUEUE_UPSERT_SQL)
+
+
 # Migration 1 freezes the exact legacy schema at main@88a2a1e. Future schema
 # changes must append a new Migration instead of editing this definition.
 MIGRATIONS = (
@@ -3971,6 +4073,8 @@ MIGRATIONS = (
               JOB_CLAIM_ORDER_INDEX_SQL, _job_claim_order_index),
     Migration(46, "indexes for publication idempotency and budget lookups",
               PUBLICATION_LOOKUP_INDEX_SQL, _publication_lookup_indexes),
+    Migration(47, "queue triggers keep their own conflict handling",
+              DIRTY_QUEUE_UPSERT_SQL, _dirty_queue_upsert),
 )
 CURRENT_SCHEMA_VERSION = MIGRATIONS[-1].version
 REQUIRED_MIGRATION_COLUMNS = {

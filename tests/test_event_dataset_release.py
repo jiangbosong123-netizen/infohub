@@ -141,7 +141,7 @@ class EventDatasetReleaseTests(unittest.TestCase):
             db_admin.apply_migrations(db, db_admin.MIGRATIONS[:37])
             db.execute("INSERT INTO sources(key,name,channel,type) VALUES('x','X','ai','rss')")
         report = db_admin.migrate_database(predecessor)
-        self.assertEqual(report.applied_versions, (38, 39, 40, 41, 42, 43, 44, 45, 46))
+        self.assertEqual(report.applied_versions, tuple(range(38, db_admin.CURRENT_SCHEMA_VERSION + 1)))
         self.assertEqual(db_admin.verify_database(report.backup_path).schema_version, 37)
         with database.get_db(predecessor) as db:
             self.assertEqual(db.execute(

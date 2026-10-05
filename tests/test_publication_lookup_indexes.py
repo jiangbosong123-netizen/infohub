@@ -38,7 +38,7 @@ class PublicationLookupIndexTests(unittest.TestCase):
         with database.get_db(predecessor) as db:
             db_admin.apply_migrations(db, db_admin.MIGRATIONS[:45])
         report = db_admin.migrate_database(predecessor)
-        self.assertEqual(report.applied_versions, (46,))
+        self.assertEqual(report.applied_versions, tuple(range(46, db_admin.CURRENT_SCHEMA_VERSION + 1)))
         self.assertEqual(db_admin.verify_database(report.backup_path).schema_version, 45)
         with sqlite3.connect(predecessor) as db:
             names = {row[0] for row in db.execute("SELECT name FROM sqlite_master WHERE type='index'")}
