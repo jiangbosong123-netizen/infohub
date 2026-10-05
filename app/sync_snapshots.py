@@ -9,7 +9,7 @@ import shutil
 import sqlite3
 from dataclasses import asdict, dataclass
 from pathlib import Path
-from typing import Callable
+from typing import Callable, Iterator
 from uuid import uuid4
 
 import rfc8785
@@ -173,7 +173,13 @@ def _backup_database(target: Path) -> str:
             backup.commit()
         finally:
             backup.close()
-    return _sha(target.read_bytes())
+    # Streamed: the backup is a full copy of the live database (4.9 GB at rehearsal size), and
+    # reading it whole held all of it in the worker's memory just to hash it.
+    digest = hashlib.sha256()
+    with target.open("rb") as handle:
+        for block in iter(lambda: handle.read(1024 * 1024), b""):
+            digest.update(block)
+    return digest.hexdigest()
 
 
 def _write_durable(path: Path, payload: bytes) -> None:
@@ -203,7 +209,13 @@ def _backup_identity(db: sqlite3.Connection) -> tuple[str, str, int, int]:
 def _resource_records(
     db: sqlite3.Connection, *, dataset_id: str, epoch: str, high_water: int,
     resource: str,
-) -> list[dict]:
+) -> Iterator[tuple[str, bytes]]:
+    """Yield each resource's latest change as (resource_id, canonical record bytes).
+
+    Records stream in byte order of their UTF-8 resource ids, which is SQLite's BINARY order
+    for this UTF-8 database; holding a whole resource at once took 1.7 GB for the 358k analyses
+    of a rehearsal-size dataset.
+    """
     resource_type = RESOURCE_TYPES[resource]
     rows = db.execute(
         """SELECT change.* FROM change_log AS change
@@ -215,8 +227,8 @@ def _resource_records(
            ) AS latest ON latest.seq=change.seq
            ORDER BY change.resource_id COLLATE BINARY""",
         (dataset_id, epoch, resource_type, high_water),
-    ).fetchall()
-    records: list[dict] = []
+    )
+    previous: bytes | None = None
     for row in rows:
         if row["hash_algorithm"] != HASH_ALGORITHM:
             raise SyncSnapshotError("snapshot change uses an unsupported hash algorithm")
@@ -226,14 +238,36 @@ def _resource_records(
             raise SyncSnapshotError("snapshot change payload is invalid") from exc
         if not isinstance(payload, dict) or _sha(_jcs(payload)) != row["payload_sha256"]:
             raise SyncSnapshotError("snapshot change payload hash does not match")
-        records.append({
+        key = row["resource_id"].encode("utf-8")
+        if previous is not None and key <= previous:
+            raise SyncSnapshotError("snapshot changes are not in resource id byte order")
+        previous = key
+        yield row["resource_id"], _jcs({
             "resource_type": resource_type,
             "resource_id": row["resource_id"],
             "version_id": row["version_id"],
             "payload": payload,
         })
-    records.sort(key=lambda value: value["resource_id"].encode("utf-8"))
-    return records
+
+
+def _write_page(
+    root: Path, reference_root: Path, resource: str, page_number: int,
+    records: list[tuple[str, bytes]],
+) -> dict:
+    # RFC 8785 writes an array as its canonical elements joined by commas, so this is exactly
+    # the canonical form of the page's records without serializing them a second time.
+    payload = b"[" + b",".join(record for _, record in records) + b"]"
+    path = root / "pages" / resource / f"{page_number:08d}.json"
+    _write_durable(path, payload)
+    return {
+        "page_number": page_number,
+        "first_resource_id": records[0][0],
+        "last_resource_id": records[-1][0],
+        "record_count": len(records),
+        "payload_ref": _relative(reference_root / path.relative_to(root)),
+        "payload_sha256": _sha(payload),
+        "size_bytes": len(payload),
+    }
 
 
 def _write_resources(
@@ -243,38 +277,31 @@ def _write_resources(
     manifests: list[dict] = []
     total = 0
     for resource in resources:
-        records = _resource_records(
+        stream = hashlib.sha256()
+        pages: list[dict] = []
+        page: list[tuple[str, bytes]] = []
+        count = 0
+        for resource_id, record in _resource_records(
             backup, dataset_id=dataset_id, epoch=epoch, high_water=high_water,
             resource=resource,
-        )
-        stream = hashlib.sha256()
-        for record in records:
-            stream.update(_jcs(record))
+        ):
+            stream.update(record)
             stream.update(b"\n")
-        pages = []
-        for offset in range(0, len(records), page_size):
-            page_records = records[offset:offset + page_size]
-            page_number = len(pages) + 1
-            payload = _jcs(page_records)
-            path = root / "pages" / resource / f"{page_number:08d}.json"
-            _write_durable(path, payload)
-            pages.append({
-                "page_number": page_number,
-                "first_resource_id": page_records[0]["resource_id"],
-                "last_resource_id": page_records[-1]["resource_id"],
-                "record_count": len(page_records),
-                "payload_ref": _relative(reference_root / path.relative_to(root)),
-                "payload_sha256": _sha(payload),
-                "size_bytes": len(payload),
-            })
+            count += 1
+            page.append((resource_id, record))
+            if len(page) == page_size:
+                pages.append(_write_page(root, reference_root, resource, len(pages) + 1, page))
+                page = []
+        if page:
+            pages.append(_write_page(root, reference_root, resource, len(pages) + 1, page))
         manifests.append({
             "resource": resource,
-            "record_count": len(records),
+            "record_count": count,
             "page_count": len(pages),
             "content_sha256": stream.hexdigest(),
             "pages": pages,
         })
-        total += len(records)
+        total += count
     return manifests, total
 
 
