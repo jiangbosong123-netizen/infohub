@@ -3905,6 +3905,29 @@ def _items_fetched_index(db: sqlite3.Connection) -> None:
     _execute_script(db, ITEMS_FETCHED_INDEX_SQL)
 
 
+# "AFTER UPDATE OF col" fires whenever col appears in the SET list, changed or not. Every
+# derived refresh rewrites title/channel/url/first_at/last_at of each story active in the
+# last 14 days to refresh its decaying heat, so the hot-metrics queue received ~22,000
+# stories per run on the rehearsal-size data and never drained, leaving the curated hot
+# list permanently unusable. Story metrics only depend on values that actually change.
+STORY_UPDATE_REAL_CHANGES_SQL = """
+DROP TRIGGER curation_story_update;
+CREATE TRIGGER curation_story_update
+AFTER UPDATE OF anchor_item_id,title,url,channel,first_at,last_at,redirect_to ON stories
+WHEN old.anchor_item_id IS NOT new.anchor_item_id OR old.title IS NOT new.title
+  OR old.url IS NOT new.url OR old.channel IS NOT new.channel
+  OR old.first_at IS NOT new.first_at OR old.last_at IS NOT new.last_at
+  OR old.redirect_to IS NOT new.redirect_to BEGIN
+    INSERT INTO curation_story_metrics_dirty(story_id,reason,queued_at)
+    VALUES(new.id,'story_update',strftime('%Y-%m-%dT%H:%M:%fZ','now')) ON CONFLICT(story_id) DO UPDATE SET reason=excluded.reason,queued_at=excluded.queued_at;
+END;
+"""
+
+
+def _story_update_real_changes(db: sqlite3.Connection) -> None:
+    _execute_script(db, STORY_UPDATE_REAL_CHANGES_SQL)
+
+
 # Migration 1 freezes the exact legacy schema at main@88a2a1e. Future schema
 # changes must append a new Migration instead of editing this definition.
 MIGRATIONS = (
@@ -4089,6 +4112,8 @@ MIGRATIONS = (
               DIRTY_QUEUE_UPSERT_SQL, _dirty_queue_upsert),
     Migration(48, "index items by fetch time for the portal's last-update stamp",
               ITEMS_FETCHED_INDEX_SQL, _items_fetched_index),
+    Migration(49, "queue story metrics only for real story changes",
+              STORY_UPDATE_REAL_CHANGES_SQL, _story_update_real_changes),
 )
 CURRENT_SCHEMA_VERSION = MIGRATIONS[-1].version
 REQUIRED_MIGRATION_COLUMNS = {
