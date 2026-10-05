@@ -19,6 +19,32 @@ def hot_metrics_usable(db: sqlite3.Connection) -> bool:
             and story_count == db.execute("SELECT COUNT(*) FROM curation_story_metrics").fetchone()[0])
 
 
+def story_member_filters(
+    channel: str, topic: str, join: str, visible: str,
+) -> tuple[list[str], list[str]]:
+    """EXISTS filters for stories with a visible member in ``channel`` and/or ``topic``.
+
+    Each check starts from the story's own members (idx_story_items_story) and CROSS JOIN pins
+    that order. Left to the planner, the channel check walked every item of the channel for each
+    recent story (idx_items_channel_pub); with curation visibility joined, the AI and stock
+    homepages took 3.0 and 5.6 s over a two-day window of the rehearsal-size database.
+    """
+    filters: list[str] = []
+    params: list[str] = []
+    if channel != "all":
+        filters.append(f"""EXISTS (SELECT 1 FROM story_items si
+                          CROSS JOIN items i ON i.id=si.item_id {join}
+                          WHERE si.story_id=st.id AND i.channel=? AND {visible})""")
+        params.append(channel)
+    if topic:
+        filters.append(f"""EXISTS (SELECT 1 FROM story_items si
+                          CROSS JOIN item_topics it ON it.item_id=si.item_id
+                          CROSS JOIN items i ON i.id=si.item_id {join}
+                          WHERE si.story_id=st.id AND it.topic_slug=? AND {visible})""")
+        params.append(topic)
+    return filters, params
+
+
 def curated_top_clusters(
     db: sqlite3.Connection, *, limit: int, channel: str, topic: str,
     cutoff: str, now: datetime | None = None,
@@ -29,18 +55,8 @@ def curated_top_clusters(
     # Correlated EXISTS checks only the recent stories' members; the former uncorrelated
     # IN (...) evaluated curation visibility for every item of the channel first.
     cte, join, visible, _, _ = portal_curation_sql(True, streamed=True)
-    filters = []
-    params: list = [cutoff]
-    if channel != "all":
-        filters.append(f"""EXISTS (SELECT 1 FROM story_items si
-                          JOIN items i ON i.id=si.item_id {join}
-                          WHERE si.story_id=st.id AND i.channel=? AND {visible})""")
-        params.append(channel)
-    if topic:
-        filters.append(f"""EXISTS (SELECT 1 FROM story_items si JOIN item_topics it ON it.item_id=si.item_id
-                         JOIN items i ON i.id=si.item_id {join}
-                         WHERE si.story_id=st.id AND it.topic_slug=? AND {visible})""")
-        params.append(topic)
+    filters, filter_params = story_member_filters(channel, topic, join, visible)
+    params = [cutoff, *filter_params]
     where = " AND " + " AND ".join(filters) if filters else ""
     rows = db.execute(
         (cte if filters else "") + f"""SELECT st.id,st.channel,

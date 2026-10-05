@@ -144,7 +144,7 @@ from ..database import get_db
 from ..curation_projection import display_curation, published_curation
 from ..curation_query import portal_curation_sql
 from ..curation_search_query import search_curated, search_index_usable
-from ..curation_hot_query import curated_top_clusters, hot_metrics_usable
+from ..curation_hot_query import curated_top_clusters, hot_metrics_usable, story_member_filters
 from ..report_query import published_calendar_dates, published_calendar_report
 from ..provenance import publisher, display_title
 from ..runtime_health import read_worker_heartbeat
@@ -695,9 +695,12 @@ def _query_items(channel: str = "all", company: str = "", event: str = "", cat: 
 def _top_clusters(limit: int = 10, channel: str = "all", topic: str = "", days: int = 2) -> list[dict]:
     cutoff = (datetime.now(timezone.utc) - timedelta(days=days)).isoformat()
     cte, curation_join, visible, _, _ = portal_curation_sql(CURATION_READ_ENABLED, streamed=True)
-    any_visible = (f"AND EXISTS(SELECT 1 FROM story_items si JOIN items i ON i.id=si.item_id "
-                   f"{curation_join} WHERE si.story_id=st.id AND {visible})"
-                   if CURATION_READ_ENABLED else "")
+    filters, filter_params = story_member_filters(channel, topic, curation_join, visible)
+    if CURATION_READ_ENABLED and not filters:
+        # A channel or topic filter already requires a visible member.
+        filters.append(f"""EXISTS(SELECT 1 FROM story_items si
+                           CROSS JOIN items i ON i.id=si.item_id {curation_join}
+                           WHERE si.story_id=st.id AND {visible})""")
     with get_db() as db:
         db.execute("BEGIN")  # Read projection readiness and rows from one snapshot.
         use_curated = CURATION_HOT_ENABLED and hot_metrics_usable(db)
@@ -709,14 +712,9 @@ def _top_clusters(limit: int = 10, channel: str = "all", topic: str = "", days: 
             rows = db.execute(
                 cte + f"""SELECT st.*,st.last_at AS updated_at FROM stories st
                    WHERE st.redirect_to IS NULL AND st.item_count>0 AND st.last_at>=?
-                   {any_visible}
-                   AND (?='all' OR EXISTS(SELECT 1 FROM story_items si JOIN items i ON i.id=si.item_id
-                       {curation_join} WHERE si.story_id=st.id AND i.channel=? AND {visible}))
-                   AND (?='' OR EXISTS(SELECT 1 FROM story_items si JOIN item_topics it ON it.item_id=si.item_id
-                       JOIN items i ON i.id=si.item_id {curation_join}
-                       WHERE si.story_id=st.id AND it.topic_slug=? AND {visible}))
+                   {''.join(' AND ' + check for check in filters)}
                    ORDER BY (st.source_count>=2) DESC,st.heat DESC,st.id LIMIT ?""",
-                (cutoff,channel,channel,topic,topic,limit)).fetchall()
+                (cutoff, *filter_params, limit)).fetchall()
         names = {r["slug"]: dict(r) for r in db.execute("SELECT slug,name,name_zh FROM companies")}
     out = []
     for rank,r in enumerate(rows,1):

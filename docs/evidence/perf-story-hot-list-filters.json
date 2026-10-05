@@ -1,0 +1,24 @@
+{
+  "scope": "Recent-event (hot list) channel/topic filters: app/curation_hot_query.py story_member_filters, app/web/routes.py _top_clusters",
+  "recorded_at": "2026-10-06T00:00:00Z",
+  "environment": "macOS rehearsal-size copy (89,575 items, 76,586 stories, schema 51); clock fixed at 2026-10-03T16:00Z, the end of the data, so the two-day window holds about 8k stories; no network, no model calls",
+  "production_changed": false,
+  "problem": "Without statistics the planner ran each story's channel EXISTS from idx_items_channel_pub, walking the channel's items for every recent story; with curation visibility joined this took seconds. Earlier portal timings used the real clock, whose two-day window was empty on this data",
+  "change": "Channel and topic EXISTS start from the story's members (CROSS JOIN from story_items through idx_story_items_story) in both the legacy and the curated hot-metrics path; the legacy path checks for any visible member only when no channel/topic filter (which already requires one) applies",
+  "equivalence_check": {
+    "rehearsal_copy": {"combinations": 26, "paths": ["legacy", "curated"], "curation_read": [false, true], "identical": true},
+    "unit_test": "tests/test_story_hot_list_filters.py: 300 random items, 60 stories, 5 channels x 5 topics x 3 windows x 2 limits x 2 read states against the previous SQL"
+  },
+  "page_ms_curation_read_on_hot_off": {
+    "/?channel=ai": {"old": 3012, "new": 31},
+    "/?channel=stock": {"old": 5589, "new": 52},
+    "/": {"old": 55, "new": 55},
+    "/hot": {"old": 42, "new": 40},
+    "/topics/cursor": {"old": 377, "new": 52},
+    "/topics/policy": {"old": 762, "new": 460},
+    "/topics/product-updates": {"old": 1437, "new": 1206}
+  },
+  "curated_path_ms": {"ai_2_days": {"old": 2900.6, "new": 23.9}, "stock_2_days": {"old": 5558.2, "new": 50.6}},
+  "curation_read_off": "18 legacy combinations identical, timings unchanged (1-68 ms)",
+  "full_tests": {"python_3_11": 816, "python_3_12": 816}
+}
