@@ -8,6 +8,7 @@ from collections import Counter
 from dataclasses import asdict, dataclass
 from pathlib import Path
 
+from .agreement_stats import categorical_agreement
 from .evaluation import (
     ALLOWED_SPLITS, EvaluationDatasetError, _load_cases, _require_text,
     validate_evaluation_dataset,
@@ -77,21 +78,11 @@ def measure_relevance_agreement(dataset_path: Path | str, *, reviewer_a: str,
 
     total = sum(sum(row.values()) for row in confusion.values())
     warnings: list[str] = []
-    observed: float | None = None
-    expected: float | None = None
-    kappa: float | None = None
-    if total:
-        observed = sum(confusion[label][label] for label in LABELS) / total
-        expected = sum(
-            sum(confusion[label].values())
-            * sum(confusion[first][label] for first in LABELS)
-            for label in LABELS
-        ) / (total * total)
-        if expected < 1:
-            kappa = (observed - expected) / (1 - expected)
-        else:
-            warnings.append("kappa is undefined when both reviewers use only one identical label")
-    else:
+    stats = categorical_agreement(confusion, total)
+    observed, expected, kappa = stats.observed_agreement, stats.expected_agreement, stats.cohen_kappa
+    if total and kappa is None:
+        warnings.append("kappa is undefined when both reviewers use only one identical label")
+    elif not total:
         warnings.append("no cases have two reviews by this exact reviewer pair")
     if total < len(rows):
         warnings.append("reviewer pair does not cover the selected dataset scope")
