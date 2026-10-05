@@ -34,6 +34,8 @@ JOB_KINDS = (
     "crawl", "ai", "reconcile", "report", "prune", "curation-search",
     "curation-hot", "topic-statistics", "sync-snapshot",
 )
+# Succeeded routine jobs are kept a month for operations; fetch_log keeps 14 days.
+JOB_RETENTION_DAYS = 30
 
 
 def _next_daily(hour: int, minute: int, now: datetime) -> datetime:
@@ -155,16 +157,22 @@ def _report() -> dict:
 
 def _prune() -> dict:
     from .database import get_db
-    cutoff = format_utc(datetime.now(timezone.utc) - timedelta(days=14))
+    from .jobs import prune_succeeded_jobs
+    now = datetime.now(timezone.utc)
+    cutoff = format_utc(now - timedelta(days=14))
     with get_db() as db:
         deleted = db.execute("DELETE FROM fetch_log WHERE ran_at < ?", (cutoff,)).rowcount
+    with get_db() as db:
+        jobs_deleted = prune_succeeded_jobs(
+            db, finished_before=now - timedelta(days=JOB_RETENTION_DAYS))
     from .sync_retention import cleanup_expired_snapshot_files
     snapshots = cleanup_expired_snapshot_files(dry_run=False)
     if snapshots.refused:
         raise RuntimeError(
             f"sync snapshot retention refused {snapshots.refused} path(s)"
         )
-    return {"fetch_logs_deleted": deleted, "sync_snapshots": snapshots.to_dict()}
+    return {"fetch_logs_deleted": deleted, "routine_jobs_deleted": jobs_deleted,
+            "sync_snapshots": snapshots.to_dict()}
 
 
 def _curation_search_refresh() -> dict:

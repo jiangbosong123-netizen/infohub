@@ -3928,6 +3928,19 @@ def _story_update_real_changes(db: sqlite3.Connection) -> None:
     _execute_script(db, STORY_UPDATE_REAL_CHANGES_SQL)
 
 
+# With foreign keys on, deleting a job (and, by cascade, its attempts) makes SQLite look for
+# rows referring to them. These two child keys had no index, so every deleted job meant a scan
+# of every analysis run and every change.
+JOB_CHILD_KEY_INDEX_SQL = """
+CREATE INDEX idx_analysis_runs_job ON analysis_runs(job_id);
+CREATE INDEX idx_change_log_lease ON change_log(lease_token);
+"""
+
+
+def _job_child_key_indexes(db: sqlite3.Connection) -> None:
+    _execute_script(db, JOB_CHILD_KEY_INDEX_SQL)
+
+
 # Migration 1 freezes the exact legacy schema at main@88a2a1e. Future schema
 # changes must append a new Migration instead of editing this definition.
 MIGRATIONS = (
@@ -4114,6 +4127,8 @@ MIGRATIONS = (
               ITEMS_FETCHED_INDEX_SQL, _items_fetched_index),
     Migration(49, "queue story metrics only for real story changes",
               STORY_UPDATE_REAL_CHANGES_SQL, _story_update_real_changes),
+    Migration(50, "index the job references so routine jobs can be pruned",
+              JOB_CHILD_KEY_INDEX_SQL, _job_child_key_indexes),
 )
 CURRENT_SCHEMA_VERSION = MIGRATIONS[-1].version
 REQUIRED_MIGRATION_COLUMNS = {
