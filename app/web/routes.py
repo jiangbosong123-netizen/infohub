@@ -628,10 +628,37 @@ def _decorate(rows) -> list[dict]:
     return out
 
 
+def _first_per_story(cte: str, base: str, rank_score: str) -> str:
+    """Each story's best eligible item, newest first, paged by LIMIT ? OFFSET ?.
+
+    This is exactly ROW_NUMBER() OVER (PARTITION BY COALESCE(story_id,'item:'||id) ORDER BY
+    published_at DESC, official DESC, COALESCE(score,-1) DESC, id DESC)=1, but an item is kept
+    unless an eligible member of its own story ranks higher. The feed can then stream in
+    published order and stop at the page instead of ranking every eligible item first.
+    ``base`` must return each item at most once; items without a story stay singletons
+    (story ids are never 'item:<id>'). CROSS JOIN pins the check to start from the story's
+    members through idx_story_items_story.
+    """
+    return (cte + ", " if cte else "WITH ") + f"""eligible AS NOT MATERIALIZED ({base})
+        SELECT eligible.*, 1 AS story_rank FROM eligible
+        WHERE NOT EXISTS (
+            SELECT 1 FROM story_items peer CROSS JOIN eligible better
+            WHERE peer.story_id=eligible.story_id AND better.id=peer.item_id
+              AND (better.published_at>eligible.published_at
+                OR (better.published_at=eligible.published_at
+                  AND (better.official>eligible.official
+                    OR (better.official=eligible.official
+                      AND (COALESCE(better.{rank_score},-1)>COALESCE(eligible.{rank_score},-1)
+                        OR (COALESCE(better.{rank_score},-1)=COALESCE(eligible.{rank_score},-1)
+                          AND better.id>eligible.id)))))))
+        ORDER BY eligible.published_at DESC,eligible.id DESC LIMIT ? OFFSET ?"""
+
+
 def _query_items(channel: str = "all", company: str = "", event: str = "", cat: str = "",
                  mode: str = "selected", limit: int = 60, offset: int = 0):
     """Selected is a deduplicated event feed; all preserves every visible report."""
-    cte, curation_join, visible, score_expr, category_expr = portal_curation_sql(CURATION_READ_ENABLED)
+    cte, curation_join, visible, score_expr, category_expr = portal_curation_sql(
+        CURATION_READ_ENABLED, streamed=True)
     where = f" WHERE {visible}"
     params: list = []
     if mode == "selected" and CURATED_FEED_ENABLED:
@@ -655,13 +682,8 @@ def _query_items(channel: str = "all", company: str = "", event: str = "", cat: 
               FROM items i JOIN sources s ON s.id=i.source_id
               LEFT JOIN story_items si ON si.item_id=i.id""" + curation_join + where
     if mode == "selected":
-        sql = (cte + ", " if cte else "WITH ") + """eligible AS (""" + base + f"""), ranked AS (
-            SELECT eligible.*, ROW_NUMBER() OVER (
-                PARTITION BY COALESCE(story_id, 'item:' || id)
-                ORDER BY published_at DESC, official DESC, COALESCE({'curation_rank_score' if CURATION_READ_ENABLED else 'score'},-1) DESC, id DESC
-            ) AS story_rank FROM eligible)
-            SELECT * FROM ranked WHERE story_rank=1
-            ORDER BY published_at DESC,id DESC LIMIT ? OFFSET ?"""
+        sql = _first_per_story(
+            cte, base, "curation_rank_score" if CURATION_READ_ENABLED else "score")
     else:
         sql = cte + base + " ORDER BY i.published_at DESC,i.id DESC LIMIT ? OFFSET ?"
     params += [limit, offset]
@@ -672,7 +694,7 @@ def _query_items(channel: str = "all", company: str = "", event: str = "", cat: 
 
 def _top_clusters(limit: int = 10, channel: str = "all", topic: str = "", days: int = 2) -> list[dict]:
     cutoff = (datetime.now(timezone.utc) - timedelta(days=days)).isoformat()
-    cte, curation_join, visible, _, _ = portal_curation_sql(CURATION_READ_ENABLED)
+    cte, curation_join, visible, _, _ = portal_curation_sql(CURATION_READ_ENABLED, streamed=True)
     any_visible = (f"AND EXISTS(SELECT 1 FROM story_items si JOIN items i ON i.id=si.item_id "
                    f"{curation_join} WHERE si.story_id=st.id AND {visible})"
                    if CURATION_READ_ENABLED else "")
@@ -1977,13 +1999,18 @@ def about_heat():
     return RedirectResponse("/hot", status_code=302)
 
 
-def _topic_stats(db):
+def _topic_stats(db, slug: str | None = None):
+    """Per-topic totals; with ``slug``, only that topic's row (same values, fewer items)."""
     if TOPIC_READ_ENABLED:
         return published_portal_topics(db)
-    cte, _, _, score_expr, _ = portal_curation_sql(CURATION_READ_ENABLED)
+    cte, _, _, score_expr, _ = portal_curation_sql(CURATION_READ_ENABLED, streamed=True)
+    if CURATION_READ_ENABLED:
+        # curation_values has one row per item; reading it per assignment keeps the planner
+        # from materializing it for every item (it cannot sit flattened under a LEFT JOIN).
+        score_expr = "(SELECT cv.score FROM curation_values cv WHERE cv.item_id=i.id)"
     selected = _selected_clause(score_expr=score_expr) if CURATED_FEED_ENABLED else "1=1"
-    item_join = ("LEFT JOIN curation_values cv ON cv.item_id=it.item_id "
-                 "LEFT JOIN items i ON i.id=it.item_id AND cv.visible=1"
+    item_join = ("LEFT JOIN items i ON i.id=it.item_id AND "
+                 "(SELECT cv.visible FROM curation_values cv WHERE cv.item_id=it.item_id)=1"
                  if CURATION_READ_ENABLED else
                  "LEFT JOIN items i ON i.id=it.item_id AND COALESCE(i.tmt,1)!=0")
     return [dict(r) for r in db.execute(cte + f"""SELECT t.*,COUNT(i.id) AS total,
@@ -1991,8 +2018,8 @@ def _topic_stats(db):
         MAX(i.published_at) AS last_at FROM topics t
         LEFT JOIN item_topics it ON it.topic_slug=t.slug
         {item_join}
-        WHERE t.enabled=1
-        GROUP BY t.slug ORDER BY t.position""")]
+        WHERE t.enabled=1{' AND t.slug=?' if slug is not None else ''}
+        GROUP BY t.slug ORDER BY t.position""", () if slug is None else (slug,))]
 
 
 @app.get('/topics',response_class=HTMLResponse)
@@ -2011,7 +2038,7 @@ def topics_index(request: Request):
 @app.get('/topics/{slug}',response_class=HTMLResponse)
 def topic_detail(request: Request,slug: str,mode: str='selected',page: int=Query(1,ge=1)):
     mode = mode if mode in ('all','selected') else 'selected'
-    cte, curation_join, visible, score_expr, _ = portal_curation_sql(CURATION_READ_ENABLED)
+    cte, curation_join, visible, score_expr, _ = portal_curation_sql(CURATION_READ_ENABLED, streamed=True)
     selected = " AND " + _selected_clause(score_expr=score_expr) if mode=='selected' and CURATED_FEED_ENABLED else ''
     try:
         with get_db() as db:
@@ -2038,7 +2065,7 @@ def topic_detail(request: Request,slug: str,mode: str='selected',page: int=Query
                     WHERE topic_state.singleton=1 AND {visible} {selected}"""
                 base_params = (topic["version_id"],)
             else:
-                topic = next((t for t in _topic_stats(db) if t['slug']==slug),None)
+                topic = next((t for t in _topic_stats(db, slug) if t['slug']==slug),None)
                 if topic is None:
                     raise HTTPException(404,'主题不存在')
                 base = f"""SELECT i.*,s.name AS source_name,si.story_id
@@ -2049,16 +2076,11 @@ def topic_detail(request: Request,slug: str,mode: str='selected',page: int=Query
                     WHERE it.topic_slug=? AND {visible} {selected}"""
                 base_params = (slug,)
             if mode == 'selected':
-                sql = (cte + ", " if cte else "WITH ") + """eligible AS (""" + base + f"""), ranked AS (
-                    SELECT eligible.*,ROW_NUMBER() OVER (
-                        PARTITION BY COALESCE(story_id,'item:' || id)
-                        ORDER BY published_at DESC,official DESC,COALESCE({'curation_rank_score' if CURATION_READ_ENABLED else 'score'},-1) DESC,id DESC
-                    ) AS story_rank FROM eligible)
-                    SELECT * FROM ranked WHERE story_rank=1
-                    ORDER BY published_at DESC,id DESC LIMIT 21 OFFSET ?"""
+                sql = _first_per_story(
+                    cte, base, 'curation_rank_score' if CURATION_READ_ENABLED else 'score')
             else:
-                sql = cte + base + " ORDER BY i.published_at DESC,i.id DESC LIMIT 21 OFFSET ?"
-            rows = db.execute(sql,(*base_params,(page-1)*20)).fetchall()
+                sql = cte + base + " ORDER BY i.published_at DESC,i.id DESC LIMIT ? OFFSET ?"
+            rows = db.execute(sql,(*base_params,21,(page-1)*20)).fetchall()
     except TopicStatisticsNotFound:
         raise HTTPException(404,'主题不存在')
     except (TopicStatisticsAdmissionError, TopicStatisticsUnavailable):

@@ -82,8 +82,18 @@ WITH curation_refs AS (
 """
 
 
-def portal_curation_sql(enabled: bool) -> tuple[str, str, str, str, str]:
+# The same CTE with every step left to the planner. Referring to curation_values more than
+# once (a feed plus its per-story check) otherwise materializes it for every item, which took
+# seconds per page on the rehearsal-size database; flattened, it is computed only for the rows
+# a query reaches. The hint never changes results.
+CURATION_STREAMED_CTE = CURATION_FILTER_CTE.replace(" AS (", " AS NOT MATERIALIZED (")
+if CURATION_STREAMED_CTE.count(" AS NOT MATERIALIZED (") != 3:
+    raise RuntimeError("curation CTE no longer has exactly three steps")
+
+
+def portal_curation_sql(enabled: bool, *, streamed: bool = False) -> tuple[str, str, str, str, str]:
     """Return CTE prefix, join, visibility, score and category SQL fragments."""
     if enabled:
-        return CURATION_FILTER_CTE, " JOIN curation_values cv ON cv.item_id=i.id", "cv.visible=1", "cv.score", "cv.category"
+        return (CURATION_STREAMED_CTE if streamed else CURATION_FILTER_CTE,
+                " JOIN curation_values cv ON cv.item_id=i.id", "cv.visible=1", "cv.score", "cv.category")
     return "", "", "COALESCE(i.tmt,1)!=0", "i.score", "i.ai_cat"
