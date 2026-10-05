@@ -11,7 +11,7 @@ from collections.abc import Callable
 
 from .curation_hot_metrics import advance_hot_metrics
 from .curation_search import advance_search_index
-from .database import get_db
+from .database import get_db, reused_connections
 from .legacy_curation_import import (
     JOB_KIND,
     enqueue_legacy_curation_batch,
@@ -33,6 +33,11 @@ BUILDERS = (
 def run_legacy_curation_import(
     *, worker_id: str = "maintenance-legacy-import", progress: Progress | None = None
 ) -> dict:
+    with reused_connections():
+        return _run_legacy_curation_import(worker_id=worker_id, progress=progress)
+
+
+def _run_legacy_curation_import(*, worker_id: str, progress: Progress | None) -> dict:
     after = items = ensured = 0
     while True:
         page = enqueue_legacy_curation_batch(after_item_id=after, limit=ENQUEUE_PAGE)
@@ -66,6 +71,11 @@ def run_legacy_curation_import(
 
 
 def run_projection_builders(*, progress: Progress | None = None, max_calls: int = 100_000) -> dict:
+    with reused_connections():
+        return _run_projection_builders(progress=progress, max_calls=max_calls)
+
+
+def _run_projection_builders(*, progress: Progress | None, max_calls: int) -> dict:
     results = {}
     for name, advance, limit in BUILDERS:
         calls, last = 0, {}

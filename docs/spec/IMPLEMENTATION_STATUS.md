@@ -91,6 +91,10 @@ the implementation PR series proceeded. It was restored on 2026-09-27 after `mai
 - Schema 47 rewrites the 13 queue triggers (search, derived and topic-statistics dirty queues) with their own
   `ON CONFLICT` clauses. Their `INSERT OR REPLACE/IGNORE` inherited the firing statement's conflict policy, so
   superseding an analysis publication (an UPSERT) failed while the item was still queued for search indexing.
+- The one-command maintenance runs (`legacy-curation-run`, `projection-builders-run`) reuse committed
+  connections within their thread instead of re-parsing the ~740-object schema on every `get_db()`; a
+  3,000-job sample on a rehearsal-size copy went from about 30 ms to 6.6 ms per legacy import job, and a
+  300-item fixture import gives identical results either way. Web and worker connections are unchanged.
 
 ## Status rule
 

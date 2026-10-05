@@ -72,6 +72,15 @@ schedule 的下一次时间保存在 SQLite。进程停机期间错过多个周�
 - 来源异常但 ready：发布本身可接受，pipeline 仍 degraded；根据来源错误和退避时间处理。
 - migrate 失败：web/worker 不应切换。使用已生成备份和迁移报告排查，不能跳过 migrate 强启。
 
+## 批量维护命令的连接复用
+
+每次 `get_db()` 新建连接本身很快，但新连接的第一条语句要解析整个 schema（约 740 个对象，约 1.8 ms），而一个旧 AI
+策展导入任务要开约 10 次连接，这部分占了每个任务的大部分时间。`legacy-curation-run` 与 `projection-builders-run`
+在 `database.reused_connections()` 内运行：每个 `with get_db()` 照常在退出时提交或回滚，取出时重新设置标准 PRAGMA
+与 row factory，只是不立即关闭，供同一线程的下一次 `get_db()` 复用；命令结束时全部关闭。演练规模副本上抽样 3,000 个
+导入任务从约 30 ms/个降到 6.6 ms/个；300 条的对照导入中，复用与逐次新建连接的结果逐项一致。web 与 worker
+不使用该作用域，行为不变。
+
 ## 任务领取索引（schema 45）
 
 `claim_job` 先按 priority、再按到期时间领取。schema 45 增加只覆盖 `pending/retry_wait` 的有序部分索引
