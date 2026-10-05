@@ -113,6 +113,12 @@ migrate、web、worker 启动时都会对数据库做完整校验（`verify_data
 所以汇总改为只取 `reserved_cost_microusd>0` 的行（`DAILY_RESERVED_SQL`），覆盖索引直接跳过 0 元行：同一副本上 9 ms
 降到 0.003 ms，结果不变（随机 2,000 条混合授权的各 provider × 日期汇总逐一相等）。
 
+## 门户最近更新时间索引（schema 48）
+
+首页每次显示“最近更新”都执行 `SELECT MAX(fetched_at) FROM items`。`fetched_at` 没有索引时这要扫描全部条目：
+演练规模（89,575 条）上热缓存约 22 ms（占首页 32 ms 的大部分），冷缓存约 160 ms。schema 48 增加
+`idx_items_fetched`，同一查询降到约 0.02 ms、结果不变；建索引约 0.03 秒，不改写数据。
+
 ## 队列触发器的冲突处理（schema 47）
 
 搜索、派生分类和主题统计的待处理队列（`curation_search_dirty`、`derived_dirty`、`topic_statistics_dirty`）由触发器

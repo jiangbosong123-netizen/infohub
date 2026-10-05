@@ -3894,6 +3894,17 @@ def _dirty_queue_upsert(db: sqlite3.Connection) -> None:
     _execute_script(db, DIRTY_QUEUE_UPSERT_SQL)
 
 
+# Every home page shows when the newest item was fetched; without an index SELECT
+# MAX(fetched_at) scanned all items (about 22 ms of a 32 ms page on the rehearsal-size data).
+ITEMS_FETCHED_INDEX_SQL = """
+CREATE INDEX idx_items_fetched ON items(fetched_at);
+"""
+
+
+def _items_fetched_index(db: sqlite3.Connection) -> None:
+    _execute_script(db, ITEMS_FETCHED_INDEX_SQL)
+
+
 # Migration 1 freezes the exact legacy schema at main@88a2a1e. Future schema
 # changes must append a new Migration instead of editing this definition.
 MIGRATIONS = (
@@ -4076,6 +4087,8 @@ MIGRATIONS = (
               PUBLICATION_LOOKUP_INDEX_SQL, _publication_lookup_indexes),
     Migration(47, "queue triggers keep their own conflict handling",
               DIRTY_QUEUE_UPSERT_SQL, _dirty_queue_upsert),
+    Migration(48, "index items by fetch time for the portal's last-update stamp",
+              ITEMS_FETCHED_INDEX_SQL, _items_fetched_index),
 )
 CURRENT_SCHEMA_VERSION = MIGRATIONS[-1].version
 REQUIRED_MIGRATION_COLUMNS = {
