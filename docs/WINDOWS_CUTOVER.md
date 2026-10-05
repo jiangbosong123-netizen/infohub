@@ -93,7 +93,7 @@ curl.exe -s http://127.0.0.1:8000/api/ready
 
 数据库变大后，每次重启 web 会先完整校验数据库，演练中 4.9 GB 的库约需 3 分钟才开始响应，属正常现象。
 
-## 7. 补历史数据（门户可用，预计约 1.5–2 小时；演练时的旧版本为 3.5–4 小时）
+## 7. 补历史数据（门户可用，预计约 1–1.5 小时；演练时的旧版本为 3.5–4 小时）
 
 回填期间建议暂停采集，避免与 worker 争用数据库写锁；如果更在意采集连续，也可以不停（会变慢但不会出错）。
 
@@ -102,7 +102,7 @@ docker compose stop worker
 docker compose run --rm migrate python cli.py legacy-backfill 1000      # 约 19 分钟
 docker compose run --rm migrate python cli.py legacy-topic-backfill 1000
 docker compose run --rm migrate python cli.py legacy-event-project
-docker compose run --rm migrate python cli.py legacy-curation-run       # 预计约 1 小时；中断后重新运行即可续跑
+docker compose run --rm migrate python cli.py legacy-curation-run       # 预计约 45 分钟（含排队）；中断后重新运行即可续跑
 docker compose run --rm migrate python cli.py projection-builders-run   # 约 3 分钟
 docker compose start worker
 ```
