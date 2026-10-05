@@ -115,6 +115,14 @@ migrate、web、worker 启动时都会对数据库做完整校验（`verify_data
 所以汇总改为只取 `reserved_cost_microusd>0` 的行（`DAILY_RESERVED_SQL`），覆盖索引直接跳过 0 元行：同一副本上 9 ms
 降到 0.003 ms，结果不变（随机 2,000 条混合授权的各 provider × 日期汇总逐一相等）。
 
+## 按结果查发布版本的索引（schema 51）
+
+`GET /api/v1/analyses/{id}` 与启动校验中的语气结果检查都按 `result_id` 查发布版本，而该列没有索引：演练规模
+（35.8 万条分析）上每次 API 请求要扫描全部发布版本，热缓存约 0.3 秒、冷缓存约 2.5 秒。schema 51 增加
+`idx_analysis_publication_versions_result`（建索引约 0.1 秒），同一查询降到 0.01 ms 以下。日报冻结时读取发布指针的查询
+与门户一样固定从本次文档开始（约 0.86 s → 0.02 s）。`tests/test_query_plans.py` 检查这些查询实际执行时的计划，
+不允许整表扫描。
+
 ## 例行任务的保留期（schema 50）
 
 每个计划到点都会生成一条持久任务。三个投影构建器开启后每分钟各一条，加上抓取、AI 等，每天约 4,700 条，按每条（含
