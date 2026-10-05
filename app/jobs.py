@@ -743,6 +743,34 @@ def enqueue_due_schedules(
     return tuple(jobs)
 
 
+# The worker's scheduled housekeeping. Every tick leaves one succeeded job (the three projection
+# builders alone add about 4,300 a day once enabled) that nothing else refers to.
+ROUTINE_JOB_KINDS = (
+    "crawl", "ai", "reconcile", "report", "prune",
+    "curation-search", "curation-hot", "topic-statistics",
+)
+
+
+def prune_succeeded_jobs(
+    db, *, finished_before: datetime | str, kinds: tuple[str, ...] = ROUTINE_JOB_KINDS,
+) -> int:
+    """Delete succeeded jobs of ``kinds`` finished before the cutoff, with their attempts.
+
+    A job that a change, an analysis run or a sync snapshot request refers to is kept.
+    """
+    cutoff = _normalize_time(finished_before)
+    marks = ",".join("?" for _ in kinds)
+    return db.execute(
+        f"""DELETE FROM jobs
+            WHERE state='succeeded' AND finished_at<? AND kind IN ({marks})
+              AND NOT EXISTS(SELECT 1 FROM change_log WHERE change_log.job_id=jobs.id)
+              AND NOT EXISTS(SELECT 1 FROM analysis_runs WHERE analysis_runs.job_id=jobs.id)
+              AND NOT EXISTS(
+                  SELECT 1 FROM sync_snapshot_requests WHERE sync_snapshot_requests.job_id=jobs.id)""",
+        (cutoff, *kinds),
+    ).rowcount
+
+
 def job_counts() -> dict[str, int]:
     result = {
         state: 0
