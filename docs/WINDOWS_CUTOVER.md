@@ -80,13 +80,13 @@ INFOHUB_PUBLIC_ORIGIN=https://windows-server.tail29d4dd.ts.net
 
 以 Serve 实际输出的地址为准。不要启用 Funnel，不要开放 8000 端口。
 
-## 6. 升级（停机约 5 分钟）
+## 6. 升级（停机约 4–5 分钟）
 
 ```powershell
 git pull --ff-only origin main
 $env:APP_VERSION = (git rev-parse --short=12 HEAD)
 docker compose up -d --build
-docker compose logs -f migrate      # 首次需要把旧聚类全部重算，演练约 5 分钟；看到“发布准备完成”后 Ctrl-C
+docker compose logs -f migrate      # 首次需要把旧聚类全部重算，演练约 5 分钟（现在预计约 4 分钟）；看到“发布准备完成”后 Ctrl-C
 docker compose ps                   # infohub 与 infohub-worker 应为 healthy
 curl.exe -s http://127.0.0.1:8000/api/ready
 ```

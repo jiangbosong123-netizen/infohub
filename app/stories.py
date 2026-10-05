@@ -13,6 +13,7 @@ import uuid
 from collections import Counter, defaultdict
 from datetime import datetime, timedelta, timezone
 from difflib import SequenceMatcher
+from functools import cached_property
 
 from .database import get_db
 from .provenance import display_title, object_json, publisher
@@ -51,11 +52,45 @@ def _keys(row):
     return tokens
 
 
+class _Facts:
+    """What match_score derives from one item, each computed on first use as before."""
+
+    def __init__(self, row):
+        self.row = row
+
+    @cached_property
+    def published(self):
+        return _dt(self.row['published_at'])
+
+    @cached_property
+    def companies(self):
+        return set(json.loads(self.row['companies'] or '[]'))
+
+    @cached_property
+    def form(self):
+        return object_json(self.row['extra']).get('form')
+
+    @cached_property
+    def numbers(self):
+        return set(re.findall(r'\d+(?:\.\d+)*', self.row['title']))
+
+    @cached_property
+    def titles(self):
+        return [(set(re.findall(r'\d+(?:\.\d+)*', title)), _norm(title)) for title in _titles(self.row)]
+
+
 def match_score(row, anchor):
-    if abs((_dt(row['published_at']) - _dt(anchor['published_at'])).total_seconds()) > MAX_EVENT_HOURS * 3600:
+    return _score(_Facts(row), _Facts(anchor))
+
+
+def _score(item, other, beat=None):
+    """match_score on cached facts. With ``beat``, pairs that cannot reach a score that is
+    both >= MATCH_THRESHOLD and > beat are skipped, so the result equals match_score
+    whenever it passes that test and fails the test whenever match_score does."""
+    row, anchor = item.row, other.row
+    if abs((item.published - other.published).total_seconds()) > MAX_EVENT_HOURS * 3600:
         return 0.0
-    companies = set(json.loads(row['companies'] or '[]'))
-    others = set(json.loads(anchor['companies'] or '[]'))
+    companies, others = item.companies, other.companies
     if companies and others and not companies.intersection(others):
         return 0.0
     if row['channel'] != anchor['channel'] and not (companies & others):
@@ -65,25 +100,26 @@ def match_score(row, anchor):
         return 0.0
     # Similar-looking official filings must not collapse different documents.
     if row['official'] and anchor['official'] and row['url'] != anchor['url']:
-        if object_json(row['extra']).get('form') or object_json(anchor['extra']).get('form'):
+        if item.form or other.form:
             return 0.0
         if 'hkexnews.hk' in row['url'] and 'hkexnews.hk' in anchor['url']:
             return 0.0
-    original_numbers = set(re.findall(r'\d+(?:\.\d+)*', row['title']))
-    anchor_numbers = set(re.findall(r'\d+(?:\.\d+)*', anchor['title']))
-    if original_numbers and anchor_numbers and original_numbers != anchor_numbers:
+    if item.numbers and other.numbers and item.numbers != other.numbers:
         return 0.0
     best = 0.0
-    for a in _titles(row):
-        for b in _titles(anchor):
+    for a_numbers, na in item.titles:
+        for b_numbers, nb in other.titles:
             # Avoid mixing different model versions, fiscal quarters and amounts.
-            a_numbers = set(re.findall(r'\d+(?:\.\d+)*', a))
-            b_numbers = set(re.findall(r'\d+(?:\.\d+)*', b))
             if a_numbers and b_numbers and a_numbers != b_numbers:
                 continue
-            na, nb = _norm(a), _norm(b)
             if min(len(na),len(nb)) < 8:
                 continue
+            if beat is not None:
+                # ratio() is 2*matches/(len(na)+len(nb)) and matches never exceed the
+                # shorter title, so this bound is never below the ratio.
+                bound = 2.0 * min(len(na), len(nb)) / (len(na) + len(nb))
+                if bound < MATCH_THRESHOLD or bound <= beat or bound <= best:
+                    continue
             # Containment alone is insufficient: a generic short title can be a
             # prefix of many unrelated followups.
             ratio = SequenceMatcher(None, na, nb, autojunk=False).ratio()
@@ -153,6 +189,15 @@ def refresh_derived() -> dict:
             for token in _keys(anchor):
                 by_token[token].add(anchor['story_id'])
         matched = 0
+        facts = {}
+
+        def facts_of(item):
+            # Keyed by object identity; keeping the item in the entry pins that identity.
+            entry = facts.get(id(item))
+            if entry is None:
+                entry = facts[id(item)] = (item, _Facts(item))
+            return entry[1]
+
         for row in rows:
             assign_topics(db,row,definitions)
             old = db.execute('SELECT story_id FROM story_items WHERE item_id=?',(row['id'],)).fetchone()
@@ -172,7 +217,7 @@ def refresh_derived() -> dict:
                 for sid in heapq.nsmallest(120, candidates, key=lambda s:(-candidates[s],s)):
                     if sid == old_id:
                         continue
-                    score = match_score(row,anchors[sid])
+                    score = _score(facts_of(row), facts_of(anchors[sid]), beat=best_score)
                     if score >= MATCH_THRESHOLD and score > best_score:
                         best_id,best_score = sid,score
                 old_anchor = anchors.get(old_id)
@@ -180,7 +225,7 @@ def refresh_derived() -> dict:
                 # A published multi-article event retains its anchor and URL.
                 if old_anchor and old_anchor['id'] == row['id'] and old_count > 1:
                     best_id,best_score = old_id,1.0
-                elif old_anchor and match_score(row,old_anchor) >= MATCH_THRESHOLD:
+                elif old_anchor and _score(facts_of(row), facts_of(old_anchor)) >= MATCH_THRESHOLD:
                     if best_id is None:
                         best_id,best_score = old_id,1.0
                 if best_id is None:
