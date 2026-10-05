@@ -53,7 +53,8 @@ INFOHUB_LEGACY_DATA_LAYOUT=true .venv/bin/python cli.py runtime-config
 防火墙规则或路由器端口映射。切换与回滚见 [私网 HTTPS 生产入口](PRIVATE_HTTPS_INGRESS.md)，web/worker
 运维边界见 [web/worker 运维说明](WORKER_OPERATIONS.md)。
 
-第一次把生产升级到新结构的决定、步骤、耗时与回退见 [生产升级方案](CUTOVER_PLAN.md)（基于 2026-10-04 完整演练）。
+第一次把生产升级到新结构的决定、步骤、耗时与回退见 [生产升级方案](CUTOVER_PLAN.md)（基于 2026-10-04 完整演练），
+Windows 逐条命令见 [Windows 生产升级手册](WINDOWS_CUTOVER.md)。
 这台 Mac 上运行同样三种角色的备选方案（launchd）见 [`deploy/macos/README.md`](../deploy/macos/README.md)；
 两台机器不能同时作为生产采集器。
 
