@@ -72,6 +72,19 @@ schedule 的下一次时间保存在 SQLite。进程停机期间错过多个周�
 - 来源异常但 ready：发布本身可接受，pipeline 仍 degraded；根据来源错误和退避时间处理。
 - migrate 失败：web/worker 不应切换。使用已生成备份和迁移报告排查，不能跳过 migrate 强启。
 
+## 启动校验的耗时
+
+migrate、web、worker 启动时都会对数据库做完整校验（`verify_database`）：除 schema 结构外，还逐条核对分析账本
+（运行、输入、授权、尝试、结果、发布指针及其 change_log 行），最后执行 SQLite 的 `integrity_check` 与
+`foreign_key_check`。账本检查原先每条分析记录要发 5–10 次单独查询；现在每个账本用一次按主键关联的流式查询，
+逐行判断逻辑不变（`tests/test_analysis_ledger_verification.py` 对每一种篡改都要求报出同一账本、同一计数，另做过
+2,800 次随机篡改的新旧对照，结果逐字一致）。校验连接使用 64 MB 页缓存，使两项 SQLite 检查少重读索引页。
+
+在演练规模的库（4.9 GB、35.8 万条分析）上，Mac 文件缓存已热时整次校验约 44 秒降到约 34 秒，执行的 SQL 从
+394 万条降到 224 条；文件缓存冷时 SQLite 自身的 `integrity_check` 就要 30–40 秒。Windows 上 Docker 挂载目录读写更慢，
+时间会更长。因此 web 与 worker 的健康检查 `start_period` 设为 600 秒：启动校验期间显示 starting，校验结束开始响应
+后立即转为 healthy。部署管理器的验收等待也需要覆盖这段时间。
+
 ## 批量维护命令的连接复用
 
 每次 `get_db()` 新建连接本身很快，但新连接的第一条语句要解析整个 schema（约 740 个对象，约 1.8 ms），而一个旧 AI

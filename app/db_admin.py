@@ -8,6 +8,7 @@ import os
 import sqlite3
 from dataclasses import asdict, dataclass
 from datetime import datetime, timedelta, timezone
+from itertools import groupby
 from pathlib import Path
 from typing import Callable, Iterable
 from uuid import uuid4
@@ -4936,6 +4937,35 @@ def apply_migrations(
     return tuple(migration.version for migration in pending)
 
 
+def _columns_as(db: sqlite3.Connection, table: str, alias: str) -> str:
+    """Select list for ``alias.*`` with each column named "<alias>.<column>"."""
+    return ",".join(
+        '{0}."{1}" AS "{0}.{1}"'.format(alias, row["name"].replace('"', '""'))
+        for row in db.execute(f'PRAGMA table_info("{table}")')
+    )
+
+
+def _split_joined(cursor: sqlite3.Cursor, keys: dict[str, str]):
+    """Yield each row with one dict per LEFT JOINed alias selected via _columns_as().
+
+    ``keys`` names, per alias, the column its ON clause compares; it is NULL exactly when
+    the join matched no row, which then reads as None like an empty ``fetchone()``.
+    """
+    names = [column[0] for column in cursor.description]
+    layout = {
+        alias: [(index, name[len(alias) + 1:]) for index, name in enumerate(names)
+                if name.startswith(alias + ".")]
+        for alias in keys
+    }
+    match = {alias: names.index(f"{alias}.{key}") for alias, key in keys.items()}
+    for row in cursor:
+        yield row, {
+            alias: None if row[match[alias]] is None
+            else {column: row[index] for index, column in layout[alias]}
+            for alias in keys
+        }
+
+
 def _sha256(path: Path) -> str:
     digest = hashlib.sha256()
     with path.open("rb") as handle:
@@ -6226,7 +6256,22 @@ def _assert_current_schema(db: sqlite3.Connection) -> None:
         ):
             invalid_event_revisions += 1
     invalid_analysis_runs = 0
-    for run in db.execute("SELECT * FROM analysis_runs"):
+    # The analysis ledgers grow by one row set per published analysis, so each ledger is
+    # read in one streamed join rather than with lookups per row; the checks are unchanged.
+    # Grouped by rowid: a tampered TEXT primary key can be NULL and must still count per run.
+    run_inputs = db.execute(
+        """SELECT run.rowid AS "run.rowid",run.*,input.ordinal,input.document_version_id,
+                  input.event_version_id,input.evidence_id,
+                  EXISTS(SELECT 1 FROM document_version_inputs AS link
+                         WHERE link.version_id=input.document_version_id
+                           AND link.raw_record_id=input.evidence_id) AS evidence_linked
+           FROM analysis_runs AS run
+           LEFT JOIN analysis_inputs AS input ON input.run_id=run.id
+           ORDER BY run.rowid,input.ordinal"""
+    )
+    for _, run_rows in groupby(run_inputs, key=lambda row: row["run.rowid"]):
+        run_rows = list(run_rows)
+        run = run_rows[0]
         valid_run = True
         try:
             manifest = json.loads(run["input_manifest_json"])
@@ -6234,9 +6279,8 @@ def _assert_current_schema(db: sqlite3.Connection) -> None:
         except (TypeError, json.JSONDecodeError):
             valid_run = False
             manifest = parameters = None
-        inputs = db.execute(
-            "SELECT * FROM analysis_inputs WHERE run_id=? ORDER BY ordinal", (run["id"],)
-        ).fetchall()
+        # A run without inputs joins to a single row whose input columns are NULL.
+        inputs = [row for row in run_rows if row["ordinal"] is not None]
         subject_exists = (
             run["subject_version_id"] in document_version_ids
             if run["subject_type"] == "document"
@@ -6254,11 +6298,7 @@ def _assert_current_schema(db: sqlite3.Connection) -> None:
             if item["document_version_id"] is not None:
                 valid_inputs = valid_inputs and item["document_version_id"] in document_version_ids
                 if item["evidence_id"] is not None:
-                    valid_inputs = valid_inputs and bool(db.execute(
-                        """SELECT 1 FROM document_version_inputs
-                           WHERE version_id=? AND raw_record_id=?""",
-                        (item["document_version_id"], item["evidence_id"]),
-                    ).fetchone())
+                    valid_inputs = valid_inputs and bool(item["evidence_linked"])
             else:
                 valid_inputs = (
                     valid_inputs and item["event_version_id"] in event_version_ids
@@ -6275,17 +6315,21 @@ def _assert_current_schema(db: sqlite3.Connection) -> None:
         ):
             invalid_analysis_runs += 1
     invalid_analysis_attempts = 0
-    for authorization in db.execute("SELECT * FROM analysis_attempt_authorizations"):
-        run = db.execute(
-            "SELECT provider FROM analysis_runs WHERE id=?", (authorization["run_id"],)
-        ).fetchone()
-        policy = db.execute(
-            "SELECT * FROM analysis_budget_policies WHERE id=?",
-            (authorization["budget_policy_id"],),
-        ).fetchone()
-        attempt = db.execute(
-            "SELECT * FROM analysis_attempts WHERE authorization_id=?", (authorization["id"],)
-        ).fetchone()
+    authorizations = db.execute(
+        f"""SELECT authorization.*,run.id AS "run.id",run.provider AS "run.provider",
+                   {_columns_as(db, "analysis_budget_policies", "policy")},
+                   {_columns_as(db, "analysis_attempts", "attempt")}
+            FROM analysis_attempt_authorizations AS authorization
+            LEFT JOIN analysis_runs AS run ON run.id=authorization.run_id
+            LEFT JOIN analysis_budget_policies AS policy
+              ON policy.id=authorization.budget_policy_id
+            LEFT JOIN analysis_attempts AS attempt
+              ON attempt.authorization_id=authorization.id"""
+    )
+    for authorization, joined in _split_joined(
+        authorizations, {"run": "id", "policy": "id", "attempt": "authorization_id"}
+    ):
+        run, policy, attempt = joined["run"], joined["policy"], joined["attempt"]
         should_allow = bool(policy) and (
             authorization["reserved_cost_microusd"] <= policy["per_attempt_limit_microusd"]
         )
@@ -6310,12 +6354,16 @@ def _assert_current_schema(db: sqlite3.Connection) -> None:
         IMPACT_SCHEMA_VERSION, referenced_impact_entities, validate_impact_data,
         validate_impact_envelope, verify_impact_evidence,
     )
-    for result in db.execute("SELECT * FROM analysis_results"):
-        run = db.execute("SELECT * FROM analysis_runs WHERE id=?", (result["run_id"],)).fetchone()
-        attempt = db.execute(
-            "SELECT * FROM analysis_attempts WHERE id=? AND run_id=?",
-            (result["attempt_id"], result["run_id"]),
-        ).fetchone()
+    results = db.execute(
+        f"""SELECT result.*,{_columns_as(db, "analysis_runs", "run")},
+                   {_columns_as(db, "analysis_attempts", "attempt")}
+            FROM analysis_results AS result
+            LEFT JOIN analysis_runs AS run ON run.id=result.run_id
+            LEFT JOIN analysis_attempts AS attempt
+              ON attempt.id=result.attempt_id AND attempt.run_id=result.run_id"""
+    )
+    for result, joined in _split_joined(results, {"run": "id", "attempt": "id"}):
+        run, attempt = joined["run"], joined["attempt"]
         try:
             output = json.loads(result["validated_output_json"])
             report = json.loads(result["validation_report_json"])
@@ -6447,23 +6495,24 @@ def _assert_current_schema(db: sqlite3.Connection) -> None:
                     valid_result = False
         if not valid_result:
             invalid_analysis_results += 1
-    for pointer in db.execute("SELECT * FROM analysis_publications"):
-        publication = db.execute(
-            "SELECT * FROM analysis_publication_versions WHERE id=?",
-            (pointer["current_publication_id"],),
-        ).fetchone()
-        result = db.execute(
-            "SELECT * FROM analysis_results WHERE id=?",
-            (publication["result_id"],) if publication else (None,),
-        ).fetchone()
-        run = db.execute(
-            "SELECT * FROM analysis_runs WHERE id=?",
-            (result["run_id"],) if result else (None,),
-        ).fetchone()
-        change = db.execute(
-            "SELECT * FROM change_log WHERE seq=?",
-            (publication["publication_seq"],) if publication else (None,),
-        ).fetchone()
+    pointers = db.execute(
+        f"""SELECT pointer.*,{_columns_as(db, "analysis_publication_versions", "publication")},
+                   {_columns_as(db, "analysis_results", "result")},
+                   {_columns_as(db, "analysis_runs", "run")},
+                   {_columns_as(db, "change_log", "change")}
+            FROM analysis_publications AS pointer
+            LEFT JOIN analysis_publication_versions AS publication
+              ON publication.id=pointer.current_publication_id
+            LEFT JOIN analysis_results AS result ON result.id=publication.result_id
+            LEFT JOIN analysis_runs AS run ON run.id=result.run_id
+            LEFT JOIN change_log AS change ON change.seq=publication.publication_seq"""
+    )
+    for pointer, joined in _split_joined(
+        pointers, {"publication": "id", "result": "id", "run": "id", "change": "seq"}
+    ):
+        publication, result, run, change = (
+            joined["publication"], joined["result"], joined["run"], joined["change"]
+        )
         try:
             payload = json.loads(change["payload_json"]) if change else None
         except (TypeError, json.JSONDecodeError):
@@ -6581,12 +6630,19 @@ def _assert_current_schema(db: sqlite3.Connection) -> None:
         )
 
 
+# PRAGMA integrity_check and foreign_key_check revisit index pages many times; SQLite's default
+# 2 MB page cache made them reread those pages. 64 MB cut both by about a quarter on a 4.9 GB
+# database. It is held only while this read-only connection is open.
+VERIFY_CACHE_KIB = 64 * 1024
+
+
 def verify_database(path: Path | str, require_current: bool = False) -> VerificationReport:
     target = Path(path).expanduser().resolve(strict=True)
     dataset_id = None
     dataset_epoch = None
     change_high_water = None
     with _connect_readonly(target) as db:
+        db.execute(f"PRAGMA cache_size=-{VERIFY_CACHE_KIB}")
         state, version = database_state(db)
         if require_current and state != "current":
             raise DatabaseVerificationError(

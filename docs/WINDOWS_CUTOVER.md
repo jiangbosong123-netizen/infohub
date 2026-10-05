@@ -91,7 +91,9 @@ docker compose ps                   # infohub 与 infohub-worker 应为 healthy
 curl.exe -s http://127.0.0.1:8000/api/ready
 ```
 
-数据库变大后，每次重启 web 会先完整校验数据库，演练中 4.9 GB 的库约需 3 分钟才开始响应，属正常现象。
+数据库变大后，web 与 worker 每次启动都会先完整校验数据库才开始响应（4.9 GB 的库在 Mac 上约 0.5–1.5 分钟，视文件
+缓存冷热；Windows 的 Docker 挂载目录读写更慢，可能要几分钟）。健康检查为此留了 10 分钟启动宽限，期间 `docker compose ps`
+显示 `starting` 属正常。
 
 ## 7. 补历史数据（门户可用，预计约 1–1.5 小时；演练时的旧版本为 3.5–4 小时）
 
