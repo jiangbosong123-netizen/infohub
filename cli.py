@@ -66,6 +66,8 @@ from __future__ import annotations
   python cli.py legacy-event-project   # 将旧 story 映射为 shadow candidate event（maintenance only）
   python cli.py legacy-curation-enqueue [AFTER_ID] [LIMIT]  # 分页排入旧策展转换任务（maintenance only）
   python cli.py legacy-curation-process [N]  # 处理最多 N 个离线转换任务（maintenance only）
+  python cli.py legacy-curation-run  # 一次排入并处理全部旧策展转换任务，可中断续跑（maintenance only）
+  python cli.py projection-builders-run  # 把搜索、热度与主题统计构建到最新（maintenance only，可续跑）
   python cli.py curation-search-advance [N]  # 建立/刷新至多 N 条搜索文档（maintenance only，可续跑）
   python cli.py curation-hot-advance [N]     # 建立/刷新至多 N 个热点统计（maintenance only，可续跑）
   python cli.py report-snapshot YYYY-MM-DD    # 冻结自然日日报素材，不生成报告（maintenance only）
@@ -913,6 +915,35 @@ def cmd_legacy_curation_process(limit: int) -> None:
     print(json.dumps({"processed": len(results), "results": results}, ensure_ascii=False, indent=2))
 
 
+def _maintenance_run(name: str) -> None:
+    if config.PROCESS_ROLE != "maintenance":
+        raise config.RuntimeConfigurationError(f"{name} requires maintenance role")
+    from app.db_admin import verify_database
+    verify_database(config.DB_PATH, require_current=True)
+
+
+def _print_progress(entry: dict) -> None:
+    print(json.dumps(entry, ensure_ascii=False), flush=True)
+
+
+def cmd_legacy_curation_run() -> None:
+    _maintenance_run("legacy-curation-run")
+    from app.maintenance_runs import run_legacy_curation_import
+    report = run_legacy_curation_import(progress=_print_progress)
+    print(json.dumps(report, ensure_ascii=False, indent=2))
+    if not report["complete"]:
+        raise SystemExit(2)
+
+
+def cmd_projection_builders_run() -> None:
+    _maintenance_run("projection-builders-run")
+    from app.maintenance_runs import run_projection_builders
+    report = run_projection_builders(progress=_print_progress)
+    print(json.dumps(report, ensure_ascii=False, indent=2))
+    if not report["complete"]:
+        raise SystemExit(2)
+
+
 def cmd_curation_search_advance(limit: int) -> None:
     if config.PROCESS_ROLE != "maintenance":
         raise config.RuntimeConfigurationError("curation-search-advance requires maintenance role")
@@ -1155,6 +1186,10 @@ def main() -> None:
                                     int(sys.argv[3]) if len(sys.argv) > 3 else 100)
     elif cmd == "legacy-curation-process":
         cmd_legacy_curation_process(int(sys.argv[2]) if len(sys.argv) > 2 else 100)
+    elif cmd == "legacy-curation-run":
+        cmd_legacy_curation_run()
+    elif cmd == "projection-builders-run":
+        cmd_projection_builders_run()
     elif cmd == "curation-search-advance":
         cmd_curation_search_advance(int(sys.argv[2]) if len(sys.argv) > 2 else 200)
     elif cmd == "curation-hot-advance":
