@@ -95,6 +95,10 @@ python cli.py legacy-backfill 250            # maintenance 下可续跑迁移历
   机器后执行 `db-bundle-verify`。`db-bundle-restore` 只接受不存在的新目录，不会覆盖运行库、修改环境变量
   或启动服务。`db-bundle-smoke` 把数据库再复制到临时位置，逐项输出页面 HTTP 状态；真正切换后仍须单独
   验证 worker 与 `/api/ready`。
+- 每份数据库字节只完整校验一次：建包时校验源库与快照各一次，之后的改名、打包前后检查和恢复出的副本都以
+  SHA-256 与已校验字节一致来确认（字节相同则校验结果必然相同）；证据文件仍在每一步全部重新计算哈希，同一次审计中
+  被多行引用的文件只读一次。单独执行的 `db-bundle-verify` 始终做完整校验。演练规模（4.9 GB、89,575 个证据文件）上
+  同机对照：打包 662 → 379 秒，恢复 674 → 199 秒，产出的备份包与恢复结果逐字节相同。
 - 操作前先暂停 worker，避免备份期间与 blob 清理竞争；命令不会自动停止服务。
 - 恢复旧备份后，只有在 worker 已停止且租约不再存活时，才可执行
   `python cli.py dataset-new-epoch EXPECTED_EPOCH REASON`；普通重启与同一最新备份恢复不切换 epoch。

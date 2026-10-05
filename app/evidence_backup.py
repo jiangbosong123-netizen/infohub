@@ -12,7 +12,9 @@ from pathlib import Path
 from uuid import uuid4
 
 from . import config, database
-from .db_admin import backup_database, verify_database
+from .db_admin import (
+    VerificationReport, backup_database, same_bytes_as_verified, verify_database,
+)
 from .ingest import audit_evidence_payloads, payload_path, verify_payload
 
 
@@ -53,6 +55,18 @@ def _sync_directory(path: Path) -> None:
 
 
 def verify_backup_bundle(bundle: Path | str) -> dict:
+    return _verify_bundle(bundle)[0]
+
+
+def _verify_bundle(
+    bundle: Path | str, verified: VerificationReport | None = None,
+) -> tuple[dict, VerificationReport]:
+    """Verify a bundle; ``verified`` is a full verification of byte-identical database bytes.
+
+    Creating and restoring a bundle copy or rename a database file that already passed full
+    verification; for those, matching its SHA-256 replaces another full run. Blobs are always
+    re-hashed, and a bundle verified on its own (``db-bundle-verify``) gets every check.
+    """
     root = Path(bundle).expanduser().resolve(strict=True)
     if not root.is_dir():
         raise EvidenceBackupError("backup bundle is not a directory")
@@ -61,7 +75,8 @@ def verify_backup_bundle(bundle: Path | str) -> dict:
         if not isinstance(manifest, dict) or manifest.get("format") != FORMAT:
             raise EvidenceBackupError("unsupported backup bundle format")
         database_file = root / "database.db"
-        report = verify_database(database_file, require_current=True)
+        report = (verify_database(database_file, require_current=True) if verified is None
+                  else same_bytes_as_verified(database_file, verified))
         if (manifest.get("database_sha256") != report.file_sha256
                 or manifest.get("schema_version") != report.schema_version
                 or manifest.get("dataset_id") != report.dataset_id
@@ -82,7 +97,7 @@ def verify_backup_bundle(bundle: Path | str) -> dict:
         "dataset_epoch": report.dataset_epoch,
         "change_high_water": report.change_high_water,
         "unique_blobs": len(hashes), "evidence": evidence.to_dict(),
-    }
+    }, report
 
 
 def create_backup_bundle(destination: Path | str | None = None) -> dict:
@@ -108,9 +123,9 @@ def create_backup_bundle(destination: Path | str | None = None) -> dict:
     stage = target.parent / f".{target.name}.{uuid4().hex}.tmp"
     stage.mkdir()
     try:
-        backup_database(source, stage / "database.db")
+        # backup_database fully verifies the snapshot it publishes; reuse that report.
+        report = backup_database(source, stage / "database.db", require_current=True)
         database_file = stage / "database.db"
-        report = verify_database(database_file, require_current=True)
         source_audit = audit_evidence_payloads(blob_root, database_file)
         if not source_audit.healthy:
             raise EvidenceBackupError("source has missing or corrupt referenced blobs")
@@ -138,13 +153,13 @@ def create_backup_bundle(destination: Path | str | None = None) -> dict:
             handle.write("\n")
             handle.flush()
             os.fsync(handle.fileno())
-        verify_backup_bundle(stage)
+        _verify_bundle(stage, report)
         _sync_directory(stage)
         if target.exists():
             raise FileExistsError(f"backup destination already exists: {target}")
         os.replace(stage, target)
         _sync_directory(target.parent)
-        return verify_backup_bundle(target)
+        return _verify_bundle(target, report)[0]
     finally:
         if stage.exists():
             shutil.rmtree(stage)
@@ -153,7 +168,7 @@ def create_backup_bundle(destination: Path | str | None = None) -> dict:
 def restore_backup_bundle(bundle: Path | str, destination: Path | str) -> dict:
     """Restore a verified bundle to a new isolated directory without switching live data."""
     source = Path(bundle).expanduser().resolve(strict=True)
-    verified = verify_backup_bundle(source)
+    verified, report = _verify_bundle(source)
     target = Path(destination).expanduser().resolve()
     try:
         target.relative_to(source)
@@ -182,7 +197,7 @@ def restore_backup_bundle(bundle: Path | str, destination: Path | str) -> dict:
                 writer.flush()
                 os.fsync(writer.fileno())
             verify_payload(relative.as_posix(), digest, stage / "blobs")
-        staged = verify_backup_bundle(stage)
+        staged, _ = _verify_bundle(stage, report)
         if staged["database_sha256"] != verified["database_sha256"]:
             raise EvidenceBackupError("restored database differs from backup source")
         _sync_directory(stage)
@@ -190,7 +205,7 @@ def restore_backup_bundle(bundle: Path | str, destination: Path | str) -> dict:
             raise FileExistsError(f"restore destination already exists: {target}")
         os.replace(stage, target)
         _sync_directory(target.parent)
-        result = verify_backup_bundle(target)
+        result, _ = _verify_bundle(target, report)
         return {
             **result,
             "database_path": str(target / "database.db"),
