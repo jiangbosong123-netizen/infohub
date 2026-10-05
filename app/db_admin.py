@@ -6,7 +6,7 @@ import hashlib
 import json
 import os
 import sqlite3
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, replace
 from datetime import datetime, timedelta, timezone
 from itertools import groupby
 from pathlib import Path
@@ -4982,7 +4982,13 @@ def apply_migrations(
                 ),
             )
         if ordered == MIGRATIONS:
-            _assert_current_schema(db)
+            # Same larger page cache as verify_database, for this connection's check only.
+            previous_cache = db.execute("PRAGMA cache_size").fetchone()[0]
+            db.execute(f"PRAGMA cache_size=-{VERIFY_CACHE_KIB}")
+            try:
+                _assert_current_schema(db)
+            finally:
+                db.execute(f"PRAGMA cache_size={previous_cache}")
         db.commit()
     except BaseException:
         db.rollback()
@@ -6744,8 +6750,21 @@ def verify_database(path: Path | str, require_current: bool = False) -> Verifica
     )
 
 
+def same_bytes_as_verified(path: Path | str, verified: VerificationReport) -> VerificationReport:
+    """Report for a file byte-identical to one that already passed verify_database.
+
+    Full verification depends only on the file's bytes, so a renamed or copied file whose
+    SHA-256 matches the verified one needs no second run of every check.
+    """
+    target = Path(path).expanduser().resolve(strict=True)
+    if _sha256(target) != verified.file_sha256:
+        raise DatabaseVerificationError(f"{target} differs from the verified database")
+    return replace(verified, path=str(target), size_bytes=target.stat().st_size)
+
+
 def backup_database(
-    source_path: Path | str | None = None, destination: Path | str | None = None
+    source_path: Path | str | None = None, destination: Path | str | None = None,
+    *, require_current: bool = False,
 ) -> VerificationReport:
     """Create, fsync, verify and atomically publish a SQLite backup."""
     source = Path(source_path or database.DB_PATH).expanduser().resolve(strict=True)
@@ -6771,7 +6790,7 @@ def backup_database(
             backup_db.execute("PRAGMA journal_mode=DELETE")
         with temporary.open("rb") as handle:
             os.fsync(handle.fileno())
-        verify_database(temporary)
+        verified = verify_database(temporary, require_current=require_current)
         os.replace(temporary, target)
         try:
             directory_fd = os.open(target.parent, os.O_RDONLY)
@@ -6786,7 +6805,7 @@ def backup_database(
     finally:
         if temporary.exists():
             temporary.unlink()
-    return verify_database(target)
+    return same_bytes_as_verified(target, verified)
 
 
 def migrate_database(

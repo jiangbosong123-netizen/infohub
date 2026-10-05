@@ -284,7 +284,11 @@ def store_payload(payload: bytes, root: Path | None = None) -> tuple[str, str]:
     return digest, relative
 
 
-def verify_payload(payload_ref: str, payload_sha256: str, root: Path | None = None) -> Path:
+def verify_payload(
+    payload_ref: str, payload_sha256: str, root: Path | None = None,
+    *, digests: dict[Path, str | None] | None = None,
+) -> Path:
+    """``digests`` lets one audit hash each object once however many rows refer to it."""
     base = Path(root or config.BLOB_PATH).resolve()
     target = (base / payload_ref).resolve()
     try:
@@ -292,16 +296,27 @@ def verify_payload(payload_ref: str, payload_sha256: str, root: Path | None = No
     except ValueError as exc:
         raise PayloadIntegrityError("payload reference escapes the blob root") from exc
     expected = payload_path(payload_sha256, base)
-    if target != expected or not target.is_file() or _hash_file(target) != payload_sha256:
+    if target != expected or _file_digest(target, digests) != payload_sha256:
         raise PayloadIntegrityError("payload reference is missing or corrupt")
     return target
 
 
-def _audit_references(rows: list, root: Path | None = None) -> PayloadAudit:
+def _file_digest(target: Path, digests: dict[Path, str | None] | None) -> str | None:
+    if digests is not None and target in digests:
+        return digests[target]
+    digest = _hash_file(target) if target.is_file() else None
+    if digests is not None:
+        digests[target] = digest
+    return digest
+
+
+def _audit_references(
+    rows: list, root: Path | None = None, digests: dict[Path, str | None] | None = None,
+) -> PayloadAudit:
     verified = missing = corrupt = 0
     for row in rows:
         try:
-            target = verify_payload(row["payload_ref"], row["payload_sha256"], root)
+            target = verify_payload(row["payload_ref"], row["payload_sha256"], root, digests=digests)
             if "size_bytes" in row.keys() and target.stat().st_size != row["size_bytes"]:
                 raise PayloadIntegrityError("payload size does not match its record")
             verified += 1
@@ -374,10 +389,14 @@ def audit_evidence_payloads(
                WHERE raw_response_ref IS NOT NULL OR raw_response_sha256 IS NOT NULL
                ORDER BY id"""
         ).fetchall()
+    # Analysis inputs refer back to raw payloads (one per curation task), so most objects are
+    # referenced several times; each is read and hashed once per audit.
+    digests: dict[Path, str | None] = {}
     return EvidenceAudit(
-        _audit_references(raw, root), _audit_references(analysis_inputs, root),
-        _audit_references(analysis_responses, root), _audit_references(analysis_outputs, root),
-        _audit_references(prompts, root), _audit_references(responses, root),
+        _audit_references(raw, root, digests), _audit_references(analysis_inputs, root, digests),
+        _audit_references(analysis_responses, root, digests),
+        _audit_references(analysis_outputs, root, digests),
+        _audit_references(prompts, root, digests), _audit_references(responses, root, digests),
     )
 
 
