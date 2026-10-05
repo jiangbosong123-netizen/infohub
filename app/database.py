@@ -1,7 +1,13 @@
 from __future__ import annotations
 
-"""SQLite 数据层：连接管理 + schema 初始化。WAL 模式，每次操作独立连接，线程安全。"""
+"""SQLite 数据层：连接管理 + schema 初始化。WAL 模式，每次操作独立连接，线程安全。
+
+批量维护命令可在 reused_connections() 内让同一线程复用已提交的连接，省去每次重新解析 schema。
+"""
 import sqlite3
+import threading
+from collections.abc import Iterator
+from contextlib import contextmanager
 from pathlib import Path
 
 from .config import DB_PATH
@@ -121,6 +127,11 @@ END;
 """
 
 
+# Per-thread idle connections, only inside reused_connections(); None everywhere else.
+_reuse = threading.local()
+REUSE_IDLE_LIMIT = 4
+
+
 class ManagedConnection(sqlite3.Connection):
     """Commit/rollback and close: sqlite3's default context manager never closes."""
 
@@ -128,13 +139,62 @@ class ManagedConnection(sqlite3.Connection):
         try:
             return super().__exit__(*args)
         finally:
-            self.close()
+            if not _keep_idle(self):
+                self.close()
+
+
+def _keep_idle(conn: ManagedConnection) -> bool:
+    scope = getattr(_reuse, "scope", None)
+    if (scope is None or getattr(conn, "_reuse_scope", None) is not scope
+            or getattr(conn, "_reuse_idle", False)):
+        return False
+    try:
+        if conn.in_transaction:
+            return False
+    except sqlite3.ProgrammingError:  # the caller already closed it
+        return False
+    idle = scope.setdefault(conn._reuse_path, [])
+    if len(idle) >= REUSE_IDLE_LIMIT:
+        return False
+    conn._reuse_idle = True
+    idle.append(conn)
+    return True
+
+
+@contextmanager
+def reused_connections() -> Iterator[None]:
+    """Let this thread's get_db() calls reuse idle connections until the block ends.
+
+    Connecting is cheap, but the first statement on a new connection parses the whole schema
+    (about 740 objects, ~1.8 ms), and a batch maintenance job opens about ten connections. Inside
+    the block every ``with get_db()`` still commits or rolls back on exit and starts with the
+    standard pragmas and row factory; only closing waits until the block ends. Meant for
+    sequential maintenance runs, whose callers never keep a cursor past their ``with`` block.
+    """
+    if getattr(_reuse, "scope", None) is not None:
+        yield
+        return
+    scope = _reuse.scope = {}
+    try:
+        yield
+    finally:
+        _reuse.scope = None
+        for idle in scope.values():
+            for conn in idle:
+                conn.close()
 
 
 def get_db(path: Path | None = None) -> sqlite3.Connection:
     target = Path(path or DB_PATH)
     target.parent.mkdir(parents=True, exist_ok=True)
-    conn = sqlite3.connect(target, timeout=30, factory=ManagedConnection)
+    scope = getattr(_reuse, "scope", None)
+    if scope is not None and scope.get(str(target)):
+        conn = scope[str(target)].pop()
+        conn._reuse_idle = False
+    else:
+        conn = sqlite3.connect(target, timeout=30, factory=ManagedConnection)
+        if scope is not None:
+            conn._reuse_scope, conn._reuse_path = scope, str(target)
     conn.row_factory = sqlite3.Row
     conn.execute("PRAGMA journal_mode=WAL")
     conn.execute("PRAGMA busy_timeout=30000")
