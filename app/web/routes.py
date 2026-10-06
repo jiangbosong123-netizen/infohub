@@ -1997,10 +1997,40 @@ def about_heat():
     return RedirectResponse("/hot", status_code=302)
 
 
+def _curated_topic_stats(db):
+    """Every topic's totals under curation read, checking each item's publications once.
+
+    An item sits in about 1.8 topics, and reading its curation values per assignment repeated
+    the same publication checks: 1.6 s for the rehearsal-size topic index, 0.74 s this way.
+    The totals, selected counts and latest times equal the per-assignment form in _topic_stats,
+    and the outer GROUP BY/ORDER BY is kept so topics with equal positions keep their order.
+    """
+    cte, _, _, _, _ = portal_curation_sql(True, streamed=True)
+    selected = _selected_clause(score_expr="cv.score") if CURATED_FEED_ENABLED else "1=1"
+    return [dict(r) for r in db.execute(cte + f""", topic_item_values AS MATERIALIZED (
+            SELECT i.id, i.published_at, ({selected}) AS is_selected
+            FROM (SELECT DISTINCT item_id FROM item_topics) ti
+            CROSS JOIN items i ON i.id=ti.item_id
+            JOIN curation_values cv ON cv.item_id=i.id
+            WHERE cv.visible=1
+        ), topic_counts AS MATERIALIZED (
+            SELECT it.topic_slug, COUNT(*) AS total,
+                   SUM(CASE WHEN v.is_selected THEN 1 ELSE 0 END) AS selected,
+                   MAX(v.published_at) AS last_at
+            FROM item_topics it JOIN topic_item_values v ON v.id=it.item_id
+            GROUP BY it.topic_slug)
+        SELECT t.*,COALESCE(c.total,0) AS total,COALESCE(c.selected,0) AS selected,
+               c.last_at AS last_at
+        FROM topics t LEFT JOIN topic_counts c ON c.topic_slug=t.slug
+        WHERE t.enabled=1 GROUP BY t.slug ORDER BY t.position""")]
+
+
 def _topic_stats(db, slug: str | None = None):
     """Per-topic totals; with ``slug``, only that topic's row (same values, fewer items)."""
     if TOPIC_READ_ENABLED:
         return published_portal_topics(db)
+    if CURATION_READ_ENABLED and slug is None:
+        return _curated_topic_stats(db)
     cte, _, _, score_expr, _ = portal_curation_sql(CURATION_READ_ENABLED, streamed=True)
     if CURATION_READ_ENABLED:
         # curation_values has one row per item; reading it per assignment keeps the planner
@@ -2066,12 +2096,18 @@ def topic_detail(request: Request,slug: str,mode: str='selected',page: int=Query
                 topic = next((t for t in _topic_stats(db, slug) if t['slug']==slug),None)
                 if topic is None:
                     raise HTTPException(404,'主题不存在')
+                # Newest items first, stopping at the page. Joining from the topic's assignments
+                # instead ranked every member first: 0.9 s for the largest topic with curation
+                # read. The unary + keeps the member list a filter, built once and checked before
+                # an item's row is read, rather than the driver of the scan. An item has at most
+                # one assignment per topic, so the rows are the same.
                 base = f"""SELECT i.*,s.name AS source_name,si.story_id
-                    {', cv.score AS curation_rank_score' if CURATION_READ_ENABLED else ''} FROM item_topics it
-                    JOIN items i ON i.id=it.item_id JOIN sources s ON s.id=i.source_id
+                    {', cv.score AS curation_rank_score' if CURATION_READ_ENABLED else ''} FROM items i
+                    JOIN sources s ON s.id=i.source_id
                     LEFT JOIN story_items si ON si.item_id=i.id
                     {curation_join}
-                    WHERE it.topic_slug=? AND {visible} {selected}"""
+                    WHERE +i.id IN (SELECT item_id FROM item_topics WHERE topic_slug=?)
+                      AND {visible} {selected}"""
                 base_params = (slug,)
             if mode == 'selected':
                 sql = _first_per_story(
