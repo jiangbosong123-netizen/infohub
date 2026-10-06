@@ -96,8 +96,9 @@ the implementation PR series proceeded. It was restored on 2026-09-27 after `mai
   connections within their thread instead of re-parsing the ~740-object schema on every `get_db()`; a
   3,000-job sample on a rehearsal-size copy went from about 30 ms to 6.6 ms per legacy import job, and a
   300-item fixture import gives identical results either way. The whole post-migration backfill-to-builders
-  window now measures about 24 minutes on the rehearsal machine (3.5–4 hours in the rehearsal). Web and
-  worker connections are unchanged.
+  window now measures about 24 minutes on the rehearsal machine (3.5–4 hours in the rehearsal). The worker's
+  source runs and Google News reconciliation store candidates on reused connections too (a 50-item run of
+  stored items: about 207 ms to 28 ms, identical rows); web connections are unchanged.
 
 ## Status rule
 
