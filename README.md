@@ -78,7 +78,7 @@ rather than trusted to any single feed:
 
 | Layer | Sources | Cadence | Role |
 |---|---|---|---|
-| **First-party** | SEC EDGAR (8-K / 10-Q / Form 4), HKEX filings, company sites | 10–60 min | Official disclosure, highest trust |
+| **First-party** | SEC EDGAR (8-K / 10-Q / Form 4), HKEX filings, company and lab announcements (OpenAI, Google DeepMind, Mistral, AMD, ...), Federal Reserve monetary policy | 10–60 min | Official disclosure, highest trust |
 | **Financial media** | CNBC, wire services, Chinese live feeds, one Google News feed per watched company | 10–30 min | Speed and breadth |
 | **Daily reconciliation** | Per-company sweep | 06:30 daily | Compared against what is already stored; anything missing is backfilled and tagged as such |
 
@@ -86,6 +86,9 @@ Supporting mechanics: URL normalisation for de-duplication, per-source exponenti
 failure (flagged red on the health page), request staggering within a domain to avoid rate
 limits, and a digest generated each morning (08:00 by default) for the previous day.
 Scheduling is anchored to the exchange's local time, not hard-coded UTC offsets.
+
+How sources are chosen, their measured stability and the candidates that were rejected are in
+[docs/SOURCES.md](docs/SOURCES.md) (Chinese).
 
 The three minute-level live feeds (Sina 7x24, CLS telegraph, WSCN live) only return their newest
 page. When none of that page is stored yet, because the feed outran the poll interval or the

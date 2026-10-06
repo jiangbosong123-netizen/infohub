@@ -1,0 +1,804 @@
+{
+ "scope": "Source registry additions (app/crawler/sources.py) and publisher identities (app/provenance.py)",
+ "recorded_at": "2026-10-06T00:00:00Z",
+ "production_changed": false,
+ "method": "each candidate fetched once with app.crawler.rss_source.fetch_rss (1 s apart); accepted sources then run once through runner.run_source in a throwaway database",
+ "candidates": [
+  {
+   "group": "ai",
+   "key": "deepmind",
+   "url": "https://deepmind.google/blog/rss.xml",
+   "ok": true,
+   "entries": 60,
+   "dated": 60,
+   "newest_hours": 141.5,
+   "per_day": 0.3
+  },
+  {
+   "group": "ai",
+   "key": "google-research",
+   "url": "https://research.google/blog/rss/",
+   "ok": true,
+   "entries": 60,
+   "dated": 60,
+   "newest_hours": 2.4,
+   "per_day": 0.3
+  },
+  {
+   "group": "ai",
+   "key": "google-ai-blog",
+   "url": "https://blog.google/technology/ai/rss/",
+   "ok": true,
+   "entries": 20,
+   "dated": 20,
+   "newest_hours": 98.5,
+   "per_day": 0.5
+  },
+  {
+   "group": "ai",
+   "key": "microsoft-ai",
+   "url": "https://blogs.microsoft.com/ai/feed/",
+   "ok": false,
+   "error": "HTTPStatusError: Client error '410 Gone' for url 'https://blogs.microsoft.com/ai/feed/'\nFor more information check: http"
+  },
+  {
+   "group": "ai",
+   "key": "microsoft-source",
+   "url": "https://news.microsoft.com/source/feed/",
+   "ok": true,
+   "entries": 10,
+   "dated": 10,
+   "newest_hours": 23.9,
+   "per_day": 1.8
+  },
+  {
+   "group": "ai",
+   "key": "nvidia-blog",
+   "url": "https://blogs.nvidia.com/feed/",
+   "ok": true,
+   "entries": 18,
+   "dated": 18,
+   "newest_hours": 4.5,
+   "per_day": 1.1
+  },
+  {
+   "group": "ai",
+   "key": "nvidia-newsroom",
+   "url": "https://nvidianews.nvidia.com/releases.xml",
+   "ok": true,
+   "entries": 20,
+   "dated": 20,
+   "newest_hours": 4.5,
+   "per_day": 1.3
+  },
+  {
+   "group": "ai",
+   "key": "aws-ml",
+   "url": "https://aws.amazon.com/blogs/machine-learning/feed/",
+   "ok": true,
+   "entries": 20,
+   "dated": 20,
+   "newest_hours": 1.6,
+   "per_day": 3.8
+  },
+  {
+   "group": "ai",
+   "key": "apple-ml",
+   "url": "https://machinelearning.apple.com/rss.xml",
+   "ok": true,
+   "entries": 10,
+   "dated": 10,
+   "newest_hours": 41.5,
+   "per_day": 0.8
+  },
+  {
+   "group": "ai",
+   "key": "meta-newsroom",
+   "url": "https://about.fb.com/news/feed/",
+   "ok": true,
+   "entries": 10,
+   "dated": 10,
+   "newest_hours": 123.2,
+   "per_day": 1.1
+  },
+  {
+   "group": "ai",
+   "key": "github-blog",
+   "url": "https://github.blog/feed/",
+   "ok": true,
+   "entries": 10,
+   "dated": 10,
+   "newest_hours": 25.5,
+   "per_day": 0.8
+  },
+  {
+   "group": "ai",
+   "key": "mit-tr-ai",
+   "url": "https://www.technologyreview.com/topic/artificial-intelligence/feed",
+   "ok": true,
+   "entries": 10,
+   "dated": 10,
+   "newest_hours": 25.7,
+   "per_day": 1.3
+  },
+  {
+   "group": "ai",
+   "key": "venturebeat-ai",
+   "url": "https://venturebeat.com/category/ai/feed/",
+   "ok": true,
+   "entries": 7,
+   "dated": 7,
+   "newest_hours": 963.5,
+   "per_day": 0.0
+  },
+  {
+   "group": "ai",
+   "key": "arstechnica-ai",
+   "url": "https://arstechnica.com/ai/feed/",
+   "ok": true,
+   "entries": 20,
+   "dated": 20,
+   "newest_hours": 5.1,
+   "per_day": 2.8
+  },
+  {
+   "group": "ai",
+   "key": "wired-ai",
+   "url": "https://www.wired.com/feed/tag/ai/latest/rss",
+   "ok": true,
+   "entries": 10,
+   "dated": 10,
+   "newest_hours": 0.0,
+   "per_day": 2.1
+  },
+  {
+   "group": "ai",
+   "key": "jiqizhixin",
+   "url": "https://www.jiqizhixin.com/rss",
+   "ok": false,
+   "error": "RuntimeError: feed 解析失败: <unknown>:8:82: not well-formed (invalid token)"
+  },
+  {
+   "group": "ai",
+   "key": "36kr",
+   "url": "https://36kr.com/feed",
+   "ok": false,
+   "error": "RuntimeError: feed 解析失败: <unknown>:10:542: not well-formed (invalid token)"
+  },
+  {
+   "group": "ai",
+   "key": "leiphone",
+   "url": "https://www.leiphone.com/feed",
+   "ok": false,
+   "error": "ConnectError: [SSL: CERTIFICATE_VERIFY_FAILED] certificate verify failed: unable to get local issuer certificate (_ssl.c"
+  },
+  {
+   "group": "ai",
+   "key": "pingwest",
+   "url": "https://www.pingwest.com/feed",
+   "ok": false,
+   "error": "RuntimeError: feed 解析失败: <unknown>:57:1: not well-formed (invalid token)"
+  },
+  {
+   "group": "ai",
+   "key": "tmtpost",
+   "url": "https://www.tmtpost.com/rss.xml",
+   "ok": true,
+   "entries": 20,
+   "dated": 20,
+   "newest_hours": 4.3,
+   "per_day": 16.5
+  },
+  {
+   "group": "ai",
+   "key": "infoq-cn",
+   "url": "https://www.infoq.cn/feed",
+   "ok": true,
+   "entries": 20,
+   "dated": 20,
+   "newest_hours": 2.5,
+   "per_day": 3.3
+  },
+  {
+   "group": "robot",
+   "key": "robohub",
+   "url": "https://robohub.org/feed/",
+   "ok": true,
+   "entries": 60,
+   "dated": 60,
+   "newest_hours": 31.5,
+   "per_day": 0.4
+  },
+  {
+   "group": "robot",
+   "key": "techcrunch-robotics",
+   "url": "https://techcrunch.com/category/robotics/feed/",
+   "ok": true,
+   "entries": 20,
+   "dated": 20,
+   "newest_hours": 3.5,
+   "per_day": 1.1
+  },
+  {
+   "group": "stock",
+   "key": "apple-newsroom",
+   "url": "https://www.apple.com/newsroom/rss-feed.rss",
+   "ok": true,
+   "entries": 20,
+   "dated": 0,
+   "newest_hours": null,
+   "per_day": null
+  },
+  {
+   "group": "stock",
+   "key": "fed-press",
+   "url": "https://www.federalreserve.gov/feeds/press_all.xml",
+   "ok": true,
+   "entries": 20,
+   "dated": 20,
+   "newest_hours": 21.0,
+   "per_day": 0.4
+  },
+  {
+   "group": "stock",
+   "key": "sec-press",
+   "url": "https://www.sec.gov/news/pressreleases.rss",
+   "ok": true,
+   "entries": 25,
+   "dated": 25,
+   "newest_hours": 2.9,
+   "per_day": 0.6
+  },
+  {
+   "group": "stock",
+   "key": "amd-ir",
+   "url": "https://ir.amd.com/news-events/press-releases/rss",
+   "ok": true,
+   "entries": 10,
+   "dated": 10,
+   "newest_hours": 189.4,
+   "per_day": 0.1
+  },
+  {
+   "group": "stock",
+   "key": "broadcom-ir",
+   "url": "https://investors.broadcom.com/rss/news-releases.xml",
+   "ok": false,
+   "error": "ReadTimeout: The read operation timed out"
+  },
+  {
+   "group": "stock",
+   "key": "baidu-ir",
+   "url": "https://ir.baidu.com/rss/news-releases.xml",
+   "ok": false,
+   "error": "ReadTimeout: The read operation timed out"
+  },
+  {
+   "group": "stock",
+   "key": "lixiang-ir",
+   "url": "https://ir.lixiang.com/rss/news-releases.xml",
+   "ok": false,
+   "error": "ReadTimeout: The read operation timed out"
+  },
+  {
+   "group": "stock",
+   "key": "xpeng-ir",
+   "url": "https://ir.xiaopeng.com/rss/news-releases.xml",
+   "ok": false,
+   "error": "ReadTimeout: The read operation timed out"
+  },
+  {
+   "group": "stock",
+   "key": "palantir-ir",
+   "url": "https://investors.palantir.com/rss/news-releases.xml",
+   "ok": false,
+   "error": "RuntimeError: feed 解析失败: <unknown>:5:62: not well-formed (invalid token)"
+  },
+  {
+   "group": "stock",
+   "key": "tesla-ir",
+   "url": "https://ir.tesla.com/rss/news-releases.xml",
+   "ok": false,
+   "error": "HTTPStatusError: Client error '403 Forbidden' for url 'https://ir.tesla.com/rss/news-releases.xml'\nFor more information "
+  },
+  {
+   "group": "stock",
+   "key": "arm-newsroom",
+   "url": "https://newsroom.arm.com/rss",
+   "ok": true,
+   "entries": 6,
+   "dated": 6,
+   "newest_hours": 2.5,
+   "per_day": 0.3
+  },
+  {
+   "group": "stock",
+   "key": "tsmc-pr",
+   "url": "https://pr.tsmc.com/english/rss",
+   "ok": false,
+   "error": "HTTPStatusError: Client error '404 Not Found' for url 'https://pr.tsmc.com/english/rss'\nFor more information check: http"
+  },
+  {
+   "group": "stock",
+   "key": "oracle-news",
+   "url": "https://www.oracle.com/news/rss/",
+   "ok": false,
+   "error": "HTTPStatusError: Client error '404 Not Found' for url 'https://www.oracle.com/news/rss/'\nFor more information check: htt"
+  },
+  {
+   "group": "stock",
+   "key": "amazon-news",
+   "url": "https://www.aboutamazon.com/news/rss",
+   "ok": true,
+   "entries": 10,
+   "dated": 10,
+   "newest_hours": 0.7,
+   "per_day": 2.1
+  },
+  {
+   "group": "ai",
+   "key": "microsoft-research",
+   "url": "https://www.microsoft.com/en-us/research/feed/",
+   "ok": true,
+   "entries": 10,
+   "dated": 10,
+   "newest_hours": 1.3,
+   "per_day": 0.2
+  },
+  {
+   "group": "ai",
+   "key": "qwen-blog",
+   "url": "https://qwenlm.github.io/blog/index.xml",
+   "ok": true,
+   "entries": 44,
+   "dated": 44,
+   "newest_hours": 9093.6,
+   "per_day": 0.0
+  },
+  {
+   "group": "ai",
+   "key": "meta-ai",
+   "url": "https://ai.meta.com/blog/rss/",
+   "ok": false,
+   "error": "HTTPStatusError: Client error '400 Bad Request' for url 'https://ai.meta.com/blog/rss/'\nFor more information check: http"
+  },
+  {
+   "group": "ai",
+   "key": "anthropic",
+   "url": "https://www.anthropic.com/rss.xml",
+   "ok": false,
+   "error": "HTTPStatusError: Client error '404 Not Found' for url 'https://www.anthropic.com/rss.xml'\nFor more information check: ht"
+  },
+  {
+   "group": "ai",
+   "key": "mistral",
+   "url": "https://mistral.ai/rss.xml",
+   "ok": true,
+   "entries": 60,
+   "dated": 60,
+   "newest_hours": 5.6,
+   "per_day": 0.1
+  },
+  {
+   "group": "ai",
+   "key": "the-decoder",
+   "url": "https://the-decoder.com/feed/",
+   "ok": true,
+   "entries": 10,
+   "dated": 10,
+   "newest_hours": 1.5,
+   "per_day": 9.6
+  },
+  {
+   "group": "ai",
+   "key": "geekpark",
+   "url": "https://www.geekpark.net/rss",
+   "ok": true,
+   "entries": 30,
+   "dated": 30,
+   "newest_hours": 16.3,
+   "per_day": 2.6
+  },
+  {
+   "group": "ai",
+   "key": "huxiu",
+   "url": "https://www.huxiu.com/rss/0.xml",
+   "ok": false,
+   "error": "ReadTimeout: The read operation timed out"
+  },
+  {
+   "group": "ai",
+   "key": "sspai",
+   "url": "https://sspai.com/feed",
+   "ok": true,
+   "entries": 10,
+   "dated": 10,
+   "newest_hours": 7.6,
+   "per_day": 1.3
+  },
+  {
+   "group": "robot",
+   "key": "robotics-business-review",
+   "url": "https://www.roboticsbusinessreview.com/feed/",
+   "ok": true,
+   "entries": 15,
+   "dated": 15,
+   "newest_hours": 1.6,
+   "per_day": 2.7
+  },
+  {
+   "group": "robot",
+   "key": "automate-a3",
+   "url": "https://www.automate.org/rss/news",
+   "ok": false,
+   "error": "HTTPStatusError: Client error '404 Not Found' for url 'https://www.automate.org/rss/news'\nFor more information check: ht"
+  },
+  {
+   "group": "stock",
+   "key": "cnbc-earnings",
+   "url": "https://www.cnbc.com/id/15839135/device/rss/rss.html",
+   "ok": true,
+   "entries": 30,
+   "dated": 30,
+   "newest_hours": 23.8,
+   "per_day": 0.7
+  },
+  {
+   "group": "stock",
+   "key": "cnbc-top",
+   "url": "https://www.cnbc.com/id/100003114/device/rss/rss.html",
+   "ok": true,
+   "entries": 30,
+   "dated": 30,
+   "newest_hours": 0.1,
+   "per_day": 46.0
+  },
+  {
+   "group": "stock",
+   "key": "marketwatch-top",
+   "url": "https://feeds.content.dowjones.io/public/rss/mw_topstories",
+   "ok": true,
+   "entries": 10,
+   "dated": 10,
+   "newest_hours": 0.3,
+   "per_day": 59.4
+  },
+  {
+   "group": "stock",
+   "key": "wsj-tech",
+   "url": "https://feeds.a.dj.com/rss/RSSWSJD.xml",
+   "ok": true,
+   "entries": 20,
+   "dated": 20,
+   "newest_hours": 14807.3,
+   "per_day": 2.0
+  },
+  {
+   "group": "stock",
+   "key": "wsj-markets",
+   "url": "https://feeds.a.dj.com/rss/RSSMarketsMain.xml",
+   "ok": true,
+   "entries": 20,
+   "dated": 20,
+   "newest_hours": 14806.2,
+   "per_day": 8.0
+  },
+  {
+   "group": "stock",
+   "key": "nasdaq-tech",
+   "url": "https://www.nasdaq.com/feed/rssoutbound?category=Technology",
+   "ok": true,
+   "entries": 15,
+   "dated": 15,
+   "newest_hours": 2.6,
+   "per_day": 1336.6
+  },
+  {
+   "group": "stock",
+   "key": "investing-stock",
+   "url": "https://www.investing.com/rss/news_25.rss",
+   "ok": true,
+   "entries": 10,
+   "dated": 0,
+   "newest_hours": null,
+   "per_day": null
+  },
+  {
+   "group": "stock",
+   "key": "seekingalpha-currents",
+   "url": "https://seekingalpha.com/market_currents.xml",
+   "ok": true,
+   "entries": 7,
+   "dated": 7,
+   "newest_hours": 0.2,
+   "per_day": 221.3
+  },
+  {
+   "group": "stock",
+   "key": "nvidia-ir",
+   "url": "https://investor.nvidia.com/rss/news-releases.xml",
+   "ok": false,
+   "error": "HTTPStatusError: Client error '404 Not Found' for url 'https://investor.nvidia.com/rss/news-releases.xml'\nFor more infor"
+  },
+  {
+   "group": "stock",
+   "key": "meta-ir",
+   "url": "https://investor.atmeta.com/rss/news-releases.xml",
+   "ok": false,
+   "error": "HTTPStatusError: Client error '404 Not Found' for url 'https://investor.atmeta.com/rss/news-releases.xml'\nFor more infor"
+  },
+  {
+   "group": "stock",
+   "key": "ecb-press",
+   "url": "https://www.ecb.europa.eu/rss/press.html",
+   "ok": true,
+   "entries": 15,
+   "dated": 15,
+   "newest_hours": 4.6,
+   "per_day": 1.2
+  },
+  {
+   "group": "stock",
+   "key": "bis-press",
+   "url": "https://www.bis.org/doclist/all_pressrels.rss",
+   "ok": true,
+   "entries": 10,
+   "dated": 0,
+   "newest_hours": null,
+   "per_day": null
+  },
+  {
+   "group": "stock",
+   "key": "fed-monetary",
+   "url": "https://www.federalreserve.gov/feeds/press_monetary.xml",
+   "ok": true,
+   "entries": 15,
+   "dated": 15,
+   "newest_hours": 479.7,
+   "per_day": 0.1
+  }
+ ],
+ "accepted_live_run": {
+  "the-decoder": {
+   "ok": true,
+   "inserted": 10,
+   "message": "",
+   "official": [
+    0
+   ],
+   "publishers": [
+    "The Decoder"
+   ],
+   "ms": 851
+  },
+  "mit-tr-ai": {
+   "ok": true,
+   "inserted": 10,
+   "message": "",
+   "official": [
+    0
+   ],
+   "publishers": [
+    "MIT Technology Review"
+   ],
+   "ms": 217
+  },
+  "arstechnica-ai": {
+   "ok": true,
+   "inserted": 20,
+   "message": "",
+   "official": [
+    0
+   ],
+   "publishers": [
+    "Ars Technica"
+   ],
+   "ms": 812
+  },
+  "wired-ai": {
+   "ok": true,
+   "inserted": 10,
+   "message": "",
+   "official": [
+    0
+   ],
+   "publishers": [
+    "WIRED"
+   ],
+   "ms": 199
+  },
+  "geekpark": {
+   "ok": true,
+   "inserted": 30,
+   "message": "",
+   "official": [
+    0
+   ],
+   "publishers": [
+    "极客公园"
+   ],
+   "ms": 2467
+  },
+  "deepmind": {
+   "ok": true,
+   "inserted": 60,
+   "message": "",
+   "official": [
+    1
+   ],
+   "publishers": [
+    "Google DeepMind"
+   ],
+   "ms": 645
+  },
+  "google-ai-blog": {
+   "ok": true,
+   "inserted": 20,
+   "message": "",
+   "official": [
+    1
+   ],
+   "publishers": [
+    "Google"
+   ],
+   "ms": 606
+  },
+  "mistral-news": {
+   "ok": true,
+   "inserted": 60,
+   "message": "",
+   "official": [
+    1
+   ],
+   "publishers": [
+    "Mistral AI"
+   ],
+   "ms": 719
+  },
+  "google-research": {
+   "ok": true,
+   "inserted": 60,
+   "message": "",
+   "official": [
+    0
+   ],
+   "publishers": [
+    "Google Research"
+   ],
+   "ms": 811
+  },
+  "microsoft-research": {
+   "ok": true,
+   "inserted": 10,
+   "message": "",
+   "official": [
+    0
+   ],
+   "publishers": [
+    "Microsoft"
+   ],
+   "ms": 1998
+  },
+  "apple-ml": {
+   "ok": true,
+   "inserted": 10,
+   "message": "",
+   "official": [
+    0
+   ],
+   "publishers": [
+    "Apple"
+   ],
+   "ms": 1897
+  },
+  "nvidia-newsroom": {
+   "ok": true,
+   "inserted": 20,
+   "message": "",
+   "official": [
+    0
+   ],
+   "publishers": [
+    "NVIDIA"
+   ],
+   "ms": 423
+  },
+  "github-blog": {
+   "ok": true,
+   "inserted": 10,
+   "message": "",
+   "official": [
+    0
+   ],
+   "publishers": [
+    "GitHub"
+   ],
+   "ms": 249
+  },
+  "robohub": {
+   "ok": true,
+   "inserted": 60,
+   "message": "",
+   "official": [
+    0
+   ],
+   "publishers": [
+    "Robohub"
+   ],
+   "ms": 960
+  },
+  "techcrunch-robotics": {
+   "ok": true,
+   "inserted": 20,
+   "message": "",
+   "official": [
+    0
+   ],
+   "publishers": [
+    "TechCrunch"
+   ],
+   "ms": 261
+  },
+  "amd-newsroom": {
+   "ok": true,
+   "inserted": 10,
+   "message": "",
+   "official": [
+    1
+   ],
+   "publishers": [
+    "AMD"
+   ],
+   "ms": 381
+  },
+  "fed-monetary": {
+   "ok": true,
+   "inserted": 15,
+   "message": "",
+   "official": [
+    1
+   ],
+   "publishers": [
+    "Federal Reserve"
+   ],
+   "ms": 217
+  },
+  "cnbc-earnings": {
+   "ok": true,
+   "inserted": 30,
+   "message": "",
+   "official": [
+    0
+   ],
+   "publishers": [
+    "CNBC"
+   ],
+   "ms": 474
+  },
+  "arm-newsroom": {
+   "ok": true,
+   "inserted": 6,
+   "message": "",
+   "official": [
+    0
+   ],
+   "publishers": [
+    "Arm"
+   ],
+   "ms": 186
+  }
+ },
+ "dropped_after_live_run": {
+  "robotics-business-review": "all 15 items are therobotreport.com articles already in the robot-report feed"
+ },
+ "publisher_impact_on_legacy_copy": {
+  "items_with_changed_identity": 349,
+  "stories": 43861,
+  "stories_with_changed_publisher_count": 1,
+  "crossing_corroboration_threshold": 1
+ },
+ "full_tests": {
+  "python_3_11": 836,
+  "python_3_12": 836
+ }
+}
