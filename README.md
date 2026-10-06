@@ -87,6 +87,14 @@ failure (flagged red on the health page), request staggering within a domain to 
 limits, and a digest generated each morning (08:00 by default) for the previous day.
 Scheduling is anchored to the exchange's local time, not hard-coded UTC offsets.
 
+The three minute-level live feeds (Sina 7x24, CLS telegraph, WSCN live) only return their newest
+page. When none of that page is stored yet, because the feed outran the poll interval or the
+collector was down, older pages are read until they meet stored items: at most 20 more pages and
+never past the source's last successful run (`app/crawler/catchup.py`). A steady poll still makes
+one request. On the 2026-09-18 to 10-03 legacy record the collector was idle for about 40 of 356
+hours, and an estimated ~800 Sina and ~1,000 CLS items were lost that way; the CLS newest page
+also holds only 20 items, so busy ten-minute intervals lost items even without downtime.
+
 ## Architecture
 
 ```

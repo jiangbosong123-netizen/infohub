@@ -5,6 +5,8 @@ from __future__ import annotations
 - 财联社电报：签名算法抄自 RSSHub 项目（DIYgod/RSSHub，lib/routes/cls/utils.ts）
   sorted(params) → sha1(querystring) → md5(sha1hex)
 - 华尔街见闻快讯：API 端点来自 newsnow 项目（ourongxing/newsnow）
+
+两者都只返回最新一页；最新一页里没有已入库条目时由 catchup 往前翻页补抓（见 catchup.py）。
 """
 import hashlib
 import logging
@@ -14,12 +16,14 @@ from urllib.parse import urlencode
 
 from bs4 import BeautifulSoup
 
-from . import http
+from . import catchup, http
 from ..source_time import parse_source_time
 
 log = logging.getLogger(__name__)
 
 CLS_API = "https://www.cls.cn/api/cache"
+# The telegraph page's "load more" endpoint: up to ``rn`` items published before ``last_time``.
+CLS_ROLL_API = "https://www.cls.cn/v1/roll/get_roll_list"
 WSCN_LIVE_API = "https://api-one-wscn.awtmt.com/apiv1/content/lives"
 
 
@@ -52,9 +56,38 @@ def fetch_cls(source: dict) -> list[dict]:
     resp = http.fetch(f"{CLS_API}?{urlencode(params)}",
                       headers={"Referer": "https://www.cls.cn/telegraph"})
     response_observed_at = datetime.now(timezone.utc)
-    data = resp.json()
+    records = ((resp.json().get("data") or {}).get("roll_data") or [])[:50]
+    first = _cls_raws(records, response_observed_at, share_links=True)
+    return catchup.catch_up(source, (first, _cls_cursor(records)), _cls_older)
+
+
+def _cls_cursor(records: list[dict]) -> int | None:
+    # One second past the oldest record, so records sharing that second are re-read (and
+    # dropped as seen) rather than skipped if the endpoint excludes ``last_time`` itself.
+    times = [rec["ctime"] for rec in records if isinstance(rec.get("ctime"), int)]
+    return min(times) + 1 if times else None
+
+
+def _cls_older(last_time: int) -> catchup.Page:
+    params = {"app": "CailianpressWeb", "category": "", "last_time": str(last_time),
+              "os": "web", "refresh_type": "1", "rn": "50", "sv": "8.7.9"}
+    params["sign"] = _cls_sign(params)
+    resp = http.fetch(f"{CLS_ROLL_API}?{urlencode(params)}",
+                      headers={"Referer": "https://www.cls.cn/telegraph"})
+    response_observed_at = datetime.now(timezone.utc)
+    records = ((resp.json().get("data") or {}).get("roll_data") or [])[:50]
+    following = _cls_cursor(records)
+    if following is not None and following >= last_time:
+        following = None  # no progress: stop instead of reading the same page again
+    # The roll list adds share links that the newest-page cache lacks; the detail URL keeps
+    # one URL per telegraph whichever endpoint returned it.
+    return _cls_raws(records, response_observed_at, share_links=False), following
+
+
+def _cls_raws(records: list[dict], response_observed_at: datetime, *,
+              share_links: bool) -> list[dict]:
     out = []
-    for rec in ((data.get("data") or {}).get("roll_data") or [])[:50]:
+    for rec in records:
         content = _strip_html(rec.get("content") or rec.get("brief") or "")
         title = (rec.get("title") or "").strip() or _make_title(content)
         if not title:
@@ -66,7 +99,8 @@ def fetch_cls(source: dict) -> list[dict]:
             observed_at=response_observed_at,
         )
         published = source_time.utc if source_time.status == "valid" else None
-        link = (rec.get("shareurl") or "").strip() or f"https://www.cls.cn/detail/{rec.get('id')}"
+        link = ((rec.get("shareurl") or "").strip() if share_links else "") \
+            or f"https://www.cls.cn/detail/{rec.get('id')}"
         out.append(dict(url=link, title=title, summary=content,
                         published_at=published, event_type="", official=0,
                         companies=None, extra={},
@@ -78,11 +112,18 @@ def fetch_cls(source: dict) -> list[dict]:
 
 def fetch_wscn_live(source: dict) -> list[dict]:
     """华尔街见闻快讯（全球频道）：分钟级，比其 RSS 快。"""
-    resp = http.fetch(f"{WSCN_LIVE_API}?channel=global-channel&client=web&limit=50")
+    return catchup.catch_up(source, _wscn_page(None), _wscn_page)
+
+
+def _wscn_page(cursor: object) -> catchup.Page:
+    """One page, newest first; the API's ``next_cursor`` reads the next older page."""
+    url = f"{WSCN_LIVE_API}?channel=global-channel&client=web&limit=50"
+    resp = http.fetch(url if cursor is None else f"{url}&cursor={cursor}")
     response_observed_at = datetime.now(timezone.utc)
-    data = resp.json()
+    data = (resp.json().get("data") or {})
+    records = (data.get("items") or [])[:50]
     out = []
-    for rec in ((data.get("data") or {}).get("items") or [])[:50]:
+    for rec in records:
         title = (rec.get("title") or "").strip()
         content = _strip_html(rec.get("content_text") or "")
         if not title:
@@ -107,4 +148,5 @@ def fetch_wscn_live(source: dict) -> list[dict]:
                         source_time_values=[source_time.to_dict()],
                         observed_at=response_observed_at.isoformat(),
                         source_record=rec, payload_kind="api_record"))
-    return out
+    following = data.get("next_cursor")
+    return out, following if records and following not in (None, "", 0, cursor) else None

@@ -7,17 +7,22 @@ from datetime import datetime, timezone
 
 from bs4 import BeautifulSoup
 
-from . import http
+from . import catchup, http
 from ..source_time import parse_source_time
 
 log = logging.getLogger(__name__)
 
-API_URL = ("https://zhibo.sina.com.cn/api/zhibo/feed?page=1&page_size=50"
+API_URL = ("https://zhibo.sina.com.cn/api/zhibo/feed?page={page}&page_size=50"
            "&zhibo_id=152&tag_id=0&dire=f&dpc=1")
 
 
 def fetch_sina(source: dict) -> list[dict]:
-    resp = http.fetch(API_URL)
+    return catchup.catch_up(source, _page(1), _page)
+
+
+def _page(page: int) -> catchup.Page:
+    """One page, newest first; the cursor is the next older page number."""
+    resp = http.fetch(API_URL.format(page=page))
     response_observed_at = datetime.now(timezone.utc)
     data = resp.json()
     feed = (((data.get("result") or {}).get("data") or {}).get("feed") or {})
@@ -48,4 +53,5 @@ def fetch_sina(source: dict) -> list[dict]:
             observed_at=response_observed_at.isoformat(),
             source_record=rec, payload_kind="api_record",
         ))
-    return out
+    following = (feed.get("page_info") or {}).get("nextPage")
+    return out, following if isinstance(following, int) and following > page else None
