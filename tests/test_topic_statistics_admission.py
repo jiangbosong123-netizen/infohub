@@ -167,6 +167,16 @@ class TopicStatisticsAdmissionTests(unittest.TestCase):
             with self.assertRaisesRegex(TopicStatisticsAdmissionError, "metrics are stale"):
                 approved_admission(db, self.publication)
 
+    def test_reads_without_approval_fail_before_recomputing_metrics(self):
+        from app import topic_statistics_admission as admission
+        with database.get_db() as db, patch.object(
+            admission, "_metrics", side_effect=AssertionError("metrics recomputed")
+        ):
+            with self.assertRaisesRegex(TopicStatisticsAdmissionError, "no current approval"):
+                approved_admission(db, self.publication)
+            with self.assertRaisesRegex(TopicStatisticsAdmissionError, "current ready publication"):
+                approved_admission(db, "topic_statistics_publication_missing")
+
     def test_coverage_only_historical_approval_cannot_serve(self):
         with database.get_db() as db:
             preview = admission_preview(db, self.publication)

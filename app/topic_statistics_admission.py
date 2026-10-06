@@ -60,6 +60,10 @@ def _canonical(value: object) -> bytes:
 def _metrics(db: sqlite3.Connection, publication: sqlite3.Row) -> dict:
     build_id = publication["build_id"]
     dataset_id = publication["dataset_id"]
+    # One pass over the dataset's assignments gives each effective state's count and, for
+    # accepted ones, the distinct topics (a topic version is unique, so the LEFT JOIN neither
+    # duplicates nor drops assignments, and a missing one counts no topic). Two passes took
+    # 0.5 s for the 95k assignments of the rehearsal-size copy on every topic read.
     effective_rows = db.execute(
         """WITH latest_review AS (
                SELECT review.* FROM topic_assignment_reviews AS review
@@ -70,16 +74,20 @@ def _metrics(db: sqlite3.Connection, publication: sqlite3.Row) -> dict:
                )
            )
            SELECT COALESCE(review.decision,assignment.status) AS effective_status,
-                  COUNT(*) AS count
+                  COUNT(*) AS count,COUNT(DISTINCT topic.topic_id) AS topics
            FROM document_topic_assignments AS assignment
            JOIN document_versions AS version ON version.id=assignment.document_version_id
            JOIN documents AS document ON document.id=version.document_id
+           LEFT JOIN topic_versions AS topic ON topic.id=assignment.topic_version_id
            LEFT JOIN latest_review AS review ON review.assignment_id=assignment.id
            WHERE document.dataset_id=?
            GROUP BY COALESCE(review.decision,assignment.status)""",
         (dataset_id,),
     ).fetchall()
     effective = {row["effective_status"]: row["count"] for row in effective_rows}
+    accepted_topics = next(
+        (row["topics"] for row in effective_rows if row["effective_status"] == "accepted"), 0
+    )
     total = sum(effective.values())
     decided = effective.get("accepted", 0) + effective.get("rejected", 0)
     reviewed = db.execute(
@@ -92,25 +100,6 @@ def _metrics(db: sqlite3.Connection, publication: sqlite3.Row) -> dict:
                WHERE later.assignment_id=review.assignment_id
                  AND later.version>review.version
            )""",
-        (dataset_id,),
-    ).fetchone()[0]
-    accepted_topics = db.execute(
-        """WITH latest_review AS (
-               SELECT review.* FROM topic_assignment_reviews AS review
-               WHERE NOT EXISTS(
-                   SELECT 1 FROM topic_assignment_reviews AS later
-                   WHERE later.assignment_id=review.assignment_id
-                     AND later.version>review.version
-               )
-           )
-           SELECT COUNT(DISTINCT topic.topic_id)
-           FROM document_topic_assignments AS assignment
-           JOIN topic_versions AS topic ON topic.id=assignment.topic_version_id
-           JOIN document_versions AS version ON version.id=assignment.document_version_id
-           JOIN documents AS document ON document.id=version.document_id
-           LEFT JOIN latest_review AS review ON review.assignment_id=assignment.id
-           WHERE document.dataset_id=?
-             AND COALESCE(review.decision,assignment.status)='accepted'""",
         (dataset_id,),
     ).fetchone()[0]
     published = db.execute(
@@ -149,9 +138,7 @@ def _metrics(db: sqlite3.Connection, publication: sqlite3.Row) -> dict:
     }
 
 
-def admission_preview(
-    db: sqlite3.Connection, publication_id: str
-) -> TopicStatisticsAdmissionPreview:
+def _current_publication(db: sqlite3.Connection, publication_id: str) -> sqlite3.Row:
     publication = db.execute(
         """SELECT publication.id AS publication_id,
                   publication.version AS publication_version,publication.build_id,
@@ -167,6 +154,13 @@ def admission_preview(
         raise TopicStatisticsAdmissionError(
             "admission review requires the current ready publication"
         )
+    return publication
+
+
+def admission_preview(
+    db: sqlite3.Connection, publication_id: str
+) -> TopicStatisticsAdmissionPreview:
+    publication = _current_publication(db, publication_id)
     metrics = _metrics(db, publication)
     digest = hashlib.sha256(_canonical(metrics)).hexdigest()
     review = db.execute(
@@ -318,7 +312,7 @@ def approved_admission(
     Callers should hold a read transaction so the publication, metrics, and
     admission row belong to one SQLite snapshot.
     """
-    preview = admission_preview(db, publication_id)
+    publication = _current_publication(db, publication_id)
     review = db.execute(
         """SELECT id,version,decision,minimum_decided_assignment_bps,
                   allow_zero_members,metrics_sha256,reviewed_at,policy_version,
@@ -331,7 +325,10 @@ def approved_admission(
         raise TopicStatisticsAdmissionError(
             "topic statistics publication has no current approval"
         )
-    if review["metrics_sha256"] != preview.metrics_sha256:
+    # Only an approved publication needs its metrics recomputed; checking the decision first
+    # keeps the same failures in the same order without that work on every rejected read.
+    metrics = _metrics(db, publication)
+    if review["metrics_sha256"] != hashlib.sha256(_canonical(metrics)).hexdigest():
         raise TopicStatisticsAdmissionError(
             "topic statistics approval metrics are stale"
         )
@@ -344,23 +341,23 @@ def approved_admission(
             "topic statistics approval has no sample quality proof"
         )
     sample_proof = _validated_sample_proof(
-        db, preview.metrics["dataset_id"], review["sample_evaluation_id"]
+        db, metrics["dataset_id"], review["sample_evaluation_id"]
     )
     if sample_proof["metrics_sha256"] != review["sample_metrics_sha256"]:
         raise TopicStatisticsAdmissionError(
             "topic statistics sample quality proof is stale"
         )
     if (
-        preview.metrics["dirty_topics"] != 0
-        or preview.metrics["decided_assignment_bps"]
+        metrics["dirty_topics"] != 0
+        or metrics["decided_assignment_bps"]
            < review["minimum_decided_assignment_bps"]
     ):
         raise TopicStatisticsAdmissionError(
             "topic statistics no longer meet the approved release policy"
         )
     members = (
-        preview.metrics["published_document_members"]
-        + preview.metrics["published_event_members"]
+        metrics["published_document_members"]
+        + metrics["published_event_members"]
     )
     if members == 0 and not review["allow_zero_members"]:
         raise TopicStatisticsAdmissionError(

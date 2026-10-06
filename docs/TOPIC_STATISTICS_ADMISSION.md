@@ -54,3 +54,12 @@ approved and its current metrics hash to equal the frozen review hash. It
 returns `503 not_ready` after a rejection, publication replacement, or input
 change. Production must not approve the current legacy-derived zero
 publication: its candidate backlog remains effectively undecided.
+
+The serving check runs on every topic API request and, with topic read on, every portal
+topic page. It first confirms the publication is current and its latest decision is an
+approval; only then does it recompute and compare the metrics, so failures keep the same
+order and message. The effective-state counts and the accepted-topic count come from one
+pass over the dataset's assignments. On the rehearsal-size copy (95,203 assignments) a
+read without approval returns in under 0.1 ms instead of 0.5 s, and the metrics take
+0.17 s instead of 0.5 s, with identical values and digest
+([`perf-topic-admission-check.json`](evidence/perf-topic-admission-check.json)).

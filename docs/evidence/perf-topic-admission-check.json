@@ -1,0 +1,20 @@
+{
+  "scope": "Topic statistics serving gate: app/topic_statistics_admission.py approved_admission and _metrics",
+  "recorded_at": "2026-10-06T00:00:00Z",
+  "environment": "macOS rehearsal-size copy (95,203 topic assignments, no reviews yet, current publication not approved, schema 51); no network, no model calls",
+  "production_changed": false,
+  "problem": "Every topic API request and, with topic read on, every portal topic page recomputed all admission metrics (two passes over every assignment, about 0.5 s) before checking whether the publication was approved at all",
+  "change": "approved_admission checks the current publication and the latest decision first and recomputes metrics only for an approval; the effective-state counts and accepted-topic count share one pass (LEFT JOIN topic_versions on its primary key, COUNT(DISTINCT topic_id) per state)",
+  "equivalence_check": {
+    "rehearsal_copy": {"metrics_identical": true, "metrics_sha256_identical": true, "rejection_message_identical": true},
+    "unit_tests": "tests/test_topic_admission_metrics.py compares the single pass with both previous queries over random assignments, two-version topics, three rounds of reviews and corrections, and a second dataset; tests/test_topic_statistics_admission.py keeps every failure message and checks that unapproved reads do not recompute metrics"
+  },
+  "ms": {
+    "admission_preview_metrics": {"old": 497.1, "new": 169.2},
+    "approved_admission_without_approval": {"old": 497.8, "new": 0.0},
+    "/api/v1/topics?limit=100 (503)": {"old": 528.7, "new": 8.4},
+    "/topics with topic read on (503)": {"old": 529.9, "new": 3.4},
+    "/topics/product-updates with topic read on (503)": {"old": 494.3, "new": 3.5}
+  },
+  "full_tests": {"python_3_11": 822, "python_3_12": 822}
+}
