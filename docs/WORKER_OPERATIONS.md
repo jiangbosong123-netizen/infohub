@@ -56,7 +56,7 @@ schedule 的下一次时间保存在 SQLite。进程停机期间错过多个周�
   门户进程没有崩溃。
 - `/api/ready`：检查数据库查询、dataset owner 和当前构建 SHA 的 worker 心跳。任一失败返回
   503，供发布门禁使用。
-- `/api/pipeline`：报告来源从未成功、失败、部分失败或过期，job blocked/dead-letter/过期租约，
+- `/api/pipeline`：报告来源从未成功、失败、部分失败、过期或静默，job blocked/dead-letter/过期租约，
   AI与索引积压和日报日期。业务数据延迟会标记 degraded，但不会让已有门户内容不可读。
 
 `/api/health` 是兼容的完整快照，HTTP 状态采用 readiness，JSON 中的 `pipeline.status` 独立表达
@@ -72,6 +72,8 @@ schedule 的下一次时间保存在 SQLite。进程停机期间错过多个周�
 - `/api/ready` 版本不一致：说明旧 worker 或旧心跳仍存在；发布准备正常情况下会清理心跳，先
   检查容器镜像 SHA，不要放宽版本检查。
 - 来源异常但 ready：发布本身可接受，pipeline 仍 degraded；根据来源错误和退避时间处理。
+- 来源“静默”（`sources_silent`）：抓取一直成功，但新内容的间隔远超该源自己的节奏，常见于订阅已停更、
+  被换成固定页面或接口改版只返回旧条目。打开该来源地址核对，必要时按 [信息源说明](SOURCES.md) 更换。
 - migrate 失败：web/worker 不应切换。使用已生成备份和迁移报告排查，不能跳过 migrate 强启。
 
 ## 启动校验的耗时
@@ -129,6 +131,18 @@ worker 的抓取也在该作用域内运行：每条候选先写证据、再写�
 时每个任务约 10 ms，占任务耗时的三分之二。预留金额有 `CHECK(reserved_cost_microusd>=0)`，0 元行对总和没有贡献，
 所以汇总改为只取 `reserved_cost_microusd>0` 的行（`DAILY_RESERVED_SQL`），覆盖索引直接跳过 0 元行：同一副本上 9 ms
 降到 0.003 ms，结果不变（随机 2,000 条混合授权的各 provider × 日期汇总逐一相等）。
+
+## 来源静默检测与索引（schema 52）
+
+健康页的“最近成功”只说明请求成功；一个订阅可能每次都成功返回同样的旧条目（评估候选源时有几个公开订阅已一年
+未更新），这时来源看起来一切正常。现在每个来源同时显示“最近新内容”：取该源最近一次列出新条目的时间，与它在此前
+14 天里两条新内容之间的最长间隔比较，超过该间隔的 1.5 倍（至少 12 小时）就标为“静默”，`/api/pipeline` 与
+`/api/health` 报告 `sources_silent`；近 14 天新内容少于 10 条的低频源不作判断。夜间、周末和发布很稀的官方源
+因此不会误报：在 10 月 3 日的旧库数据上 42 个来源无一误报（2 个低频源不判断），而假设全部停更两天，35 个会被标出，
+其余是本来数日一条的低频源。
+
+计算按来源读取 `item_discoveries`，schema 52 为此增加 `idx_item_discoveries_source_seen(source_id, first_seen_at)`
+（演练规模 10.3 万条约 0.3 秒建成），42 个来源合计约 26 ms。静默只影响 pipeline，不影响 readiness。
 
 ## 按结果查发布版本的索引（schema 51）
 

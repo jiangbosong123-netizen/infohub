@@ -148,6 +148,7 @@ from ..curation_hot_query import curated_top_clusters, hot_metrics_usable, story
 from ..report_query import published_calendar_dates, published_calendar_report
 from ..provenance import publisher, display_title
 from ..runtime_health import read_worker_heartbeat
+from ..source_activity import SourceActivity, source_activity
 from ..timeutil import format_utc, parse_utc
 from ..topics import GROUPS
 from ..topic_portal_projection import (
@@ -391,7 +392,8 @@ def _relative(iso: str | None) -> str:
     return f"{hours // 24} 天前"
 
 
-def _source_status(row, now: datetime | None = None) -> str:
+def _source_status(row, now: datetime | None = None,
+                   activity: SourceActivity | None = None) -> str:
     status = "bad" if row["fail_count"] else ("ok" if row["last_success_at"] else "never")
     if row["last_error"] and not row["fail_count"]:
         status = "partial"
@@ -399,6 +401,8 @@ def _source_status(row, now: datetime | None = None) -> str:
     if (status == "ok" and now - _fmt_dt(row["last_success_at"])
             > timedelta(minutes=max(15, row["interval_minutes"] * 3))):
         status = "stale"
+    if status == "ok" and activity is not None and activity.silent(now):
+        status = "silent"  # fetched fine, but nothing new for far longer than usual
     return status
 
 
@@ -414,8 +418,9 @@ def _system_snapshot() -> dict:
         derived_pending = db.execute("SELECT COUNT(*) FROM derived_dirty").fetchone()[0]
         reports = db.execute(
             "SELECT COUNT(*) AS total, MAX(date) AS latest FROM daily_reports").fetchone()
-        source_rows = db.execute("""SELECT fail_count,last_success_at,last_error,interval_minutes
+        source_rows = db.execute("""SELECT id,fail_count,last_success_at,last_error,interval_minutes
             FROM sources WHERE enabled=1""").fetchall()
+        activity = source_activity(db, [row["id"] for row in source_rows])
         last_fetch = db.execute("SELECT MAX(ran_at) FROM fetch_log").fetchone()[0]
         job_states = {
             state: 0
@@ -468,8 +473,9 @@ def _system_snapshot() -> dict:
             "SELECT status,COUNT(*) AS n FROM source_time_values GROUP BY status"
         ):
             source_time_states[row["status"]] = row["n"]
-    source_states = [_source_status(row, now) for row in source_rows]
+    source_states = [_source_status(row, now, activity.get(row["id"])) for row in source_rows]
     issues = sum(state != "ok" for state in source_states)
+    silent = sum(state == "silent" for state in source_states)
     oldest_ready_age = (
         max(0, int((now - _fmt_dt(oldest_ready)).total_seconds()))
         if oldest_ready else None
@@ -485,8 +491,10 @@ def _system_snapshot() -> dict:
     if worker_required and not worker.healthy:
         readiness_issues.append(f"worker_{worker.status}")
     pipeline_issues = []
-    if issues:
+    if issues > silent:
         pipeline_issues.append("source_failures_or_staleness")
+    if silent:
+        pipeline_issues.append("sources_silent")
     if job_issues:
         pipeline_issues.append("durable_job_failures")
     if job_delayed:
@@ -531,7 +539,8 @@ def _system_snapshot() -> dict:
             "last_item_relative": _relative(item["last_item_at"]),
         },
         "sources": {
-            "enabled": len(source_rows), "issues": issues, "last_run_at": last_fetch,
+            "enabled": len(source_rows), "issues": issues, "silent": silent,
+            "last_run_at": last_fetch,
         },
         "reports": {"total": reports["total"], "latest": reports["latest"]},
         "jobs": {
@@ -895,17 +904,25 @@ def saved(request: Request, ids: str = ""):
 def health(request: Request):
     with get_db() as db:
         rows = db.execute(
-            """SELECT key, name, channel, tier, type, url, enabled, interval_minutes,
+            """SELECT id, key, name, channel, tier, type, url, enabled, interval_minutes,
                       fail_count, last_success_at, last_run_at, last_error
                FROM sources WHERE enabled=1
                ORDER BY CASE tier WHEN 'official' THEN 0 WHEN 'media' THEN 1
                WHEN 'info' THEN 2 ELSE 3 END, channel, name""").fetchall()
         counts = {r["channel"]: r["n"] for r in db.execute(
             "SELECT channel, COUNT(*) AS n FROM items GROUP BY channel")}
+        activity = source_activity(db, [r["id"] for r in rows])
+    now = datetime.now(timezone.utc)
     sources = []
     for r in rows:
-        status = _source_status(r)
-        sources.append(dict(r, last_success_rel=_relative(r["last_success_at"]), status=status))
+        seen = activity.get(r["id"])
+        status = _source_status(r, now, seen)
+        sources.append(dict(
+            r, last_success_rel=_relative(r["last_success_at"]), status=status,
+            last_new_rel=_relative(seen.last_new_at.isoformat()) if seen else "暂无",
+            quiet_limit_hours=(round(seen.quiet_limit.total_seconds() / 3600)
+                               if seen and seen.quiet_limit else None),
+        ))
     system = _system_snapshot()
     return templates.TemplateResponse(request, "health.html", dict(
         sources=sources, counts=counts, system=system,
