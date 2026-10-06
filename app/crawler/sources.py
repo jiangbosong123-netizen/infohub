@@ -26,12 +26,47 @@ SOURCES: list[dict] = [
          url="https://huggingface.co/blog/feed.xml", interval_minutes=60),
     dict(key="ifanr", name="爱范儿", channel="ai", tier="info", type="rss",
          url="https://www.ifanr.com/feed", interval_minutes=30),
+    dict(key="the-decoder", name="The Decoder", channel="ai", tier="info", type="rss",
+         url="https://the-decoder.com/feed/", interval_minutes=30),
+    dict(key="mit-tr-ai", name="MIT 科技评论 · AI", channel="ai", tier="info", type="rss",
+         url="https://www.technologyreview.com/topic/artificial-intelligence/feed",
+         interval_minutes=60),
+    dict(key="arstechnica-ai", name="Ars Technica · AI", channel="ai", tier="info", type="rss",
+         url="https://arstechnica.com/ai/feed/", interval_minutes=30),
+    dict(key="wired-ai", name="WIRED · AI", channel="ai", tier="info", type="rss",
+         url="https://www.wired.com/feed/tag/ai/latest/rss", interval_minutes=30),
+    dict(key="geekpark", name="极客公园", channel="ai", tier="info", type="rss",
+         url="https://www.geekpark.net/rss", interval_minutes=30),
+
+    # ---------- AI 公司与研究机构（一手发布，量小）----------
+    # 只有发布即重要的实验室公告设为 official（不经 AI 筛选直接展示、进精选）；
+    # 研究博客与内容混杂的公司新闻室设为 info，仍由 AI 判断相关性。
+    dict(key="deepmind", name="Google DeepMind 博客", channel="ai", tier="official", type="rss",
+         url="https://deepmind.google/blog/rss.xml", interval_minutes=60),
+    dict(key="google-ai-blog", name="Google AI 官方博客", channel="ai", tier="official", type="rss",
+         url="https://blog.google/technology/ai/rss/", interval_minutes=60),
+    dict(key="mistral-news", name="Mistral AI 官方动态", channel="ai", tier="official", type="rss",
+         url="https://mistral.ai/rss.xml", interval_minutes=60),
+    dict(key="google-research", name="Google Research 博客", channel="ai", tier="info", type="rss",
+         url="https://research.google/blog/rss/", interval_minutes=60),
+    dict(key="microsoft-research", name="微软研究院博客", channel="ai", tier="info", type="rss",
+         url="https://www.microsoft.com/en-us/research/feed/", interval_minutes=60),
+    dict(key="apple-ml", name="Apple 机器学习研究", channel="ai", tier="info", type="rss",
+         url="https://machinelearning.apple.com/rss.xml", interval_minutes=60),
+    dict(key="nvidia-newsroom", name="NVIDIA 新闻室", channel="ai", tier="info", type="rss",
+         url="https://nvidianews.nvidia.com/releases.xml", interval_minutes=60),
+    dict(key="github-blog", name="GitHub 博客", channel="ai", tier="info", type="rss",
+         url="https://github.blog/feed/", interval_minutes=60),
 
     # ---------- 机器人 ----------
     dict(key="ieee-robotics", name="IEEE Spectrum 机器人", channel="robot", tier="info", type="rss",
          url="https://spectrum.ieee.org/feeds/topic/robotics.rss", interval_minutes=60),
     dict(key="robot-report", name="The Robot Report", channel="robot", tier="info", type="rss",
          url="https://www.therobotreport.com/feed/", interval_minutes=60),
+    dict(key="robohub", name="Robohub", channel="robot", tier="info", type="rss",
+         url="https://robohub.org/feed/", interval_minutes=60),
+    dict(key="techcrunch-robotics", name="TechCrunch 机器人", channel="robot", tier="info", type="rss",
+         url="https://techcrunch.com/category/robotics/feed/", interval_minutes=60),
 
     # ---------- 股市：官方一手 ----------
     dict(key="sec-edgar", name="SEC EDGAR 文件", channel="stock", tier="official", type="sec",
@@ -40,6 +75,10 @@ SOURCES: list[dict] = [
          url=HKEX_BASE, interval_minutes=10),
     dict(key="openai-news", name="OpenAI 官网动态", channel="ai", tier="official", type="rss",
          url="https://openai.com/news/rss.xml", interval_minutes=60),
+    dict(key="amd-newsroom", name="AMD 新闻稿", channel="stock", tier="official", type="rss",
+         url="https://ir.amd.com/news-events/press-releases/rss", interval_minutes=60),
+    dict(key="fed-monetary", name="美联储货币政策", channel="stock", tier="official", type="rss",
+         url="https://www.federalreserve.gov/feeds/press_monetary.xml", interval_minutes=60),
 
     # ---------- 股市：媒体 ----------
     dict(key="wallstreetcn", name="华尔街见闻", channel="stock", tier="media", type="rss",
@@ -55,6 +94,10 @@ SOURCES: list[dict] = [
          url="https://api-one-wscn.awtmt.com/apiv1/content/lives", interval_minutes=10),
     dict(key="techmeme", name="Techmeme", channel="ai", tier="media", type="rss",
          url="https://www.techmeme.com/feed.xml", interval_minutes=30),
+    dict(key="cnbc-earnings", name="CNBC 财报", channel="stock", tier="media", type="rss",
+         url="https://www.cnbc.com/id/15839135/device/rss/rss.html", interval_minutes=30),
+    dict(key="arm-newsroom", name="Arm 新闻室", channel="stock", tier="media", type="rss",
+         url="https://newsroom.arm.com/rss", interval_minutes=60),
 
     # ---------- 股市：每日对账兜底（不走常规轮询，单独任务）----------
     dict(key="google-news", name="Google News 对账", channel="stock", tier="reconcile", type="googlenews",
