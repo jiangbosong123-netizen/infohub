@@ -1,0 +1,202 @@
+{
+  "scope": "Topic pages without topic read: app/web/routes.py _curated_topic_stats and the topic_detail feed",
+  "recorded_at": "2026-10-06T00:00:00Z",
+  "environment": "macOS rehearsal-size copy (89,575 items, 95,203 topic assignments over 53,736 items, 56 topics, schema 51); clock fixed at 2026-10-03T16:00Z; no network, no model calls",
+  "production_changed": false,
+  "problem": "The topic feed joined from the topic's assignments and ranked every member before paging (0.9 s for the largest topic with curation read); the topic index read each assignment's curation visibility and score separately",
+  "change": "The topic feed streams items newest first with the topic's member list as a pre-built filter (+i.id IN (...)); under curation read the topic index checks each item once (MATERIALIZED per-item values) and sums per topic, keeping the outer GROUP BY t.slug ORDER BY t.position. Per-topic counts on detail pages are unchanged",
+  "equivalence_check": {
+    "rehearsal_copy": "4 flag combinations x 32 pages (/topics, 5 topics x 2 modes x pages 1/2/5, a missing topic): template contexts identical, 1,654 feed rows",
+    "unit_test": "tests/test_topic_pages.py: 400 random items in 6 overlapping topics (3 sharing a position) plus a disabled one, 4 flag combinations, against the previous SQL; plan check that the feed scans idx_items_pub without a full sort"
+  },
+  "page_ms": {
+    "curation_read_true_curated_feed_true": {
+      "/topics": {
+        "old": 1835.9,
+        "new": 826.8
+      },
+      "/topics/cursor?mode=all&page=1": {
+        "old": 52.7,
+        "new": 49.8
+      },
+      "/topics/cursor?mode=selected&page=1": {
+        "old": 50.0,
+        "new": 50.3
+      },
+      "/topics/image-gen?mode=all&page=1": {
+        "old": 51.7,
+        "new": 50.4
+      },
+      "/topics/image-gen?mode=selected&page=1": {
+        "old": 52.7,
+        "new": 51.0
+      },
+      "/topics/industry?mode=all&page=1": {
+        "old": 288.9,
+        "new": 203.5
+      },
+      "/topics/industry?mode=selected&page=1": {
+        "old": 424.8,
+        "new": 183.1
+      },
+      "/topics/policy?mode=all&page=1": {
+        "old": 322.5,
+        "new": 180.9
+      },
+      "/topics/policy?mode=selected&page=1": {
+        "old": 475.9,
+        "new": 217.1
+      },
+      "/topics/product-updates?mode=all&page=1": {
+        "old": 811.5,
+        "new": 471.1
+      },
+      "/topics/product-updates?mode=selected&page=1": {
+        "old": 1166.1,
+        "new": 478.5
+      }
+    },
+    "curation_read_true_curated_feed_false": {
+      "/topics": {
+        "old": 1038.4,
+        "new": 638.4
+      },
+      "/topics/cursor?mode=all&page=1": {
+        "old": 47.8,
+        "new": 49.0
+      },
+      "/topics/cursor?mode=selected&page=1": {
+        "old": 48.3,
+        "new": 49.6
+      },
+      "/topics/image-gen?mode=all&page=1": {
+        "old": 48.5,
+        "new": 50.4
+      },
+      "/topics/image-gen?mode=selected&page=1": {
+        "old": 49.8,
+        "new": 51.5
+      },
+      "/topics/industry?mode=all&page=1": {
+        "old": 237.7,
+        "new": 141.2
+      },
+      "/topics/industry?mode=selected&page=1": {
+        "old": 336.9,
+        "new": 146.0
+      },
+      "/topics/policy?mode=all&page=1": {
+        "old": 229.8,
+        "new": 138.0
+      },
+      "/topics/policy?mode=selected&page=1": {
+        "old": 369.8,
+        "new": 140.6
+      },
+      "/topics/product-updates?mode=all&page=1": {
+        "old": 696.8,
+        "new": 340.0
+      },
+      "/topics/product-updates?mode=selected&page=1": {
+        "old": 963.6,
+        "new": 427.5
+      }
+    },
+    "curation_read_false_curated_feed_true": {
+      "/topics": {
+        "old": 126.0,
+        "new": 129.0
+      },
+      "/topics/cursor?mode=all&page=1": {
+        "old": 40.7,
+        "new": 44.0
+      },
+      "/topics/cursor?mode=selected&page=1": {
+        "old": 41.0,
+        "new": 43.5
+      },
+      "/topics/image-gen?mode=all&page=1": {
+        "old": 41.2,
+        "new": 45.5
+      },
+      "/topics/image-gen?mode=selected&page=1": {
+        "old": 41.2,
+        "new": 44.3
+      },
+      "/topics/industry?mode=all&page=1": {
+        "old": 64.1,
+        "new": 52.8
+      },
+      "/topics/industry?mode=selected&page=1": {
+        "old": 70.1,
+        "new": 53.3
+      },
+      "/topics/policy?mode=all&page=1": {
+        "old": 62.5,
+        "new": 52.1
+      },
+      "/topics/policy?mode=selected&page=1": {
+        "old": 70.5,
+        "new": 52.4
+      },
+      "/topics/product-updates?mode=all&page=1": {
+        "old": 103.2,
+        "new": 75.8
+      },
+      "/topics/product-updates?mode=selected&page=1": {
+        "old": 126.1,
+        "new": 76.2
+      }
+    },
+    "curation_read_false_curated_feed_false": {
+      "/topics": {
+        "old": 62.8,
+        "new": 58.5
+      },
+      "/topics/cursor?mode=all&page=1": {
+        "old": 41.0,
+        "new": 43.5
+      },
+      "/topics/cursor?mode=selected&page=1": {
+        "old": 41.5,
+        "new": 43.9
+      },
+      "/topics/image-gen?mode=all&page=1": {
+        "old": 42.2,
+        "new": 43.8
+      },
+      "/topics/image-gen?mode=selected&page=1": {
+        "old": 41.5,
+        "new": 43.8
+      },
+      "/topics/industry?mode=all&page=1": {
+        "old": 61.7,
+        "new": 49.2
+      },
+      "/topics/industry?mode=selected&page=1": {
+        "old": 67.5,
+        "new": 49.6
+      },
+      "/topics/policy?mode=all&page=1": {
+        "old": 59.2,
+        "new": 48.7
+      },
+      "/topics/policy?mode=selected&page=1": {
+        "old": 66.0,
+        "new": 48.8
+      },
+      "/topics/product-updates?mode=all&page=1": {
+        "old": 89.9,
+        "new": 62.5
+      },
+      "/topics/product-updates?mode=selected&page=1": {
+        "old": 113.0,
+        "new": 62.5
+      }
+    }
+  },
+  "full_tests": {
+    "python_3_11": 819,
+    "python_3_12": 819
+  }
+}
