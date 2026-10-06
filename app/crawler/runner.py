@@ -3,6 +3,7 @@ from __future__ import annotations
 """抓取调度核心：到期源并发抓取 → 统一入库（URL 归一去重）→ 源健康记录 → 重建热点聚类。
 
 防漏设计：RSS/SEC 每次拉最新几十条靠 URL 去重增量入库；港交所按最近 3 天日期窗拉取；
+三个快讯源断档时往前翻页补抓到已入库内容为止（catchup.py）；
 任何源失败只累计 fail_count 并退避，不影响其他源，恢复后自动续上。
 """
 import json

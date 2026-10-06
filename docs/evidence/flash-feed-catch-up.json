@@ -1,0 +1,23 @@
+{
+  "scope": "Catch-up paging for the minute-level live feeds: app/crawler/catchup.py, sina_source.fetch_sina, fastnews.fetch_cls, fastnews.fetch_wscn_live",
+  "recorded_at": "2026-10-06T00:00:00Z",
+  "production_changed": false,
+  "legacy_record": {
+    "source": "read-only copy of the Mac legacy database (fetch_log 2026-09-18T20:07Z to 2026-10-03T16:02Z)",
+    "fetches": 30787, "succeeded": 30026,
+    "failure_causes": "about 700 local DNS/network-unreachable errors (collector offline), about 10 remote timeouts",
+    "idle_gaps_over_30_min": 51, "idle_hours": 39.6, "span_hours": 356, "longest_gap_hours": 1.6,
+    "estimated_lost_items": {"sina-7x24": 800, "cls-telegraph": 1000, "wallstreetcn-live": 0},
+    "estimate_method": "missing item ids per hour inside idle gaps minus the background rate of missing ids (ids the feed itself never lists) during normal polling",
+    "cls_newest_page_items": 20
+  },
+  "change": "When none of the newest page is stored, read older pages (Sina page numbers, WSCN next_cursor, CLS roll-list last_time) until a page contains a stored item; at most 20 more pages, never older than the source's last success less 15 minutes, none for a source that never succeeded; stored items on older pages are left out; CLS older pages use the existing detail URL form",
+  "live_check": {
+    "setup": "throwaway database, last success set 3 hours back, nothing stored, real endpoints",
+    "sina-7x24": {"requests": 4, "inserted": 200, "missing_ids_in_range": 0, "second_run_requests": 1},
+    "cls-telegraph": {"requests": 2, "inserted": 69, "second_run_requests": 1, "note": "id gaps are present within single endpoint responses (shared numbering)"},
+    "wallstreetcn-live": {"requests": 2, "inserted": 100, "second_run_requests": 1, "note": "id gaps are present within single endpoint responses (shared numbering)"}
+  },
+  "tests": "tests/test_flash_feed_catch_up.py: steady state one request, gap closed once without stored items, page shift without repeats, never-succeeded source, resume bound, page cap, failed older page reported as partial, CLS URL form, runner insertion; seven mutations each fail a test",
+  "full_tests": {"python_3_11": 831, "python_3_12": 831}
+}
