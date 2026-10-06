@@ -172,6 +172,10 @@ def project_candidate(
         (source["id"], raw["external_id"]),
     ).fetchone()
     first_observed_at, last_observed_at = observed_bounds
+    if observation.observed_at and last_observed_at and observation.observed_at > last_observed_at:
+        # An unchanged repeat appends no observation row (D24) but is still this locator's
+        # latest sighting, as it was when every repeat was stored.
+        last_observed_at = observation.observed_at
 
     locator = db.execute(
         """SELECT document_id FROM document_locators

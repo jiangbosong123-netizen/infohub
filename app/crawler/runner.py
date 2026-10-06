@@ -205,7 +205,8 @@ def _run_source(source: dict) -> tuple[int, bool, str]:
             continue
         try:
             observation = observe_candidate(
-                ingest_run, raw, ordinal=ordinal, observed_at=raw.get("observed_at")
+                ingest_run, raw, ordinal=ordinal, observed_at=raw.get("observed_at"),
+                repeat_unchanged=False,
             )
             observed_bytes += observation.size_bytes
             if insert_item(source["key"], raw, observation=observation):

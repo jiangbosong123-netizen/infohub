@@ -132,7 +132,7 @@ def _reconcile_companies() -> dict:
             try:
                 observation = observe_candidate(
                     ingest_run, raw, ordinal=current_ordinal,
-                    observed_at=raw.get("observed_at"),
+                    observed_at=raw.get("observed_at"), repeat_unchanged=False,
                 )
                 observed_bytes += observation.size_bytes
                 if insert_item(

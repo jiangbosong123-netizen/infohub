@@ -93,7 +93,7 @@ erDiagram
 - `payload_kind`: feed_entry / api_record / html / pdf / legacy_excerpt / generated_metadata。
 - 保存被解析的原始 entry/record；若只留全响应，必须记录 entry 的 JSONPath/XML selector/byte offset，确保可重放。
 - 原始字节存储于持久化 volume 的按哈希路径；临时文件写完并 fsync、原子重命名后，事务写数据库引用。事务失败留下的无引用对象可由 GC 在 7 天保护期后清理。
-- 同一 source/external_id/payload hash 的重复观察不复制内容；在 `raw_observations(raw_record_id,ingest_run_id,observed_at)` 追加出现记录（可按保留策略压缩计数）。首次与最近看到是派生值，不改证据时间。
+- 同一 source/external_id/payload hash 的重复观察不复制内容；在 `raw_observations(raw_record_id,ingest_run_id,observed_at)` 追加出现记录（可按保留策略压缩计数）。首次与最近看到是派生值，不改证据时间。日常采集按 [D24](DECISIONS.md) 只在首次看到或内容变化时追加；未变化的重复看到记入运行计数与 `document_locators.last_observed_at`。
 - 响应大小、MIME、压缩比、PDF 页数与总处理时长有上限；超限返回 rejected/truncated 状态，不无声截断。
 - 禁止保存授权请求头、Cookie、URL 中的秘密参数。对象存储路径不对普通 API 暴露。
 
