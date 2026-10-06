@@ -94,7 +94,13 @@ migrate、web、worker 启动时都会对数据库做完整校验（`verify_data
 `legacy-curation-run` 与 `projection-builders-run` 在 `database.reused_connections()` 内运行：每个 `with get_db()` 照常在退出时提交或回滚，取出时重新设置标准 PRAGMA
 与 row factory，只是不立即关闭，供同一线程的下一次 `get_db()` 复用；命令结束时全部关闭。演练规模副本上抽样 3,000 个
 导入任务从约 30 ms/个降到 6.6 ms/个；300 条的对照导入中，复用与逐次新建连接的结果逐项一致。历史回填同机
-1,237 → 147 秒，固定 ID 与时钟后全部 146 张表除时间戳外逐行一致。web 与 worker 不使用该作用域，行为不变。
+1,237 → 147 秒，固定 ID 与时钟后全部 146 张表除时间戳外逐行一致。
+
+worker 的抓取也在该作用域内运行：每条候选先写证据、再写条目，各开一次连接，一次来源执行通常几十条。
+`run_source` 与 Google News 对账的逐条入库现在复用本次执行的连接（对账之后的派生刷新不在作用域内）。
+每个 `with get_db()` 仍各自提交或回滚，写入内容不变：50 条全为已有内容的一次执行从约 207 ms 降到 28 ms，
+50 条新内容从约 242 ms 降到 58 ms；新增、重复、内容修订三轮在两种方式下全部表内容一致
+（`tests/test_crawl_connection_reuse.py`）。web 进程不使用该作用域。
 
 ## 同步快照的内存占用
 

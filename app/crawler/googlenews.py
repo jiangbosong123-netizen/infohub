@@ -14,7 +14,7 @@ from urllib.parse import quote
 import feedparser
 
 from ..company_match import match_companies
-from ..database import get_db
+from ..database import get_db, reused_connections
 from ..ingest import begin_ingest_run, finish_ingest_run, observe_candidate
 from ..source_time import parse_source_time
 from . import http
@@ -87,6 +87,17 @@ def fetch_google_news(source: dict) -> list[dict]:
 
 def run_reconcile() -> dict:
     """对每家公司执行对账补漏。返回统计 {company: (fetched, inserted, missing_24h)}。"""
+    # Connections are reused while candidates are stored (see runner.run_source); the derived
+    # refresh afterwards keeps opening its own.
+    with reused_connections():
+        stats = _reconcile_companies()
+    if stats:
+        from ..stories import refresh_derived
+        refresh_derived()
+    return stats
+
+
+def _reconcile_companies() -> dict:
     from .runner import insert_item
 
     from .sources import SOURCES
@@ -166,8 +177,6 @@ def run_reconcile() -> dict:
         _record('google-news',ok=not failures,new=sum(value['inserted'] for value in stats.values()),
                 message='对账失败公司：'+', '.join(failures) if failures else '',
                 partial=bool(failures) and len(failures)<len(stats))
-        from ..stories import refresh_derived
-        refresh_derived()
     else:
         finish_ingest_run(
             ingest_run,
