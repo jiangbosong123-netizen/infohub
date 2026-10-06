@@ -14,18 +14,19 @@
   <div class="health-metric"><span>日报</span><strong>{{ system.reports.total }}</strong><small>最新 {{ system.reports.latest or '暂无' }}</small></div>
   <div class="health-metric"><span>信息源异常</span><strong class="{{ 'metric-warn' if system.sources.issues else 'metric-ok' }}">{{ system.sources.issues }}</strong><small>启用 {{ system.sources.enabled }} 个源</small></div>
 </section>
-<p class="hint">黄色 = 部分失败或长时间未成功更新；红色 = 连续失败（自动退避重试中，恢复后自动续抓）；「对账兜底」每日自动核对 Google News，漏掉的会补录并标记。</p>
+<p class="hint">黄色 = 部分失败、长时间未成功更新，或「静默」：抓取正常但没有新内容的时间远超该源近两周的最长间隔（可能已停更或被替换成固定页面）；红色 = 连续失败（自动退避重试中，恢复后自动续抓）；「对账兜底」每日自动核对 Google News，漏掉的会补录并标记。</p>
 <div class="table-scroll"><table class="health">
-  <thead><tr><th>信息源</th><th>频道</th><th>层级</th><th>类型</th><th>间隔</th><th>最近成功</th><th>连续失败</th><th>最近错误</th></tr></thead>
+  <thead><tr><th>信息源</th><th>频道</th><th>层级</th><th>类型</th><th>间隔</th><th>最近成功</th><th>最近新内容</th><th>连续失败</th><th>最近错误</th></tr></thead>
   <tbody>
   {% for s in sources %}
   <tr class="{{ s.status }}">
-    <td class="srcname">{{ s.name }}{% if s.status == 'bad' %}<span class="dot-bad" title="连续失败"></span>{% elif s.status == 'partial' %}<span class="dot-stale" title="部分公司抓取失败，其余继续更新"></span>{% elif s.status == 'stale' %}<span class="dot-stale" title="更新已延迟"></span>{% elif s.status == 'ok' %}<span class="dot-ok" title="正常"></span>{% else %}<span class="dot-never" title="尚未抓取"></span>{% endif %}</td>
+    <td class="srcname">{{ s.name }}{% if s.status == 'bad' %}<span class="dot-bad" title="连续失败"></span>{% elif s.status == 'partial' %}<span class="dot-stale" title="部分公司抓取失败，其余继续更新"></span>{% elif s.status == 'stale' %}<span class="dot-stale" title="更新已延迟"></span>{% elif s.status == 'silent' %}<span class="dot-stale" title="抓取正常但长时间没有新内容"></span>{% elif s.status == 'ok' %}<span class="dot-ok" title="正常"></span>{% else %}<span class="dot-never" title="尚未抓取"></span>{% endif %}</td>
     <td>{{ {'ai': 'AI', 'robot': '机器人', 'stock': '股市'}.get(s.channel, s.channel) }}</td>
     <td>{{ {'official': '官方一手', 'media': '财经媒体', 'info': '科技资讯', 'reconcile': '对账兜底'}.get(s.tier, s.tier) }}</td>
     <td>{{ s.type }}</td>
     <td>{{ s.interval_minutes }} 分钟</td>
     <td>{{ s.last_success_rel }}</td>
+    <td title="{{ '静默门槛约 %s 小时' % s.quiet_limit_hours if s.quiet_limit_hours else '新内容太少，暂不判断静默' }}">{{ s.last_new_rel }}{% if s.status == 'silent' %} · 静默{% endif %}</td>
     <td>{{ s.fail_count }}</td>
     <td class="err" title="{{ s.last_error or '' }}">{{ (s.last_error or '')[:80] }}</td>
   </tr>

@@ -3953,6 +3953,18 @@ def _publication_result_index(db: sqlite3.Connection) -> None:
     _execute_script(db, PUBLICATION_RESULT_INDEX_SQL)
 
 
+# The health page asks each source when it last listed something new and how its recent new
+# items were spaced (app/source_activity.py); without this index each question scanned every
+# discovery.
+SOURCE_DISCOVERY_INDEX_SQL = """
+CREATE INDEX idx_item_discoveries_source_seen ON item_discoveries(source_id, first_seen_at);
+"""
+
+
+def _source_discovery_index(db: sqlite3.Connection) -> None:
+    _execute_script(db, SOURCE_DISCOVERY_INDEX_SQL)
+
+
 # Migration 1 freezes the exact legacy schema at main@88a2a1e. Future schema
 # changes must append a new Migration instead of editing this definition.
 MIGRATIONS = (
@@ -4143,6 +4155,8 @@ MIGRATIONS = (
               JOB_CHILD_KEY_INDEX_SQL, _job_child_key_indexes),
     Migration(51, "index publication versions by result",
               PUBLICATION_RESULT_INDEX_SQL, _publication_result_index),
+    Migration(52, "index item discoveries by source and first sighting",
+              SOURCE_DISCOVERY_INDEX_SQL, _source_discovery_index),
 )
 CURRENT_SCHEMA_VERSION = MIGRATIONS[-1].version
 REQUIRED_MIGRATION_COLUMNS = {
