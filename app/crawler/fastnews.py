@@ -24,6 +24,23 @@ log = logging.getLogger(__name__)
 CLS_API = "https://www.cls.cn/api/cache"
 # The telegraph page's "load more" endpoint: up to ``rn`` items published before ``last_time``.
 CLS_ROLL_API = "https://www.cls.cn/v1/roll/get_roll_list"
+# Engagement counters describe the audience, not the telegraph, and change on nearly every poll
+# (reading_num rose on 18 of 18 listed items within five minutes; a linked subject's follower
+# count changes too). Keeping them in the evidence record made each poll look like new content
+# (D24), so they are left out of it; the subjects themselves are kept.
+CLS_ENGAGEMENT_FIELDS = frozenset({"reading_num", "comment_num", "share_num"})
+CLS_SUBJECT_ENGAGEMENT_FIELDS = frozenset({"attention_num"})
+
+
+def _cls_evidence_record(rec: dict) -> dict:
+    record = {key: value for key, value in rec.items() if key not in CLS_ENGAGEMENT_FIELDS}
+    if isinstance(record.get("subjects"), list):
+        record["subjects"] = [
+            {key: value for key, value in subject.items()
+             if key not in CLS_SUBJECT_ENGAGEMENT_FIELDS} if isinstance(subject, dict) else subject
+            for subject in record["subjects"]
+        ]
+    return record
 WSCN_LIVE_API = "https://api-one-wscn.awtmt.com/apiv1/content/lives"
 
 
@@ -106,7 +123,8 @@ def _cls_raws(records: list[dict], response_observed_at: datetime, *,
                         companies=None, extra={},
                         source_time_values=[source_time.to_dict()],
                         observed_at=response_observed_at.isoformat(),
-                        source_record=rec, payload_kind="api_record"))
+                        source_record=_cls_evidence_record(rec),
+                        payload_kind="api_record"))
     return out
 
 

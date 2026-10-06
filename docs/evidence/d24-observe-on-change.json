@@ -1,0 +1,29 @@
+{
+  "decision": "D24 observe-on-change-v1",
+  "recorded_at": "2026-10-06T00:00:00Z",
+  "approved_by_owner": "2026-10-06, option B",
+  "production_changed": false,
+  "growth_before": {
+    "bytes_per_observation_including_indexes": 370,
+    "method": "scratch database, 400 runs x 50 stored items, dbstat page sizes",
+    "estimated_observations_per_day": 120000,
+    "estimated_per_year_gb": "15-17",
+    "dominant_source": "23 Google News company feeds, every 20 minutes, up to 50 items each"
+  },
+  "growth_after_estimate": {"first_sightings_per_year_gb": 0.7, "run_and_fetch_log_rows_per_year_gb": 0.5, "total_per_year_gb": 1.2},
+  "equivalence": {
+    "test": "tests/test_observation_on_change.py: five crawl rounds (new, unchanged, five revised, five reverted, unchanged)",
+    "tables_other_than_raw_observations": "identical under both rules (generated ids and clock values masked)",
+    "raw_observations": {"every_repeat": 100, "on_change": 30},
+    "document_locators": "first and last observed times identical"
+  },
+  "payload_stability_5_minutes": {
+    "sina-7x24": "0 of 44 changed", "wallstreetcn-live": "0 of 46 changed",
+    "techcrunch_rss": "0 of 19 changed", "ithome_rss": "0 of 60 changed",
+    "googlenews_nvidia_apple_tesla": "4 of 135 changed: publisher updated title or publication time (real changes)",
+    "cls-telegraph_before": "18 of 18 changed: reading_num and subjects[].attention_num",
+    "cls-telegraph_after_dropping_engagement_counters": "0 of 19 changed"
+  },
+  "steady_run_ms": {"before": 29, "after": 27, "observations_added_per_50_item_unchanged_run": {"before": 50, "after": 0}},
+  "full_tests": {"python_3_11": 844, "python_3_12": 844}
+}

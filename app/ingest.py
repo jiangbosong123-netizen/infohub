@@ -73,6 +73,9 @@ class RawObservation:
     payload_ref: str
     size_bytes: int
     new_record: bool
+    # When this sighting happened. An unchanged repeat (D24) has no observation row of its own,
+    # so the document locator takes its latest sighting from here.
+    observed_at: str | None = None
 
 
 @dataclass(frozen=True)
@@ -465,7 +468,15 @@ def observe_candidate(
     observed_at: datetime | str | None = None,
     payload_kind: str | None = None,
     retention_class: str = "private-metadata",
+    repeat_unchanged: bool = True,
 ) -> RawObservation:
+    """Store a candidate's evidence and record that this run saw it.
+
+    With ``repeat_unchanged=False`` (routine crawling, D24) no observation row is appended when
+    the source's latest observation of this locator already holds the same raw record: the run's
+    duplicate count and the locator's ``last_observed_at`` record the sighting instead. A new
+    locator, new content, or a return to earlier content is always observed.
+    """
     if ordinal < 0:
         raise ValueError("observation ordinal must be non-negative")
     observed = _canonical_time(observed_at)
@@ -554,10 +565,23 @@ def observe_candidate(
                WHERE ingest_run_id=? AND ordinal=?""",
             (run.id, ordinal),
         ).fetchone()
+        latest = None
+        if not existing and not inserted and not repeat_unchanged:
+            latest = db.execute(
+                """SELECT observation.id,observation.raw_record_id
+                   FROM raw_records AS record
+                   JOIN raw_observations AS observation
+                     ON observation.raw_record_id=record.id
+                   WHERE record.source_id=? AND record.external_id=?
+                   ORDER BY observation.observed_at DESC,observation.rowid DESC LIMIT 1""",
+                (run.source_id, external_id),
+            ).fetchone()
         if existing:
             if existing["raw_record_id"] != record_id:
                 raise IngestEvidenceError("observation ordinal was reused for different content")
             observation_id = existing["id"]
+        elif latest is not None and latest["raw_record_id"] == record_id:
+            observation_id = latest["id"]
         else:
             db.execute(
                 """INSERT INTO raw_observations(
@@ -567,7 +591,8 @@ def observe_candidate(
             )
     verify_payload(reference, digest)
     return RawObservation(
-        record_id, observation_id, digest, reference, len(payload), bool(inserted)
+        record_id, observation_id, digest, reference, len(payload), bool(inserted),
+        observed_at=observed,
     )
 
 

@@ -15,8 +15,11 @@ P06a 建立采集运行、来源配置快照、不可变载荷和重复观察的
    同 hash 文件会重新校验大小和 SHA-256。
 4. 只有 CAS 文件通过校验后，事务才写 `raw_records` 和 `raw_observations`。证据写入失败时旧
    `items` 投影也不得发布该条目。
-5. 同一来源、外部 locator 和 payload hash 复用一个 `raw_record`；每次执行仍追加 observation。
-   同 URL 内容变化会产生新 raw record，旧字节不覆盖。
+5. 同一来源、外部 locator 和 payload hash 复用一个 `raw_record`。同 URL 内容变化会产生新 raw record，旧字节不覆盖。
+   日常采集按 [D24](spec/DECISIONS.md) 只在该 locator 首次出现、内容变化或回到先前内容时追加 observation；
+   为此载荷不含每次轮询都会变的互动计数（财联社的阅读、评论、分享数与专题关注人数）。
+   未变化的重复看到记入 run 的重复计数和 `document_locators.last_observed_at`（与逐次追加时的值相同）。
+   旧数据回填等其他调用仍逐次追加。
 6. run 最终记录 succeeded/partial/failed、候选数、接收数、legacy 去重数、拒绝数和字节数。接收与
    拒绝严格划分候选数；请求级失败只影响 run 状态，不伪装成一条被拒绝的候选。
 

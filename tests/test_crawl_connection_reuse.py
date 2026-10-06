@@ -87,7 +87,8 @@ class CrawlConnectionReuseTests(unittest.TestCase):
         reused, reused_connections = self.scenario(reuse=True)
         self.assertEqual(reused, separate)
         self.assertEqual(len(reused["items"]), 55)
-        self.assertEqual(len(reused["raw_observations"]), 50 + 51 + 56)
+        # Observed once when first seen, then only for the ten revisions and five additions (D24).
+        self.assertEqual(len(reused["raw_observations"]), 51 + 0 + 15)
         self.assertGreater(len(reused["document_versions"]), 55)  # the ten revisions
         self.assertTrue(all(n > 100 for n in separate_connections), separate_connections)
         self.assertTrue(all(n <= 6 for n in reused_connections), reused_connections)
@@ -116,9 +117,13 @@ class CrawlConnectionReuseTests(unittest.TestCase):
             with patch.object(googlenews, "fetch_company_news", fetch), \
                     patch("app.stories.refresh_derived", refresh):
                 stats = googlenews.run_reconcile()
+                googlenews.run_reconcile()
+            with database.get_db() as db:
+                observations = db.execute("SELECT COUNT(*) FROM raw_observations").fetchone()[0]
         self.assertEqual(stats["nvidia"]["inserted"], 3)
+        self.assertEqual(observations, 3)  # the second pass repeats unchanged items (D24)
         self.assertTrue(all(inside for kind, inside in events if kind == "fetch"))
-        self.assertEqual([e for e in events if e[0] == "refresh"], [("refresh", False)])
+        self.assertEqual([e for e in events if e[0] == "refresh"], [("refresh", False)] * 2)
 
 
 if __name__ == "__main__":
