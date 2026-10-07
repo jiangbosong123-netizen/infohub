@@ -1,0 +1,47 @@
+{
+  "scope": "Merging multi-article stories whose retained anchors match (app/stories.py _merge_stories), part of titles-v4",
+  "recorded_at": "2026-10-07T00:00:00Z",
+  "environment": "macOS isolated copies of the Mac legacy database (89,575 items, 57,924 story memberships); no network, no model calls",
+  "production_changed": false,
+  "problem": "A published multi-article event keeps its anchor and URL, so two events that formed separately never merge, even once their anchors match (after a matcher change or a translation). On the titles-v4 cutover result, 335 pairs of live stories had anchors matching at the item threshold (321) or an exact shared headline (14), e.g. one FTC inquiry into OpenAI and Anthropic split 6 + 21 articles.",
+  "design": [
+    "While re-checking items, an anchor kept by its multi-article event records the best other event it matched (anchor at >= 0.72, or a member with the same headline; the anchor ignores its own event's members for this).",
+    "After the item pass, recorded stories are visited by anchor time; each joins its best earlier partner, which must still exist or, if merged in this pass, whose surviving event's anchor must match directly. The later story redirects to the earlier one, like a merged singleton.",
+    "The anchor of a merged event stays a representative of the members it brought: a re-checked member may stay by matching it. New articles and merges compare only with surviving anchors, so former anchors never chain events. Editing a former anchor re-checks its event."
+  ],
+  "rejected_variants": [
+    {"variant": "score every live story's anchor against 120 candidates without pruning", "result": "full reindex did not finish within 10 minutes"},
+    {"variant": "merge without former-anchor representatives", "result": "a second full reindex removed 4,290 same-story pairs: merged members did not match the surviving anchor"},
+    {"variant": "former anchors also attract new articles", "result": "a second reindex merged C into A through B's former anchor although A and C do not match (chain)"}
+  ],
+  "cutover_path": {
+    "method": "prepare-release on a fresh backup of the legacy database (titles-v2 memberships)",
+    "prepare_release_seconds": {"titles_v4_without_merge": 190, "titles_v4_with_merge": [193, 195, 212, 213], "merge_pass_seconds_in_a_full_reindex": 0.09},
+    "live_stories": {"without_merge": 42968, "with_merge": 42693},
+    "merged_stories": 275,
+    "same_story_pairs": {"without_merge": 38756, "with_merge": 46348, "added": 8083, "removed": 491},
+    "headline_pairs_split_of_3525": {"titles_v3": 796, "without_merge": 52, "with_merge": 7}
+  },
+  "stability": {
+    "method": "second full reindex from the result",
+    "titles_v3": {"pairs_added": 10216, "pairs_removed": 10205, "items_moved": 7326},
+    "titles_v4_without_merge": {"pairs_added": 159, "pairs_removed": 0, "items_moved": 185},
+    "titles_v4_with_merge": {"merged": 16, "pairs_added": 3063, "pairs_removed": 76, "items_moved": 442, "note": "an anchor records only its best partner, so a later pass can still merge a pair whose first choice was taken; merging only adds"}
+  },
+  "reviewed_samples": {
+    "reviewer": "Claude, by reading anchor titles; not owner labels",
+    "merges": {"sampled": 120, "same_event": 105, "different_event": 4, "related_or_unclear": 11,
+               "different_event_examples": ["generic stock pages: 甲骨文(ORCL)股票预测 / 甲骨文(ORCL.US); Palantir股价报价与预测 / PLTR 股票期权链报价与新闻", "stock-move pieces on different days: Meta股价异动引关注 / Meta Platforms 股价动态; AMD analyst-target pieces two days apart"],
+               "unclear_examples": ["follow-ups of one story: 特朗普抨击 Anthropic CEO / Anthropic CEO 呼吁放缓 AI 开发", "two IDC MarketScape recognitions for Oracle on one day"]},
+    "pairs_removed_against_without_merge": {"sampled": 24, "wrong_pairs_removed": 4, "same_event_pairs_lost": 20, "note": "mostly fragments of large events (Amazon/21 Air, AMD/World Labs) re-cut between runs; the four wrong pairs were stock pieces on different days"}
+  },
+  "limits": [
+    "No owner-labelled story pairs exist yet; precision is a reading of sampled titles.",
+    "Generic stock-move and quote pages match each other at the title threshold, in item matching and in merges alike.",
+    "Story ids are random, so ties between equally scored candidates can resolve differently between runs."
+  ],
+  "tests": [
+    "tests/test_story_merge.py: translation makes two multi-article events merge (later URL redirects); an anchor sharing a headline with another event's member; an anchor whose own members carry the headline still finds the other event; no A~B~C chain within a pass or through former anchors on a second full reindex; editing a former anchor re-checks the members it brought; unrelated events stay apart",
+    "eight mutations of the merge rules each fail at least one test"
+  ]
+}
