@@ -362,8 +362,14 @@ _ANALYSIS_DETAIL_OPENAPI = {
 
 
 def _selected_clause(alias: str = "i", score_expr: str | None = None) -> str:
-    """High-signal entries: strong AI score, official source, or corroborated event."""
-    return f"""(COALESCE({score_expr or f'{alias}.score'}, 0) >= 70 OR {alias}.official=1 OR EXISTS (
+    """High-signal entries: strong AI score, official source, or corroborated event.
+
+    Routine official filings (``extra.routine``, e.g. HKEX next-day disclosure returns) do not
+    qualify by being official; they stay in the full feed, company filters and search.
+    """
+    return f"""(COALESCE({score_expr or f'{alias}.score'}, 0) >= 70
+        OR ({alias}.official=1 AND CASE WHEN json_valid({alias}.extra)
+                                        THEN json_extract({alias}.extra,'$.routine') END IS NULL) OR EXISTS (
         SELECT 1 FROM story_items selected_si
         JOIN stories selected_st ON selected_st.id=selected_si.story_id
         WHERE selected_si.item_id={alias}.id AND selected_st.redirect_to IS NULL

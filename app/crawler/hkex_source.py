@@ -52,6 +52,10 @@ _CATEGORY_EVENTS = (
 _GROUP_EVENTS = {"債券及結構性產品": "offering"}
 # 每月证券变动例行报表，噪音，跳过
 _SKIPPED_GROUPS = {"月報表"}
+# Next-day disclosure returns are filed on most trading days a company buys back or issues shares
+# (322 of 700 announcements of the watched companies in 2026). They are archived and searchable,
+# but marked routine so the selected feed does not show each one (owner decision, 2026-10-07).
+_ROUTINE_GROUPS = {"翌日披露報表"}
 # HKEX's tier-one categories for listed issuers (tierone_c.json); a record under one of them is
 # categorised even without a tier-two name (委任代表表格, 憲章文件), so its title is not guessed at.
 _TIER_ONE = {
@@ -173,7 +177,8 @@ def _fetch_company(companies_row, from_date: str, to_date: str) -> list[dict]:
                     + (f"（分类：{category_text}）" if category_text and category_text != title else ""),
             published_at=published_at,
             event_type=etype, official=1, companies=[companies_row["slug"]],
-            extra=dict(code=companies_row["code"], hkex_category=group, hkex_subcategories=categories),
+            extra=dict(code=companies_row["code"], hkex_category=group, hkex_subcategories=categories,
+                       **({"routine": True} if group in _ROUTINE_GROUPS else {})),
             source_time_values=[source_time.to_dict()],
             observed_at=response_observed_at.isoformat(),
             source_record=rec, payload_kind="api_record",
