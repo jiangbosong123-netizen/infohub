@@ -59,6 +59,12 @@ schedule 的下一次时间保存在 SQLite。进程停机期间错过多个周�
 - `/api/pipeline`：报告来源从未成功、失败、部分失败、过期或静默，job blocked/dead-letter/过期租约，
   AI与索引积压和日报日期。业务数据延迟会标记 degraded，但不会让已有门户内容不可读。
 
+- 机器外心跳（可选）：以上三者都由本机回答，主机关机、睡眠、断网或 worker 卡死时没人能看到。在 `.env` 设置
+  `INFOHUB_EXTERNAL_HEARTBEAT_URL`（Healthchecks、Uptime Kuma 等服务的 https 推送地址；周期 5 分钟、宽限约 20 分钟）后，
+  worker 每完成一轮抓取就访问一次，信号中断由该服务按所选渠道通知。只有跑完的一轮才算存活；访问失败只记日志、不影响抓取；
+  该地址等同密钥，不进日志和 `runtime-config`，`/api/health` 只显示 `runtime.external_heartbeat_configured`。旧采集器在
+  356 小时里约 40 小时没有抓取却无人知晓，就是这类情况。
+
 `/api/health` 是兼容的完整快照，HTTP 状态采用 readiness，JSON 中的 `pipeline.status` 独立表达
 数据新鲜度。网页 `/health` 同时展示三者。一个启用来源从未成功抓取也计入异常，不能用
 “没有消息”掩盖“从未抓到”。
