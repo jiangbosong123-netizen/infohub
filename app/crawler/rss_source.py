@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 """RSS 抓取器（feedparser），产出统一 RawItem。"""
+import json
 from datetime import datetime, timezone
 
 import feedparser
@@ -46,9 +47,33 @@ def _clean_html(raw: str, limit: int = 400) -> str:
     return text[:limit]
 
 
+def _validators(source: dict) -> dict:
+    key = source.get("key")
+    if not key:
+        return {}
+    from ..database import get_db
+    with get_db() as db:
+        row = db.execute("SELECT state FROM sources WHERE key=?", (key,)).fetchone()
+    try:
+        state = json.loads(row["state"] or "{}") if row else {}
+    except ValueError:
+        return {}
+    return state if isinstance(state, dict) else {}
+
+
 def fetch_rss(source: dict) -> list[dict]:
-    """返回 RawItem 列表：{url,title,summary,published_at,event_type,official,companies,extra}"""
-    resp = http.fetch(source["url"])
+    """返回 RawItem 列表：{url,title,summary,published_at,event_type,official,companies,extra}
+
+    The feed's ETag/Last-Modified from the last fully stored fetch are sent back; a 304 means
+    nothing changed and nothing is downloaded or parsed (RFC 9110 conditional requests).
+    """
+    stored = _validators(source)
+    conditional = {name: stored[field] for field, name in (
+        ("etag", "If-None-Match"), ("last_modified", "If-Modified-Since")) if stored.get(field)}
+    resp = http.fetch(source["url"], headers=conditional or None,
+                      allow_not_modified=bool(conditional))
+    if resp.status_code == 304:
+        return []
     observed_at = datetime.now(timezone.utc)
     parsed = feedparser.parse(resp.content)
     if not parsed.entries and getattr(parsed, "bozo", False):
@@ -81,4 +106,7 @@ def fetch_rss(source: dict) -> list[dict]:
             observed_at=observed_at.isoformat(),
             source_record=dict(entry), payload_kind="feed_entry",
         ))
+    validators = {"etag": resp.headers.get("ETag"), "last_modified": resp.headers.get("Last-Modified")}
+    if source.get("key"):
+        out.append({"_source_state": validators})
     return out
