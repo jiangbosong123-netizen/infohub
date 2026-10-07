@@ -158,4 +158,4 @@ blob、备份和心跳持久化在 `./data`。门户端口只绑定 `127.0.0.1`�
 ## 致谢
 
 财联社的接口签名算法与华尔街见闻快讯端点，分别借鉴了 [RSSHub](https://github.com/DIYgod/RSSHub) 与
-[newsnow](https://github.com/ourongxing/newsnow) 的公开实现。
+[newsnow](https://github.com/newsnext/newsnow) 的公开实现。

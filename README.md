@@ -196,4 +196,4 @@ tool at all.
 
 Two source integrations follow the public implementations in
 [RSSHub](https://github.com/DIYgod/RSSHub) and
-[newsnow](https://github.com/ourongxing/newsnow).
+[newsnow](https://github.com/newsnext/newsnow).

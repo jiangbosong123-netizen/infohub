@@ -1,10 +1,11 @@
 from __future__ import annotations
 
-"""分钟级财经快讯抓取器（方法来自 GitHub 开源项目的逆向实现）：
+"""分钟级财经快讯抓取器（接口用法参考了 GitHub 开源项目的公开代码）：
 
-- 财联社电报：签名算法抄自 RSSHub 项目（DIYgod/RSSHub，lib/routes/cls/utils.ts）
-  sorted(params) → sha1(querystring) → md5(sha1hex)
-- 华尔街见闻快讯：API 端点来自 newsnow 项目（ourongxing/newsnow）
+- 财联社电报：财联社网页接口要求的签名规则是 sorted(params) → sha1(querystring) → md5(sha1hex)。
+  这条规则最初从 RSSHub（DIYgod/RSSHub，lib/routes/cls/utils.ts）的公开代码了解到，newsnow 的实现
+  注明了同一出处；这里是独立写的 Python 实现，没有复制两者的代码。
+- 华尔街见闻快讯：API 端点参考 newsnow（newsnext/newsnow，原 ourongxing/newsnow，MIT）
 
 两者都只返回最新一页；最新一页里没有已入库条目时由 catchup 往前翻页补抓（见 catchup.py）。
 """
