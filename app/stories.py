@@ -16,6 +16,7 @@ from collections import Counter, defaultdict
 from datetime import datetime, timedelta, timezone
 from difflib import SequenceMatcher
 from functools import cached_property
+from zoneinfo import ZoneInfo
 
 from .database import get_db
 from .provenance import display_title, object_json, publisher
@@ -29,6 +30,38 @@ MAX_EVENT_HOURS = 72
 # 125 of 174 repeats by the same wire (“美股盘前要闻速递”) were more than 12 hours apart.
 HEADLINE_HOURS = 6
 MIN_HEADLINE_CHARS = 8
+# Daily stock-move pieces ("Why is Arm stock sliding today?", "What's Going On With Oracle Stock
+# Tuesday?", 甲骨文股价今日下跌原因分析) reuse one template every trading day, so two of them match
+# across days although each reports a different day's move. Two such pieces only match on the same
+# US Eastern date, the day their "today" refers to: in the titles-v4 rehearsal result 180 of 456
+# same-event pairs of them were on different dates (a fixed 12-hour cut would have split 6 same-day
+# pairs, a morning and a late-evening piece, and kept 13 across the date line).
+STOCK_MOVE_ZONE = ZoneInfo("America/New_York")
+_MOVE_WORDS = (r"(?:up|down|rising|falling|sliding|climbing|rallying|surging|gaining|dropping|jumping|soaring|"
+               r"sinking|tumbling|trading|popping|plunging|slumping|jumped|dropped|fell|rose|soared|sank|popped|"
+               r"plunged|surged|tumbled|slid|climbed|rallied|gained|slumped|crashed|reversed)")
+# A piece is about one day's move when it names the day; past-tense "why X stock jumped 30% in
+# September" recaps and "here's why" opinion pieces are syndicated across days and are not included.
+_TODAY = (r"(?:today|tonight|this\s+(?:morning|afternoon|week)|overnight|pre-?market|after[\s-]hours|"
+          r"monday|tuesday|wednesday|thursday|friday)")
+_STOCK_MOVE_EN = re.compile(rf"""(?ix)
+    \bwhy\b.{{0,60}}?\bstocks?\b.{{0,40}}?\b{_TODAY}\b
+  | \bwhy\s+(?:is|are)\s+.{{1,60}}?\bstocks?\s+{_MOVE_WORDS}\b
+  | \bstocks?\s+just\s+{_MOVE_WORDS}\b
+  | \bwhy\b.{{0,60}}?\bstocks?\s+(?:keeps?|continues?)\s+(?:going\s+)?{_MOVE_WORDS}\b
+  | (?:what'?s|what\s+is)\s+going\s+on\s+with\s+.{{1,80}}?\bstock\b
+  | \bstock\b.{{0,40}}\b{_TODAY}\b.{{0,20}}(?:here(?:'s|\s+is)\s+(?:why|what\s+happened)|what'?s\s+going\s+on)
+  | \bstock\s+trades\s+(?:up|down)\b
+  | \bstock\s+price\s+(?:up|down)\s+[\d.]+%
+  | \bstock\s+price\s+ended\s+at\b
+  | \b(?:green|red)\s+day\s+on\s+{_TODAY}\s+for\b
+  | \b(?:QQQ|SPY|VOO|DIA|IWM)\s+is\s+(?:up|down)\b
+  | \bstock\s+(?:price\s+)?(?:is\s+)?(?:up|down|rises?|falls?|gains?|drops?|jumps?|slides?|sinks?|soars?|climbs?|
+        tumbles?|surges?|plunges?|rallies|underperforms|outperforms)\b.{{0,40}}\b{_TODAY}\b
+  | \b(?:rises?|falls?|declines?|dips?|gains?)\s+(?:higher|more\s+steeply|less)\s+than\s+(?:the\s+)?(?:broader\s+)?market\b
+""")
+_STOCK_MOVE_ZH = re.compile(r"股价(?:今日|今天|周[一二三四五六日]|本周)|(?:今日|今天|周[一二三四五])股价|股价(?:异动|动态|走势如何)"
+                            r"|股价.{0,8}发生了什么|(?:盘前|盘后|隔夜)股价|股价(?:盘前|盘后|隔夜)")
 # CLS opens untitled telegraphs with a dateline whose digits are not part of the news.
 _DATELINE = re.compile(r'^财联社\d{1,2}月\d{1,2}日电[，,]\s*')
 # Sina 7x24 and WSCN live write “【headline】body”; CLS uses 【】 for column names instead.
@@ -104,6 +137,14 @@ class _Facts:
         return _headline(self.row)
 
     @cached_property
+    def stock_move(self):
+        return any(_STOCK_MOVE_EN.search(title) or _STOCK_MOVE_ZH.search(title) for title in _titles(self.row))
+
+    @cached_property
+    def trading_day(self):
+        return self.published.astimezone(STOCK_MOVE_ZONE).date()
+
+    @cached_property
     def titles(self):
         return [(set(re.findall(r'\d+(?:\.\d+)*', title)), _norm(title)) for title in _titles(self.row)]
 
@@ -128,12 +169,18 @@ def _same_headline(item, other):
     return abs((item.published - other.published).total_seconds()) <= HEADLINE_HOURS * 3600
 
 
+def _moves_of_different_days(item, other):
+    return item.stock_move and other.stock_move and item.trading_day != other.trading_day
+
+
 def _score(item, other, beat=None):
     """match_score on cached facts. With ``beat``, pairs that cannot reach a score that is
     both >= MATCH_THRESHOLD and > beat are skipped, so the result equals match_score
     whenever it passes that test and fails the test whenever match_score does."""
     row, anchor = item.row, other.row
     if abs((item.published - other.published).total_seconds()) > MAX_EVENT_HOURS * 3600:
+        return 0.0
+    if _moves_of_different_days(item, other):
         return 0.0
     companies, others = item.companies, other.companies
     if companies and others and not companies.intersection(others):
@@ -393,8 +440,11 @@ def refresh_derived() -> dict:
                     # Leaving for any other match made consecutive titles-v3 reindexes move about
                     # 7,300 of 57,924 items back and forth between near-duplicate events. The
                     # anchor of an event merged into this one also counts for its old members.
-                    stay = max(_score(facts_of(row), facts_of(anchor))
-                               for anchor in (old_anchor, *former.get(old_id, ())) if anchor['id'] != row['id'])
+                    # Nor does a day's stock-move piece stay under another day's: former anchors
+                    # of that day could otherwise keep each other there.
+                    stay = 0.0 if _moves_of_different_days(facts_of(row), facts_of(old_anchor)) else max(
+                        _score(facts_of(row), facts_of(anchor))
+                        for anchor in (old_anchor, *former.get(old_id, ())) if anchor['id'] != row['id'])
                     if stay >= MATCH_THRESHOLD and stay >= best_score:
                         best_id,best_score = old_id,stay
                 if best_id is None:
