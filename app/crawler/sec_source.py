@@ -23,24 +23,61 @@ _FORM_DESC = {
     "20-F": ("外国发行人年报", "earnings"),
     "40-F": ("加拿大外国发行人年报", "earnings"),
     "6-K": ("外国发行人临时报告", "other"),
+    "3": ("内部人首次持股报告", "insider"),
     "4": ("内部人持股变动", "insider"),
+    "5": ("内部人年度持股报告", "insider"),
     "144": ("内部人拟出售通知", "insider"),
+    "SC 13D": ("大股东持股披露（主动）", "insider"),
+    "SCHEDULE 13D": ("大股东持股披露（主动）", "insider"),
+    "SC 13G": ("大股东持股披露", "insider"),
+    "SCHEDULE 13G": ("大股东持股披露", "insider"),
     "S-1": ("IPO 注册", "offering"),
+    "S-3": ("证券发行注册", "offering"),
     "S-3ASR": ("增发注册", "offering"),
     "424B5": ("增发定价", "offering"),
+    "FWP": ("发行自由书面材料", "offering"),
+    # S-4 registers securities for a merger or for an exchange offer: in 2026 Amazon's was a
+    # merger and Broadcom's an exchange of notes, so the form alone does not say which.
+    "S-4": ("合并或置换证券注册", "other"),
+    "S-8": ("员工股权计划注册", "other"),
     "DEF 14A": ("股东大会委托书", ""),
     "13F-HR": ("机构持仓报告", ""),
-    "SC 13G": ("大股东持股披露", ""),
 }
 
-# 8-K Item 代码 → 事件类型
+# Form 8-K items (General Instructions B of Form 8-K), most telling first: a filing often lists
+# several, and the first one found here names the filing and sets its event type. 1.01 alone is
+# not an acquisition: in the 2025-12..2026-10 rehearsal data all five 1.01 filings were credit
+# agreements, note indentures or charter changes, so it ranks below 2.03 (financing) and keeps
+# "other". 9.01 (exhibits) accompanies most filings and never decides.
 _ITEM_MAP = [
-    ("1.01", "重大协议", "ma"), ("2.01", "收购完成", "ma"),
-    ("2.02", "业绩披露", "earnings"), ("5.02", "高管/董事变动", "personnel"),
-    ("4.02", "财报不信任", "earnings"), ("3.01", "退市通知", "regulation"),
-    ("2.03", "重大财务义务", ""), ("5.01", "控制权变更", ""),
-    ("8.01", "其他事件", ""), ("7.01", "投资者披露", ""), ("9.01", "附件", ""),
+    ("1.03", "破产或接管", "regulation"),
+    ("2.02", "业绩披露", "earnings"),
+    ("4.02", "前期财报不可依赖", "earnings"),
+    ("2.01", "收购或处置完成", "ma"),
+    ("5.01", "控制权变更", "ma"),
+    ("3.01", "退市或不符合上市标准通知", "regulation"),
+    ("1.05", "重大网络安全事件", "other"),
+    ("2.06", "重大资产减值", "earnings"),
+    ("5.02", "高管/董事变动", "personnel"),
+    ("2.03", "新增直接债务", "offering"),
+    ("3.02", "未注册股权发行", "offering"),
+    ("2.05", "退出或处置活动成本", "other"),
+    ("1.01", "签订重大协议", "other"),
+    ("1.02", "终止重大协议", "other"),
+    ("2.04", "触发债务加速", "other"),
+    ("4.01", "更换审计师", "other"),
+    ("3.03", "证券持有人权利重大变更", "other"),
+    ("5.03", "章程或财年变更", "other"),
+    ("5.07", "股东大会表决结果", "other"),
+    ("5.08", "股东提名董事", "other"),
+    ("5.05", "道德守则修订或豁免", "other"),
+    ("5.04", "员工福利计划交易暂停", "other"),
+    ("5.06", "空壳公司状态变更", "other"),
+    ("1.04", "矿山安全", "other"),
+    ("7.01", "投资者披露", "other"),
+    ("8.01", "其他事件", "other"),
 ]
+_ITEM_NAMES = {code: name for code, name, _ in _ITEM_MAP} | {"9.01": "财务报表与附件"}
 
 
 def _sec_headers() -> dict:
@@ -124,14 +161,25 @@ def resolve_missing_ciks(companies: list[dict]) -> dict[str, list[dict]]:
     return by_cik
 
 
+def _item_codes(items: str) -> list[str]:
+    """SEC lists 8-K items as "2.02,9.01"; compare whole codes, never substrings."""
+    return [code.strip() for code in (items or "").split(",") if code.strip()]
+
+
+def _items_text(items: str) -> str:
+    return "、".join(f"{code} {_ITEM_NAMES[code]}" if code in _ITEM_NAMES else code
+                    for code in _item_codes(items))
+
+
 def _classify(form: str, items: str) -> tuple[str, str]:
     """返回 (事件描述, event_type)。"""
     base_form = form.upper()[:-2] if form.upper().endswith("/A") else form.upper()
     desc, etype = _FORM_DESC.get(base_form, ("提交文件", ""))
     if base_form == "8-K" and items:
+        listed = set(_item_codes(items))
         for code, d, t in _ITEM_MAP:
-            if code in items:
-                desc, etype = f"8-K · {d}", t or "other"
+            if code in listed:
+                desc, etype = f"8-K · {d}", t
                 break
         else:
             desc, etype = "8-K · 重大事件", "other"
@@ -201,7 +249,7 @@ def fetch_sec(source: dict) -> list[dict]:
                 url=url,
                 title=f"{zh} · SEC {desc}" + (f"（{items}）" if items and "·" in desc else ""),
                 summary=f"{c['name']}（{c['ticker']}）向 SEC 提交 {form}"
-                        + (f"，条目 {items}" if items else "") + "。",
+                        + (f"，条目 {_items_text(items)}" if items else "") + "。",
                 # Acceptance is not verified public dissemination time.
                 published_at=None,
                 event_type=etype, official=1, companies=[c["slug"]],
