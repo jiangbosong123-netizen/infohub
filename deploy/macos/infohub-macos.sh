@@ -32,6 +32,11 @@ python312() { command -v python3.12 || ls "$HOME"/.local/bin/python3.12 2>/dev/n
 check() {
   local problems=0
   [[ -n "$(python312)" ]] || { say "missing python3.12"; problems=1; }
+  # The WAL-reset corruption bug (sqlite.org/wal.html#walresetbug) is fixed in 3.51.3; production
+  # refuses to start below it, so catch an old library here first.
+  if [[ -n "$(python312)" ]] && ! "$(python312)" -c 'import sqlite3, sys; v = sqlite3.sqlite_version_info; sys.exit(0 if v >= (3, 51, 3) or v[:2] == (3, 50) and v[2] >= 7 or v[:2] == (3, 44) and v[2] >= 6 else 1)'; then
+    say "python3.12 links SQLite $("$(python312)" -c 'import sqlite3; print(sqlite3.sqlite_version)'); 3.51.3 or later is required"; problems=1
+  fi
   command -v git >/dev/null || { say "missing git"; problems=1; }
   command -v sqlite3 >/dev/null || { say "missing sqlite3"; problems=1; }
   if lsof -nP -iTCP:"$PORT" -sTCP:LISTEN >/dev/null 2>&1 && ! launchctl print "$DOMAIN/$LABEL_PREFIX.web" >/dev/null 2>&1; then

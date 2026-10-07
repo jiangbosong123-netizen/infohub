@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import logging
 import os
 import sqlite3
 from dataclasses import asdict, dataclass, replace
@@ -15,6 +16,8 @@ from uuid import uuid4
 
 from . import config, database
 from .timeutil import format_utc, parse_utc, utc_now
+
+_LOG = logging.getLogger(__name__)
 
 
 class DatabaseSafetyError(RuntimeError):
@@ -6723,7 +6726,29 @@ def _assert_current_schema(db: sqlite3.Connection) -> None:
 VERIFY_CACHE_KIB = 64 * 1024
 
 
+def require_safe_sqlite() -> None:
+    """Refuse production on a SQLite with the WAL-reset corruption bug; warn elsewhere."""
+    if database.sqlite_wal_reset_safe():
+        return
+    message = (
+        f"SQLite {sqlite3.sqlite_version} can corrupt WAL databases under concurrent writers "
+        "(https://sqlite.org/wal.html#walresetbug); production needs 3.51.3 or later "
+        "(or 3.50.7 / 3.44.6)"
+    )
+    if config.ENVIRONMENT == "production":
+        raise DatabaseSafetyError(message)
+    global _UNSAFE_SQLITE_WARNED
+    if not _UNSAFE_SQLITE_WARNED:
+        _UNSAFE_SQLITE_WARNED = True
+        _LOG.warning("%s", message)
+
+
+_UNSAFE_SQLITE_WARNED = False
+
+
 def verify_database(path: Path | str, require_current: bool = False) -> VerificationReport:
+    # Every role verifies the database before it starts, so this is the one gate for all of them.
+    require_safe_sqlite()
     target = Path(path).expanduser().resolve(strict=True)
     dataset_id = None
     dataset_epoch = None

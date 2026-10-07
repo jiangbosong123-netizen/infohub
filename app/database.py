@@ -127,6 +127,20 @@ END;
 """
 
 
+def sqlite_wal_reset_safe(version: tuple[int, int, int] | None = None) -> bool:
+    """Whether this SQLite library is free of the WAL-reset corruption bug.
+
+    3.7.0 through 3.51.2 can corrupt a WAL database when connections in different threads or
+    processes write or checkpoint at the same instant (https://sqlite.org/wal.html#walresetbug);
+    web, worker and the worker's crawl threads are such connections. Fixed in 3.51.3, with
+    backports in 3.50.7 and 3.44.6.
+    """
+    major, minor, patch = version or sqlite3.sqlite_version_info
+    return ((major, minor, patch) >= (3, 51, 3)
+            or ((major, minor) == (3, 50) and patch >= 7)
+            or ((major, minor) == (3, 44) and patch >= 6))
+
+
 # Per-thread idle connections, only inside reused_connections(); None everywhere else.
 _reuse = threading.local()
 REUSE_IDLE_LIMIT = 4

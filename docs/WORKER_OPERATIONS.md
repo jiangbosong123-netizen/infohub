@@ -76,6 +76,19 @@ schedule 的下一次时间保存在 SQLite。进程停机期间错过多个周�
   被换成固定页面或接口改版只返回旧条目。打开该来源地址核对，必要时按 [信息源说明](SOURCES.md) 更换。
 - migrate 失败：web/worker 不应切换。使用已生成备份和迁移报告排查，不能跳过 migrate 强启。
 
+## SQLite 版本要求（WAL-reset 损坏问题）
+
+SQLite 官方 2026-03 公布：3.7.0 至 3.51.2 在 WAL 模式下，如果不同线程或进程的连接恰好同时写入或做 checkpoint，
+可能损坏数据库（<https://sqlite.org/wal.html#walresetbug>）；3.51.3 修复，另有 3.50.7、3.44.6 两个回移版本。官方说明
+这是时间窗口很窄的竞争，常规使用中不易触发，但 web、worker 以及 worker 的抓取线程正是这种并发写入者。
+
+- Docker 镜像不再使用 Debian trixie 自带的 3.46.1：构建阶段从 sqlite.org 下载 3.53.4 源码，核对 SHA3-256 后编译
+  （启用 FTS5/FTS3/RTREE/DBSTAT），最终镜像构建时断言 Python 实际加载的版本 ≥3.51.3 且 FTS5 trigram 可用，否则构建失败。
+- `verify_database`（每个角色启动时都会执行）在 `INFOHUB_ENVIRONMENT=production` 下遇到受影响的版本直接拒绝；开发与测试
+  环境只记一次警告。`/api/health` 的 `runtime.sqlite_version`、`runtime.sqlite_wal_reset_safe` 显示实际版本。
+- macOS 部署包的 `check` 会检查 python3.12 链接的 SQLite（uv 提供的 3.12 为 3.53.1，可用；系统自带 Python 为 3.51.0，不可用）。
+- 升级 SQLite 时同步修改 Dockerfile 的版本、年份与 SHA3-256（取自 sqlite.org 下载页）。
+
 ## 启动校验的耗时
 
 migrate、web、worker 启动时都会对数据库做完整校验（`verify_database`）：除 schema 结构外，还逐条核对分析账本
