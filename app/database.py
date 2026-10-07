@@ -141,6 +141,13 @@ def sqlite_wal_reset_safe(version: tuple[int, int, int] | None = None) -> bool:
             or ((major, minor) == (3, 44) and patch >= 6))
 
 
+# While a long read (a backup, a full verification) pins the WAL, writes keep growing it, and
+# without a limit the file stays at that peak size after the WAL restarts for as long as some
+# connection stays open (the last one to close deletes it). 64 MB keeps routine WALs (a few MB at
+# the default 1000-page autocheckpoint) untouched and truncates such peaks.
+JOURNAL_SIZE_LIMIT_BYTES = 64 * 1024 * 1024
+
+
 # Per-thread idle connections, only inside reused_connections(); None everywhere else.
 _reuse = threading.local()
 REUSE_IDLE_LIMIT = 4
@@ -213,6 +220,7 @@ def get_db(path: Path | None = None) -> sqlite3.Connection:
     conn.execute("PRAGMA journal_mode=WAL")
     conn.execute("PRAGMA busy_timeout=30000")
     conn.execute("PRAGMA foreign_keys=ON")
+    conn.execute(f"PRAGMA journal_size_limit={JOURNAL_SIZE_LIMIT_BYTES}")
     return conn
 
 
