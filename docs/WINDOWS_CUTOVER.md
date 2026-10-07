@@ -108,7 +108,11 @@ docker compose up -d --build
 docker compose logs -f migrate      # 首次需要把旧聚类全部重算，演练约 5 分钟（现在预计约 4 分钟）；看到“发布准备完成”后 Ctrl-C
 docker compose ps                   # infohub 与 infohub-worker 应为 healthy
 curl.exe -s http://127.0.0.1:8000/api/ready
+curl.exe -s http://127.0.0.1:8000/api/health   # runtime.sqlite_version 应为 3.53.4，sqlite_wal_reset_safe 为 true
 ```
+
+镜像自带从 SQLite 官网下载、核对 SHA3-256 后编译的 3.53.4。Debian 自带的 3.46.1 有 WAL 并发写入可能损坏数据库的已知
+问题（3.51.3 修复，见 `docs/WORKER_OPERATIONS.md`）；生产环境如果加载到受影响的版本会拒绝启动。
 
 数据库变大后，web 与 worker 每次启动都会先完整校验数据库才开始响应（4.9 GB 的库在 Mac 上约 0.5–1.5 分钟，视文件
 缓存冷热；Windows 的 Docker 挂载目录读写更慢，可能要几分钟）。健康检查为此留了 10 分钟启动宽限，期间 `docker compose ps`

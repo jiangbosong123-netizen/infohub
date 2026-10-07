@@ -140,7 +140,7 @@ from ..config import (
     PROCESS_ROLE,
     SCHEDULER_ENABLED,
 )
-from ..database import get_db
+from ..database import get_db, sqlite_wal_reset_safe
 from ..curation_projection import display_curation, published_curation
 from ..curation_query import portal_curation_sql
 from ..curation_search_query import search_curated, search_index_usable
@@ -518,6 +518,8 @@ def _system_snapshot() -> dict:
             "api_evidence_enabled": config.API_EVIDENCE_ENABLED,
             "api_sync_enabled": config.API_SYNC_ENABLED,
             "topic_read_enabled": TOPIC_READ_ENABLED,
+            "sqlite_version": sqlite3.sqlite_version,
+            "sqlite_wal_reset_safe": sqlite_wal_reset_safe(),
         },
         "readiness": {
             "status": "not_ready" if readiness_issues else "ready",
