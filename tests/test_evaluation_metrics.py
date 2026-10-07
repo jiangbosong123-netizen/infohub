@@ -93,10 +93,15 @@ class EvaluationMetricTests(unittest.TestCase):
    self.assertEqual(report.missing_predictions,1)
    self.assertEqual(report.abstained,1)
    self.assertFalse(report.quality_claim_allowed)
-   self.assertEqual(report.metrics_version,"classification-metrics-v4")
+   self.assertEqual(report.metrics_version,"classification-metrics-v5")
    self.assertIn("__abstain__",report.labels)
    self.assertNotIn("__abstain__",report.scored_labels)
    self.assertEqual({entry.label for entry in report.per_class},set(report.scored_labels))
+   for entry in report.per_class:
+    if entry.predicted:
+     low,high=entry.precision_wilson_95; self.assertLessEqual(low,entry.precision); self.assertGreaterEqual(high,entry.precision)
+    else: self.assertIsNone(entry.precision_wilson_95)
+    low,high=entry.recall_wilson_95; self.assertLessEqual(low,entry.recall); self.assertGreaterEqual(high,entry.recall)
    self.assertEqual(report.confusion["relevant"]["__abstain__"],1)
    self.assertAlmostEqual(report.macro_f1,0.8)
 
@@ -145,3 +150,11 @@ class EvaluationMetricTests(unittest.TestCase):
     evaluate_classification(copy,run_path)
 
 if __name__=="__main__": unittest.main()
+
+
+class PrecisionIntervalTests(unittest.TestCase):
+    def test_wilson_matches_the_reported_example(self):
+        from app.evaluation_metrics import _wilson
+        low, high = _wilson(24, 30)
+        self.assertAlmostEqual(low, 0.627, places=3)
+        self.assertAlmostEqual(high, 0.905, places=3)

@@ -93,9 +93,10 @@ python -m app.owner_label_intake --task relevance --dataset ... --batch .../owne
 
 ## 用 owner 标签评估旧 `tmt`
 
-`classification-metrics-v4` 报告标出 `annotation_tier`（gold / owner / silver / synthetic / mixed）、
+`classification-metrics-v5` 报告标出 `annotation_tier`（gold / owner / silver / synthetic / mixed）、
 `experimental_claim_allowed` 与逐条 `claim_blockers`，并按预测行的 `slices` 输出分片 support、准确率、
-Wilson 区间与 confusion。owner 层只有在 test split、预测完整、（blind holdout 时）holdout 已核验且延时自复核
+Wilson 区间与 confusion。v5 还给每个类别的精确率与召回率加上 Wilson 95% 区间：120 条测试集的准确率只能确定到约
+±6 个百分点，30 个预测为“相关”的精确率约 ±14 个百分点，读数时先看区间，不要只看点值。owner 层只有在 test split、预测完整、（blind holdout 时）holdout 已核验且延时自复核
 完成后才允许 experimental 结论；自复核尚未实现，因此当前报告都是**初步数字**，blocker 会明确写出原因。
 silver 层的数字只能称“与 silver 的一致率”。
 
@@ -123,9 +124,10 @@ python -m app.legacy_relevance_run \
   尚未复核、同一 owner 与同一定义、距首次标注 ≥7 天的行；写入 `annotation.owner_recheck`，**不改变最终 labels**。
   校验器对手工改写的数据集执行同样的样本、时间、owner、hash 规则。
 - **报告。** `python -m app.owner_recheck --task relevance --dataset ...` 给出样本进度（到期、未到期、未标注）、
-  关键标签（relevance 标签 / tone polarity / impact direction）的同人 confusion、observed/expected 与 Cohen κ。
-  完成条件：样本全部 owner 标注并复核、至少 30 对、κ 有定义且 ≥0.70、没有未解决分歧。
-- **与指标联动。** `classification-metrics-v4` 对 owner 层直接读取该报告，未完成时逐条列出原因；完成后 owner 层
+  关键标签（relevance 标签 / tone polarity / impact direction）的同人 confusion、observed/expected 与 Cohen κ，
+  以及每个类别的特定一致率（2·n_ii / (行和 + 列和)）和 κ 的 95% bootstrap 区间（固定种子，可复现）。“相关”很少时
+  κ 与总一致率会掩盖对这一类的一致程度，因此两者都要看。完成条件：样本全部 owner 标注并复核、至少 30 对、κ 有定义且 ≥0.70、没有未解决分歧。
+- **与指标联动。** `classification-metrics-v5` 对 owner 层直接读取该报告，未完成时逐条列出原因；完成后 owner 层
   test 报告的 `experimental_claim_allowed` 才可能为 true（`quality_claim_allowed` 仍只属于 gold）。
 
 ## 复核分歧裁定（D23-e）
