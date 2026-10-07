@@ -1,0 +1,65 @@
+{
+ "scope": "Same-day rule for daily stock-move pieces in titles-v4 story matching (app/stories.py)",
+ "recorded_at": "2026-10-07T00:00:00Z",
+ "environment": "macOS isolated copies of the Mac legacy database (57,924 story memberships); no network, no model calls",
+ "production_changed": false,
+ "problem": "Daily stock-move pieces reuse one title template every trading day, so the 0.72 title ratio joined different days' moves into one event (e.g. Arm 'sliding' on 28 September with 'rallying' on 29 September). Of the four clearly wrong merges among 120 sampled for story-merge-20261007.json, two joined quote pages (no longer collected, #193) and one joined two days' Meta stock-move pieces.",
+ "rule": [
+  "A piece is a stock-move piece when its title or translation matches a same-day template (today, a weekday, this morning, overnight, premarket, after hours; 'why is X stock falling'; MarketBeat/Zacks/StockStory/Benzinga daily formats; 股价今日/周X/盘前/盘后/异动/动态).",
+  "Two stock-move pieces match only on the same America/New_York date.",
+  "A stock-move piece does not stay in an event anchored on another day's stock-move piece, also not through former anchors.",
+  "Monthly recaps, 'here's why' opinion pieces and price targets are not stock-move pieces; stock-move pieces still match ordinary event articles."
+ ],
+ "cut_choice": {
+  "pairs_of_move_pieces_in_one_event": 456,
+  "different_us_dates": 180,
+  "fixed_12h_cut_would_split_same_date": 6,
+  "fixed_12h_cut_would_keep_across_dates": 13
+ },
+ "cutover_path": {
+  "method": "prepare-release on a fresh backup of the legacy database, compared with the same run on main before this change",
+  "prepare_release_seconds": 212,
+  "live_stories": {
+   "before": 42693,
+   "after": 42723
+  },
+  "same_story_pairs": {
+   "before": 46348,
+   "after": 46211,
+   "removed": 182,
+   "added": 45
+  },
+  "removed_pairs": {
+   "move pieces on different dates": 176,
+   "move pieces on the same date": 2,
+   "other": 4,
+   "other_note": "quote or cashtag pages against a move piece of another day"
+  },
+  "added_pairs": {
+   "move pieces on the same date": 38,
+   "move pieces on different dates": 5,
+   "other": 2
+  },
+  "move_piece_pairs_in_one_event": {
+   "before": {
+    "different_dates": 180,
+    "same_date": 276
+   },
+   "after": {
+    "different_dates": 9,
+    "same_date": 312
+   }
+  },
+  "remaining_different_date_pairs": "all 9 in one event anchored on a moomoo/Futu cashtag post '$Meta Platforms (META.US)$', which is not a move piece"
+ },
+ "templates_reviewed": "392 visible items are move pieces; every flagged title without a day word (76) was read, and recaps and opinion pieces were excluded from the patterns",
+ "limits": [
+  "Dates are US Eastern; an A-share abnormal-movement flash (股价异动) is dated in New York time too.",
+  "Templates not covered keep matching across days; generic anchors such as cashtag posts can still join pieces of different days."
+ ],
+ "tests": [
+  "tests/test_story_stock_moves.py: 19 real move titles recognised, 8 recaps/opinions/targets not; translation counts; same US date joins and next date does not; copies filed under another day's story leave it",
+  "tests/test_story_match_score.py: the rule-by-rule reference includes the rule; the generator produces move-piece pairs",
+  "six mutations each fail at least one test"
+ ]
+}

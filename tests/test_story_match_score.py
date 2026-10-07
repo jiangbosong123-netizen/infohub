@@ -7,7 +7,8 @@ from datetime import datetime, timedelta, timezone
 from difflib import SequenceMatcher
 
 from app.provenance import display_title, object_json
-from app.stories import MATCH_THRESHOLD, MAX_EVENT_HOURS, _Facts, _dt, _norm, _score, match_score
+from app.stories import (MATCH_THRESHOLD, MAX_EVENT_HOURS, STOCK_MOVE_ZONE, _STOCK_MOVE_EN, _STOCK_MOVE_ZH, _Facts,
+                         _dt, _norm, _score, match_score)
 
 
 def undated(title):
@@ -21,10 +22,19 @@ def reference_headline(row):
     return _norm(title)
 
 
+def stock_move(row):
+    titles = [undated(row['title']), undated(display_title(row))]
+    return any(_STOCK_MOVE_EN.search(title) or _STOCK_MOVE_ZH.search(title) for title in titles)
+
+
 def reference_match_score(row, anchor):
     """titles-v4 match_score written out rule by rule, without cached facts or pruning."""
     gap = abs((_dt(row['published_at']) - _dt(anchor['published_at'])).total_seconds())
     if gap > MAX_EVENT_HOURS * 3600:
+        return 0.0
+    if stock_move(row) and stock_move(anchor) and (
+            _dt(row['published_at']).astimezone(STOCK_MOVE_ZONE).date()
+            != _dt(anchor['published_at']).astimezone(STOCK_MOVE_ZONE).date()):
         return 0.0
     companies = set(json.loads(row['companies'] or '[]'))
     others = set(json.loads(anchor['companies'] or '[]'))
@@ -70,6 +80,7 @@ PHRASES = [
     "腾讯发布新一代混元大模型",
     "阿里云上线通义千问 3 版本",
     "Robot maker unveils humanoid platform",
+    "Why is OpenAI stock rising today",
 ]
 T0 = datetime(2026, 9, 20, 8, tzinfo=timezone.utc)
 
@@ -115,14 +126,16 @@ class StoryMatchScoreTests(unittest.TestCase):
             yield rng, row, anchor
 
     def test_cached_facts_reproduce_the_rules_exactly(self):
-        compared = matched = by_headline = 0
+        compared = matched = by_headline = stock_moves = 0
         for _, row, anchor in self.pairs(4000, 20261005):
             expected = reference_match_score(row, anchor)
             self.assertEqual(match_score(row, anchor), expected)
             compared += 1
             matched += expected >= MATCH_THRESHOLD
             by_headline += _Facts(row).headline == _Facts(anchor).headline and row['title'] != anchor['title']
+            stock_moves += stock_move(row) and stock_move(anchor)
         self.assertGreater(matched, compared // 10)  # the generator reaches the threshold
+        self.assertGreater(stock_moves, compared // 40)  # and pairs of daily stock-move pieces
         self.assertGreater(by_headline, compared // 40)  # and differently decorated copies of a headline
 
     def test_pruned_score_decides_like_the_exact_score(self):
