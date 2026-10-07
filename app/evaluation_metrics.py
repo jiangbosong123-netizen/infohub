@@ -14,7 +14,7 @@ from typing import Iterable
 from .evaluation import EvaluationDatasetError, _load_cases, _load_json, _verified_holdout, validate_evaluation_dataset
 from .owner_recheck import KEY_LABELS, owner_recheck_report
 
-METRICS_VERSION="classification-metrics-v4"
+METRICS_VERSION="classification-metrics-v5"
 EVALUATION_SPLITS={"train","dev","test","security"}
 SLICE_NAME=re.compile(r"[a-z0-9][a-z0-9_:-]{0,63}")
 # D23 single-owner-v1: tiers decide what a score may claim; silver is never evaluation truth.
@@ -24,6 +24,8 @@ TIERS={"adjudicated":"gold","owner_labeled":"owner","algorithm_labeled":"silver"
 class ClassMetrics:
  label:str; support:int; predicted:int; true_positive:int
  precision:float|None; recall:float|None; f1:float|None
+ # Wilson 95% intervals: 30 predicted positives only pin precision to about +/-14 points.
+ precision_wilson_95:tuple[float,float]|None=None; recall_wilson_95:tuple[float,float]|None=None
 
 @dataclass(frozen=True)
 class SliceMetrics:
@@ -141,7 +143,8 @@ def evaluate_classification(dataset_path:Path|str,prediction_run_path:Path|str)-
   tp=confusion[label][label]; support=sum(confusion[label].values()); pred=sum(confusion[a][label] for a in labels)
   precision=tp/pred if pred else None; recall=tp/support if support else None
   f1=(2*precision*recall/(precision+recall)) if precision is not None and recall is not None and precision+recall else 0.0
-  per.append(ClassMetrics(label,support,pred,tp,precision,recall,f1))
+  per.append(ClassMetrics(label,support,pred,tp,precision,recall,f1,
+                          _wilson(tp,pred) if pred else None,_wilson(tp,support) if support else None))
  total=len(actual);correct=sum(a==p for a,p in zip(actual,predicted));abstained=sum(p in abstain for p in predicted);covered=total-abstained
  macro=sum(item.f1 or 0.0 for item in per)/len(per) if per else 0.0
  states={case["annotation"]["state"] for case in selected}
