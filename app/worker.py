@@ -118,7 +118,10 @@ def register_default_schedules(now: datetime | None = None) -> None:
 
 def _crawl() -> dict:
     from .crawler.runner import run_due_sources
-    return run_due_sources()
+    from .external_heartbeat import ping
+    result = run_due_sources()
+    ping()  # only a finished cycle counts as alive
+    return result
 
 
 def _ai() -> dict:

@@ -369,6 +369,25 @@ LLM_BASE_URL = os.getenv("LLM_BASE_URL", "").strip()
 LLM_API_KEY = os.getenv("LLM_API_KEY", "").strip()
 LLM_MODEL = os.getenv("LLM_MODEL", "").strip()
 
+
+
+def _external_heartbeat_url(raw: str) -> str:
+    """An HTTPS push URL (Healthchecks, Uptime Kuma...) pinged after each finished crawl cycle.
+
+    The URL is a credential (anyone holding it can report "alive"), so like the LLM key it
+    stays out of the manifest and logs.
+    """
+    value = raw.strip()
+    if not value:
+        return ""
+    parsed = urlsplit(value)
+    if parsed.scheme != "https" or not parsed.hostname:
+        raise RuntimeConfigurationError("INFOHUB_EXTERNAL_HEARTBEAT_URL must be an https URL")
+    return value
+
+
+EXTERNAL_HEARTBEAT_URL = _external_heartbeat_url(os.getenv("INFOHUB_EXTERNAL_HEARTBEAT_URL", ""))
+
 CRAWL_TICK_MINUTES = _integer(os.environ, "CRAWL_TICK_MINUTES", 5, 1, 1440)
 RECONCILE_HOUR = _integer(os.environ, "RECONCILE_HOUR", 6, 0, 23)
 RECONCILE_MINUTE = _integer(os.environ, "RECONCILE_MINUTE", 30, 0, 59)

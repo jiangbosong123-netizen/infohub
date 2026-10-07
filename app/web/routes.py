@@ -520,6 +520,7 @@ def _system_snapshot() -> dict:
             "topic_read_enabled": TOPIC_READ_ENABLED,
             "sqlite_version": sqlite3.sqlite_version,
             "sqlite_wal_reset_safe": sqlite_wal_reset_safe(),
+            "external_heartbeat_configured": bool(config.EXTERNAL_HEARTBEAT_URL),
         },
         "readiness": {
             "status": "not_ready" if readiness_issues else "ready",
