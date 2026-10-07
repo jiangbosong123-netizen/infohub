@@ -198,6 +198,20 @@ class StoryTests(unittest.TestCase):
         refresh_derived()
         self.assertNotEqual(self.story_id(one),self.story_id(two))
 
+    def test_a_rechecked_member_stays_unless_another_event_matches_better(self):
+        # Two events kept apart by their event types; the member matches both anchors.
+        first=self.item('OpenAI announces new coding platform for developers',event_type='product')
+        second=self.item('OpenAI announces new coding platform for developers today',event_type='earnings')
+        member=self.item('OpenAI announces a new coding platform for developers')
+        refresh_derived()
+        self.assertNotEqual(self.story_id(first),self.story_id(second))
+        self.assertEqual(self.story_id(member),self.story_id(first))
+        for _ in range(2):  # titles-v3 moved it to the other event on every full reindex
+            with database.get_db() as db:
+                db.execute("UPDATE story_items SET match_reason='titles-v3'")
+            refresh_derived()
+            self.assertEqual(self.story_id(member),self.story_id(first))
+
     def test_unknown_aggregator_has_no_publisher_vote(self):
         self.assertFalse(publisher(dict(url='https://news.google.com/rss/articles/1'))[2])
         self.assertEqual(publisher(dict(url='https://www.wallstreetcn.com/a'))[0],

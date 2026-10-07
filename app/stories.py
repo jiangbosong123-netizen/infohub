@@ -9,6 +9,7 @@ intact, and every membership records its match evidence.
 import heapq
 import json
 import re
+import unicodedata
 import uuid
 from collections import Counter, defaultdict
 from datetime import datetime, timedelta, timezone
@@ -19,9 +20,18 @@ from .database import get_db
 from .provenance import display_title, object_json, publisher
 from .topics import sync_topics, assign_topics
 
-MATCH_VERSION = 'titles-v3'
+MATCH_VERSION = 'titles-v4'
 MATCH_THRESHOLD = 0.72
 MAX_EVENT_HOURS = 72
+# The flash wires repeat one another's headline: in the 2026-09-11..10-03 rehearsal data
+# 1,615 of 1,704 cross-wire repeats came within 30 minutes and 1,694 within 6 hours, while
+# 125 of 174 repeats by the same wire (“美股盘前要闻速递”) were more than 12 hours apart.
+HEADLINE_HOURS = 6
+MIN_HEADLINE_CHARS = 8
+# CLS opens untitled telegraphs with a dateline whose digits are not part of the news.
+_DATELINE = re.compile(r'^财联社\d{1,2}月\d{1,2}日电[，,]\s*')
+# Sina 7x24 and WSCN live write “【headline】body”; CLS uses 【】 for column names instead.
+_BRACKET_HEADLINE_SOURCES = frozenset({'sina', 'wscn_live'})
 
 
 def _dt(value):
@@ -39,8 +49,22 @@ def _norm(text):
     return re.sub(r'[\W_]+', '', text)
 
 
+def _undated(title):
+    return _DATELINE.sub('', title)
+
+
 def _titles(row):
-    return list(dict.fromkeys([row['title'], display_title(row)]))
+    return list(dict.fromkeys([_undated(row['title']), _undated(display_title(row))]))
+
+
+def _headline(row):
+    """The headline as the wire wrote it, normalized for exact comparison."""
+    title = unicodedata.normalize('NFKC', _undated(row['title']).strip())
+    if row.get('source_type') in _BRACKET_HEADLINE_SOURCES:
+        bracketed = re.match(r'【([^】]+)】', title)
+        if bracketed:
+            title = bracketed.group(1)
+    return _norm(title)
 
 
 def _keys(row):
@@ -72,7 +96,11 @@ class _Facts:
 
     @cached_property
     def numbers(self):
-        return set(re.findall(r'\d+(?:\.\d+)*', self.row['title']))
+        return set(re.findall(r'\d+(?:\.\d+)*', _undated(self.row['title'])))
+
+    @cached_property
+    def headline(self):
+        return _headline(self.row)
 
     @cached_property
     def titles(self):
@@ -81,6 +109,22 @@ class _Facts:
 
 def match_score(row, anchor):
     return _score(_Facts(row), _Facts(anchor))
+
+
+def _same_headline(item, other):
+    """Two wires carrying one headline within HEADLINE_HOURS report the same news.
+
+    This runs before the channel, event-type and number guards: the copies' numbers are those
+    of the shared headline, and the channel of each feed (IT之家 is filed under AI, Sina under
+    stocks) or the AI's event type for each copy is not a reason to split them. Disjoint
+    companies still are, and official documents keep their own guard, since filings share
+    boilerplate titles.
+    """
+    if item.row['official'] or other.row['official']:
+        return False
+    if len(item.headline) < MIN_HEADLINE_CHARS or item.headline != other.headline:
+        return False
+    return abs((item.published - other.published).total_seconds()) <= HEADLINE_HOURS * 3600
 
 
 def _score(item, other, beat=None):
@@ -93,6 +137,8 @@ def _score(item, other, beat=None):
     companies, others = item.companies, other.companies
     if companies and others and not companies.intersection(others):
         return 0.0
+    if _same_headline(item, other):
+        return 1.0
     if row['channel'] != anchor['channel'] and not (companies & others):
         return 0.0
     a_event, b_event = row['event_type'], anchor['event_type']
@@ -174,15 +220,16 @@ def refresh_derived() -> dict:
         db.execute("""INSERT OR IGNORE INTO derived_dirty(item_id)
             SELECT si.item_id FROM stories st JOIN story_items si ON si.story_id=st.id
             WHERE st.anchor_item_id IN (SELECT item_id FROM derived_dirty)""")
-        rows = [dict(r) for r in db.execute('''SELECT i.*,s.name AS source_name FROM derived_dirty d
-                  JOIN items i ON i.id=d.item_id JOIN sources s ON s.id=i.source_id
+        rows = [dict(r) for r in db.execute('''SELECT i.*,s.name AS source_name,s.type AS source_type
+                  FROM derived_dirty d JOIN items i ON i.id=d.item_id JOIN sources s ON s.id=i.source_id
                   ORDER BY i.published_at,i.id''')]
         affected = set()
         anchors = {}
         by_token = defaultdict(set)
         lower = (_dt(rows[0]['published_at'])-timedelta(hours=MAX_EVENT_HOURS)).isoformat() if rows else '9999'
         upper = (_dt(rows[-1]['published_at'])+timedelta(hours=MAX_EVENT_HOURS)).isoformat() if rows else '9999'
-        for row in db.execute('''SELECT st.id AS story_id,i.* FROM stories st JOIN items i ON i.id=st.anchor_item_id
+        for row in db.execute('''SELECT st.id AS story_id,i.*,s.type AS source_type FROM stories st
+                                  JOIN items i ON i.id=st.anchor_item_id JOIN sources s ON s.id=i.source_id
                                   WHERE st.redirect_to IS NULL AND COALESCE(i.tmt,1)!=0 AND i.published_at BETWEEN ? AND ?''',(lower,upper)):
             anchor = dict(row)
             anchors[anchor['story_id']] = anchor
@@ -198,6 +245,26 @@ def refresh_derived() -> dict:
                 entry = facts[id(item)] = (item, _Facts(item))
             return entry[1]
 
+        # Headlines are compared with every member, not only anchors: a wire's copy often
+        # arrives after the event was anchored on another source's wording. Members still
+        # waiting to be re-indexed join as they are assigned below.
+        by_headline = defaultdict(dict)
+
+        def remember_headline(item, story_id):
+            if len(facts_of(item).headline) >= MIN_HEADLINE_CHARS:
+                by_headline[facts_of(item).headline][item['id']] = (item, story_id)
+
+        hours = timedelta(hours=HEADLINE_HOURS)
+        if rows:
+            for member in db.execute('''SELECT si.story_id,i.*,s.type AS source_type FROM items i
+                                        JOIN story_items si ON si.item_id=i.id JOIN sources s ON s.id=i.source_id
+                                        WHERE i.published_at BETWEEN ? AND ? AND COALESCE(i.tmt,1)!=0
+                                          AND i.id NOT IN (SELECT item_id FROM derived_dirty)''',
+                                     ((_dt(rows[0]['published_at'])-hours).isoformat(),
+                                      (_dt(rows[-1]['published_at'])+hours).isoformat())):
+                member = dict(member)
+                remember_headline(member, member['story_id'])
+
         for row in rows:
             assign_topics(db,row,definitions)
             old = db.execute('SELECT story_id FROM story_items WHERE item_id=?',(row['id'],)).fetchone()
@@ -207,34 +274,50 @@ def refresh_derived() -> dict:
             if row['tmt'] == 0:
                 db.execute('DELETE FROM story_items WHERE item_id=?',(row['id'],))
             else:
-                # Counter.update counts in C and heapq.nsmallest is documented as equivalent to
-                # sorted(...)[:n]; both keep titles-v3 results identical while a full reindex of
-                # tens of thousands of items no longer sorts every candidate list completely.
-                candidates = Counter()
-                for token in _keys(row):
-                    candidates.update(by_token[token])
                 best_id, best_score = None, 0.0
-                for sid in heapq.nsmallest(120, candidates, key=lambda s:(-candidates[s],s)):
-                    if sid == old_id:
-                        continue
-                    score = _score(facts_of(row), facts_of(anchors[sid]), beat=best_score)
-                    if score >= MATCH_THRESHOLD and score > best_score:
-                        best_id,best_score = sid,score
+                # The earliest member carrying the same headline decides, as an anchor would.
+                same = [(member['published_at'], member['id'], sid)
+                        for member, sid in by_headline.get(facts_of(row).headline, {}).values()
+                        if member['id'] != row['id'] and _same_headline(facts_of(row), facts_of(member))
+                        and _score(facts_of(row), facts_of(member)) == 1.0]
+                if same:
+                    best_id, best_score = min(same)[2], 1.0
+                else:
+                    # Counter.update counts in C and heapq.nsmallest is documented as equivalent to
+                    # sorted(...)[:n]; both keep the scores identical while a full reindex of tens
+                    # of thousands of items no longer sorts every candidate list completely.
+                    candidates = Counter()
+                    for token in _keys(row):
+                        candidates.update(by_token[token])
+                    for sid in heapq.nsmallest(120, candidates, key=lambda s:(-candidates[s],s)):
+                        if sid == old_id:
+                            continue
+                        score = _score(facts_of(row), facts_of(anchors[sid]), beat=best_score)
+                        if score >= MATCH_THRESHOLD and score > best_score:
+                            best_id,best_score = sid,score
                 old_anchor = anchors.get(old_id)
                 old_count = db.execute('SELECT COUNT(*) FROM story_items WHERE story_id=?',(old_id,)).fetchone()[0] if old_id else 0
-                # A published multi-article event retains its anchor and URL.
-                if old_anchor and old_anchor['id'] == row['id'] and old_count > 1:
-                    best_id,best_score = old_id,1.0
-                elif old_anchor and _score(facts_of(row), facts_of(old_anchor)) >= MATCH_THRESHOLD:
-                    if best_id is None:
+                if old_anchor and old_anchor['id'] == row['id']:
+                    # A published multi-article event retains its anchor and URL.
+                    if old_count > 1:
                         best_id,best_score = old_id,1.0
+                    elif best_id is None:
+                        best_id,best_score = old_id,1.0
+                elif old_anchor:
+                    # A member stays with its event unless another one matches strictly better.
+                    # Leaving for any other match made consecutive titles-v3 reindexes move about
+                    # 7,300 of 57,924 items back and forth between near-duplicate events.
+                    stay = _score(facts_of(row), facts_of(old_anchor))
+                    if stay >= MATCH_THRESHOLD and stay >= best_score:
+                        best_id,best_score = old_id,stay
                 if best_id is None:
                     best_id = old_id if old_count == 1 else uuid.uuid4().hex
                     db.execute('''INSERT INTO stories(id,anchor_item_id,title,channel,url,first_at,last_at)
                                   VALUES(?,?,?,?,?,?,?) ON CONFLICT(id) DO UPDATE SET anchor_item_id=excluded.anchor_item_id''',
                                (best_id,row['id'],display_title(row),row['channel'],row['url'],row['published_at'],row['published_at']))
                     best_score = 1.0
-                if best_id not in anchors or anchors[best_id]['id'] == row['id']:
+                # A story joined by headline whose anchor lies outside the window keeps it there.
+                if (best_id not in anchors and not same) or anchors.get(best_id, {}).get('id') == row['id']:
                     anchors[best_id] = row
                     for token in _keys(row):
                         by_token[token].add(best_id)
@@ -242,6 +325,7 @@ def refresh_derived() -> dict:
                               ON CONFLICT(item_id) DO UPDATE SET story_id=excluded.story_id,
                               match_reason=excluded.match_reason,match_score=excluded.match_score''',
                            (row['id'],best_id,MATCH_VERSION,best_score))
+                remember_headline(row, best_id)
                 if old_id and old_id != best_id and old_count == 1:
                     db.execute('UPDATE stories SET redirect_to=? WHERE id=?',(best_id,old_id))
                     anchors.pop(old_id,None)
