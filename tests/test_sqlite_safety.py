@@ -1,5 +1,6 @@
 import re
 import sqlite3
+import tempfile
 import unittest
 from pathlib import Path
 from unittest.mock import patch
@@ -43,6 +44,27 @@ class SqliteWalResetTests(unittest.TestCase):
         self.assertIn("assert v >= (3, 51, 3)", dockerfile)
         self.assertIn("COPY --from=sqlite /usr/local/lib/libsqlite3.so*", dockerfile)
 
+
+
+class PlannerStatisticsTests(unittest.TestCase):
+    """Pages are tuned for plans chosen without sqlite_stat1; ANALYZE made /topics ~6x slower."""
+
+    def test_migration_and_verification_leave_no_statistics(self):
+        temporary = tempfile.TemporaryDirectory()
+        self.addCleanup(temporary.cleanup)
+        path = Path(temporary.name) / "app.db"
+        db_admin.migrate_database(path)
+        db_admin.verify_database(path, require_current=True)
+        with sqlite3.connect(path) as db:
+            stats = db.execute("SELECT name FROM sqlite_master WHERE name LIKE 'sqlite_stat%'").fetchall()
+        self.assertEqual(stats, [])
+
+    def test_the_application_never_collects_statistics(self):
+        root = Path(__file__).resolve().parents[1]
+        statement = re.compile(r"(?i:PRAGMA\s+(\w+\.)?optimize)|\bANALYZE\b")
+        offenders = [str(source.relative_to(root)) for source in [root / "cli.py", *(root / "app").rglob("*.py")]
+                     if statement.search(source.read_text(encoding="utf-8"))]
+        self.assertEqual(offenders, [])
 
 if __name__ == "__main__":
     unittest.main()
