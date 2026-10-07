@@ -79,6 +79,16 @@ _ITEM_MAP = [
 ]
 _ITEM_NAMES = {code: name for code, name, _ in _ITEM_MAP} | {"9.01": "财务报表与附件"}
 
+# Insiders' ownership reports and planned-sale notices: 507 of the 641 SEC filings in the rehearsal
+# data (Form 4 376, 144 122, 3 9). Archived and searchable, but marked routine so the selected feed
+# does not show each one (owner decision D25, 2026-10-07). Schedules 13D/13G are not included.
+_ROUTINE_FORMS = {"3", "4", "5", "144"}
+
+
+def _routine(form: str) -> bool:
+    base_form = form.upper()[:-2] if form.upper().endswith("/A") else form.upper()
+    return base_form in _ROUTINE_FORMS
+
 
 def _sec_headers() -> dict:
     return {"User-Agent": config.SEC_USER_AGENT, "Accept": "application/json"}
@@ -258,6 +268,7 @@ def fetch_sec(source: dict) -> list[dict]:
                     primary_document=doc, filing_date=filing_date,
                     report_date=report_date, items=items,
                     sec_associations=associations,
+                    **({"routine": True} if _routine(form) else {}),
                 ),
                 source_time_values=source_times,
                 observed_at=response_observed_at.isoformat(),

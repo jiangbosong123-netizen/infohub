@@ -6,7 +6,7 @@ from types import SimpleNamespace
 from unittest.mock import patch
 
 from app import config, database
-from app.crawler import hkex_source
+from app.crawler import hkex_source, sec_source
 from app.web import routes
 
 T = "2026-10-06T09:00:00+00:00"
@@ -62,6 +62,25 @@ class RoutineFilingTests(unittest.TestCase):
         with patch.object(hkex_source.http, "fetch", return_value=response):
             rows = hkex_source._fetch_company(company, "20261006", "20261006")
         self.assertEqual([row["extra"].get("routine") for row in rows], [True, True, None])
+
+    def test_insider_forms_are_marked_routine(self):
+        forms = ["4", "144/A", "3", "5", "8-K", "SCHEDULE 13D", "10-Q"]
+        recent = {
+            "form": forms,
+            "accessionNumber": [f"0000000000-26-{n:06d}" for n in range(len(forms))],
+            "primaryDocument": [f"doc{n}.htm" for n in range(len(forms))],
+            "items": ["", "", "", "", "2.02,9.01", "", ""],
+            "filingDate": ["2026-10-06"] * len(forms),
+        }
+        with database.get_db() as db:
+            db.execute("INSERT INTO companies(slug,name,market,ticker,cik) VALUES('acme','Acme','US','ACME','0000000001')")
+        submissions = SimpleNamespace(text=json.dumps({"cik": "1", "name": "Acme", "filings": {"recent": recent}}))
+        with patch.object(sec_source, "resolve_missing_ciks", return_value={}), \
+                patch.object(sec_source.http, "fetch", return_value=submissions), \
+                patch.object(sec_source.time, "sleep"):
+            rows = sec_source.fetch_sec({})
+        self.assertEqual({row["extra"]["form"]: row["extra"].get("routine") for row in rows}, {
+            "4": True, "144/A": True, "3": True, "5": True, "8-K": None, "SCHEDULE 13D": None, "10-Q": None})
 
 
 if __name__ == "__main__":
