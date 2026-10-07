@@ -18,6 +18,15 @@
 5. **新源的域名要登记发布方。** 否则 Google News 转载的同一发布方和直接抓取的文章会被当成两家，
    让事件的“多家来源印证”（`source_count>=2`，影响精选）被重复计数。
 
+## 不收录 Google News 里的行情报价页
+
+Google News 的搜索结果会混入报价、图表、期权合约和数据页面（如“Tencent Holdings Limited (0700.HK) Stock Price,
+News, Quote & History”、“AVGO Sep 2026 305.000 put (AVGO260928P00305000) interactive stock chart”）。它们没有新闻内容，
+同一代码在不同交易所或不同行权价的页面标题几乎一样，会被归并成“多家来源报道”的事件而进入精选：旧库 36,511 条
+Google News 条目中有 520 条这类页面，其中 116 条因此进了精选。所有者决定不再收录（D25，2026-10-07），规则在
+[`googlenews.py`](../app/crawler/googlenews.py) 的 `_QUOTE_PAGE`；分析师目标价、股价预测、每日涨跌回顾等文章照常收录。
+已入库的旧条目不改动。
+
 ## 抓取礼貌与流量
 
 - **遵守 Retry-After。** 429/503 带的等待时间不超过 30 秒时原地等待后重试一次（没给时间的 429 仍等 30 秒）；超过 30 秒时
