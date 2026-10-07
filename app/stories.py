@@ -2,9 +2,10 @@ from __future__ import annotations
 
 """Persistent events, conservative matching, and bounded candidate retrieval.
 
-Existing URLs never get reused. Singleton events may merge after translation;
-the original URL then redirects to the surviving event. Original articles stay
-intact, and every membership records its match evidence.
+Existing URLs never get reused. Singleton events may merge after translation, and
+multi-article events whose anchors come to match merge into the earlier one; the
+original URL then redirects to the surviving event. Original articles stay intact,
+and every membership records its match evidence.
 """
 import heapq
 import json
@@ -173,6 +174,53 @@ def _score(item, other, beat=None):
     return best
 
 
+def _merge_stories(db, affected, anchors, facts_of, wanted):
+    """Merge live stories that the per-item pass leaves apart because each keeps its anchor.
+
+    A published multi-article event keeps its anchor, so two events that formed separately stay
+    apart even once their anchors match, for example after a matcher change or a translation.
+    ``wanted`` holds those cases, recorded when an anchor was kept although it matched another
+    event's anchor or shared a headline with one of its members. Stories are visited by anchor
+    time and each joins its best earlier partner, then redirects there like a merged singleton;
+    its anchor goes on representing the members that came with it. A partner already merged in
+    this pass counts only if the event it went into matches directly, anchor against anchor, so
+    merges never chain A~B~C into one event when A and C do not match.
+    """
+    def key(sid):
+        return (anchors[sid]['published_at'], sid)
+
+    partners = defaultdict(dict)
+    for story_id, targets in wanted.items():
+        for target, score in targets.items():
+            if story_id != target and story_id in anchors and target in anchors:
+                later, earlier = sorted((story_id, target), key=key, reverse=True)
+                partners[later][earlier] = max(score, partners[later].get(earlier, 0.0))
+    merged = {}
+
+    def surviving(sid):
+        while sid in merged:
+            sid = merged[sid]
+        return sid
+
+    for later in sorted(partners, key=key):
+        options = []
+        for earlier, score in partners[later].items():
+            target = surviving(earlier)
+            if target != earlier:
+                score = _score(facts_of(anchors[later]), facts_of(anchors[target]))
+                if score < MATCH_THRESHOLD:
+                    continue
+            options.append((-score, key(target), target))
+        if not options:
+            continue
+        target = min(options)[2]
+        db.execute('UPDATE story_items SET story_id=? WHERE story_id=?', (target, later))
+        db.execute('UPDATE stories SET redirect_to=? WHERE id=?', (target, later))
+        merged[later] = target
+        affected.update((later, target))
+    return len(merged)
+
+
 def _refresh_stats(db, affected):
     from .ranking import item_heat
     groups = defaultdict(list)
@@ -220,6 +268,12 @@ def refresh_derived() -> dict:
         db.execute("""INSERT OR IGNORE INTO derived_dirty(item_id)
             SELECT si.item_id FROM stories st JOIN story_items si ON si.story_id=st.id
             WHERE st.anchor_item_id IN (SELECT item_id FROM derived_dirty)""")
+        # The same holds for the anchor of an event that was merged into another one.
+        db.execute("""INSERT OR IGNORE INTO derived_dirty(item_id)
+            SELECT member.item_id FROM stories st
+            JOIN story_items holder ON holder.item_id=st.anchor_item_id
+            JOIN story_items member ON member.story_id=holder.story_id
+            WHERE st.redirect_to IS NOT NULL AND st.anchor_item_id IN (SELECT item_id FROM derived_dirty)""")
         rows = [dict(r) for r in db.execute('''SELECT i.*,s.name AS source_name,s.type AS source_type
                   FROM derived_dirty d JOIN items i ON i.id=d.item_id JOIN sources s ON s.id=i.source_id
                   ORDER BY i.published_at,i.id''')]
@@ -235,6 +289,30 @@ def refresh_derived() -> dict:
             anchors[anchor['story_id']] = anchor
             for token in _keys(anchor):
                 by_token[token].add(anchor['story_id'])
+        # The anchors of events merged into a live one (by _merge_stories, or a singleton that
+        # moved there) that are still its members. The members they brought matched them, not
+        # the surviving anchor, so a re-checked member may stay by matching one of them. New
+        # articles and merges only match surviving anchors: former anchors never chain events.
+        former = defaultdict(list)
+        redirects = dict(db.execute('SELECT id,redirect_to FROM stories WHERE redirect_to IS NOT NULL').fetchall())
+
+        def resolved(story_id):
+            seen = set()
+            while story_id in redirects and story_id not in seen:
+                seen.add(story_id)
+                story_id = redirects[story_id]
+            return story_id
+
+        for row in db.execute('''SELECT st.redirect_to,si.story_id,i.*,s.type AS source_type FROM stories st
+                                  JOIN items i ON i.id=st.anchor_item_id JOIN sources s ON s.id=i.source_id
+                                  JOIN story_items si ON si.item_id=i.id
+                                  WHERE st.redirect_to IS NOT NULL AND COALESCE(i.tmt,1)!=0
+                                    AND i.published_at BETWEEN ? AND ?''',(lower,upper)):
+            anchor = dict(row)
+            holder = anchor['story_id']
+            if (holder in anchors and resolved(anchor['redirect_to']) == holder
+                    and anchor['id'] not in {a['id'] for a in (anchors[holder], *former[holder])}):
+                former[holder].append(anchor)
         matched = 0
         facts = {}
 
@@ -249,6 +327,7 @@ def refresh_derived() -> dict:
         # arrives after the event was anchored on another source's wording. Members still
         # waiting to be re-indexed join as they are assigned below.
         by_headline = defaultdict(dict)
+        wanted = defaultdict(dict)  # retained anchor's story -> other stories its anchor matches
 
         def remember_headline(item, story_id):
             if len(facts_of(item).headline) >= MIN_HEADLINE_CHARS:
@@ -275,10 +354,13 @@ def refresh_derived() -> dict:
                 db.execute('DELETE FROM story_items WHERE item_id=?',(row['id'],))
             else:
                 best_id, best_score = None, 0.0
+                # An event's own anchor looks only at other events, for a merge partner below.
+                own = old_id if anchors.get(old_id, {}).get('id') == row['id'] else None
                 # The earliest member carrying the same headline decides, as an anchor would.
                 same = [(member['published_at'], member['id'], sid)
                         for member, sid in by_headline.get(facts_of(row).headline, {}).values()
-                        if member['id'] != row['id'] and _same_headline(facts_of(row), facts_of(member))
+                        if member['id'] != row['id'] and sid != own
+                        and _same_headline(facts_of(row), facts_of(member))
                         and _score(facts_of(row), facts_of(member)) == 1.0]
                 if same:
                     best_id, best_score = min(same)[2], 1.0
@@ -298,16 +380,21 @@ def refresh_derived() -> dict:
                 old_anchor = anchors.get(old_id)
                 old_count = db.execute('SELECT COUNT(*) FROM story_items WHERE story_id=?',(old_id,)).fetchone()[0] if old_id else 0
                 if old_anchor and old_anchor['id'] == row['id']:
-                    # A published multi-article event retains its anchor and URL.
+                    # A published multi-article event retains its anchor and URL; if the anchor
+                    # now matches another event, _merge_stories joins the two after this loop.
                     if old_count > 1:
+                        if best_id is not None and best_id != old_id:
+                            wanted[old_id][best_id] = max(best_score, wanted[old_id].get(best_id, 0.0))
                         best_id,best_score = old_id,1.0
                     elif best_id is None:
                         best_id,best_score = old_id,1.0
                 elif old_anchor:
                     # A member stays with its event unless another one matches strictly better.
                     # Leaving for any other match made consecutive titles-v3 reindexes move about
-                    # 7,300 of 57,924 items back and forth between near-duplicate events.
-                    stay = _score(facts_of(row), facts_of(old_anchor))
+                    # 7,300 of 57,924 items back and forth between near-duplicate events. The
+                    # anchor of an event merged into this one also counts for its old members.
+                    stay = max(_score(facts_of(row), facts_of(anchor))
+                               for anchor in (old_anchor, *former.get(old_id, ())) if anchor['id'] != row['id'])
                     if stay >= MATCH_THRESHOLD and stay >= best_score:
                         best_id,best_score = old_id,stay
                 if best_id is None:
@@ -326,15 +413,20 @@ def refresh_derived() -> dict:
                               match_reason=excluded.match_reason,match_score=excluded.match_score''',
                            (row['id'],best_id,MATCH_VERSION,best_score))
                 remember_headline(row, best_id)
+                if old_id and old_id != best_id:
+                    former[old_id] = [anchor for anchor in former.get(old_id, ()) if anchor['id'] != row['id']]
                 if old_id and old_id != best_id and old_count == 1:
                     db.execute('UPDATE stories SET redirect_to=? WHERE id=?',(best_id,old_id))
                     anchors.pop(old_id,None)
                     for ids in by_token.values():
                         ids.discard(old_id)
+                    if best_id in anchors and anchors[best_id]['id'] != row['id']:
+                        former[best_id].append(row)
                 affected.add(best_id)
                 matched += 1
             db.execute('INSERT OR IGNORE INTO indexed_items(item_id) VALUES(?)',(row['id'],))
             db.execute('DELETE FROM derived_dirty WHERE item_id=?',(row['id'],))
+        merged = _merge_stories(db, affected, anchors, facts_of, wanted)
         _refresh_stats(db,affected)
-        return dict(processed=len(rows),matched=matched,
+        return dict(processed=len(rows),matched=matched,merged=merged,
                     stories=db.execute('SELECT COUNT(*) FROM stories WHERE item_count>0 AND redirect_to IS NULL').fetchone()[0])
