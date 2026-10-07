@@ -22,6 +22,33 @@ from . import http
 log = logging.getLogger(__name__)
 
 
+# Quote, chart and option-contract pages that Google News lists among search results. They carry
+# no news, and the pages for one ticker (Yahoo's per-exchange listings, option strikes) cluster with
+# each other into "multi-source" events. 520 of the 36,511 legacy Google News items were such pages;
+# the owner chose not to collect them (D25, 2026-10-07). Price targets, predictions and daily
+# price recaps ("Palantir stock price ended at ...") are articles and stay.
+_QUOTE_PAGE = re.compile(r"""(?ix)
+    stock\s+price,\s*(?:news,\s*quote|quote,?\s*(?:and\s+)?news)
+  | \bquote\s*(?:&|and)\s*(?:history|analysis)\b
+  | \bstock\s+quote\b
+  | \binteractive\s+stock\s+chart\b
+  | \boptions?\s+chain\b
+  | \b[A-Z]{1,6}\d{6}[CP]\d{5,8}\b
+  | stock\s+price\s+today\b
+  | latest\s+stock\s+price,\s*analysis,\s*news
+  | stock\s+chart,\s*market\s+cap
+  | \bxstock\b
+  | \bquote\s+comparison\b
+  | share\s+price\s+-.*\bquotes?\b.*\bcharts?\b
+  | stock\s+price\s*\|\s*quotes
+  | \bperformance\s+comparison\b
+""")
+
+
+def _is_quote_page(title: str) -> bool:
+    return bool(_QUOTE_PAGE.search(title or ""))
+
+
 def _clean_title(title: str) -> str:
     """Google News 标题尾部带 ' - 媒体名'，去掉。"""
     return re.sub(r"\s+-\s+[^-]{1,40}$", "", title or "").strip()
@@ -47,7 +74,7 @@ def fetch_company_news(slug: str, name: str, aliases: list[str], when: str = "2d
     for entry in parsed.entries[:50]:
         title = _clean_title(getattr(entry, "title", ""))
         link = getattr(entry, "link", "")
-        if not title or not link:
+        if not title or not link or _is_quote_page(title):
             continue
         # 严格匹配：必须命中公司别名，防止 Google News 的相关性漂移
         if slug not in match_companies(title):
