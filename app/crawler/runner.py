@@ -17,7 +17,7 @@ from ..database import get_db, reused_connections
 from ..documents import project_candidate
 from ..ingest import RawObservation, begin_ingest_run, finish_ingest_run, observe_candidate
 from ..sec_identity import project_sec_candidate
-from . import fastnews, hkex_source, html_source, rss_source, sec_source, sina_source
+from . import fastnews, hkex_source, html_source, http, rss_source, sec_source, sina_source
 from . import googlenews
 from .sources import all_sources
 
@@ -179,6 +179,14 @@ def _run_source(source: dict) -> tuple[int, bool, str]:
     ingest_run = begin_ingest_run(source)
     try:
         raws = fetcher(source)
+    except http.HostPaused as exc:
+        # Another source on this host was told to wait; this is not this source's failure.
+        finish_ingest_run(
+            ingest_run, status="skipped", raw_count=0, accepted_count=0, duplicate_count=0,
+            rejected_count=0, byte_count=0, request_count=0, error_code="host_paused",
+        )
+        _record(source["key"], ok=False, new=0, message=str(exc), paused=True)
+        return 0, False, str(exc)
     except Exception as exc:  # noqa: BLE001 - 源级失败，记健康状态
         log.warning("源 %s 抓取失败: %s", source["key"], exc)
         finish_ingest_run(
@@ -194,6 +202,8 @@ def _run_source(source: dict) -> tuple[int, bool, str]:
         _record(source["key"], ok=False, new=0, message=str(exc)[:300])
         return 0, False, str(exc)[:300]
 
+    feed_state = next((r["_source_state"] for r in raws if "_source_state" in r), None)
+    raws = [r for r in raws if "_source_state" not in r]
     errors = [r["_error"] for r in raws if "_error" in r]
     inserted = 0
     accepted = 0
@@ -233,12 +243,35 @@ def _run_source(source: dict) -> tuple[int, bool, str]:
     )
     _record(source["key"], ok=ok, new=inserted, message=message,
             partial=bool(errors) and accepted > 0)
+    if ok and feed_state is not None:
+        # Validators are kept only after every candidate was stored, so a conditional request
+        # can never hide entries whose storing failed.
+        _save_source_state(source["key"], feed_state)
     return inserted, ok, message
 
 
-def _record(key: str, ok: bool, new: int, message: str, partial: bool = False) -> None:
+def _save_source_state(key: str, values: dict) -> None:
     with get_db() as db:
-        if partial:
+        row = db.execute("SELECT state FROM sources WHERE key=?", (key,)).fetchone()
+        try:
+            state = json.loads(row["state"] or "{}") if row else {}
+        except ValueError:
+            state = {}
+        if not isinstance(state, dict):
+            state = {}
+        state.update(values)
+        db.execute("UPDATE sources SET state=? WHERE key=?",
+                   (json.dumps(state, ensure_ascii=False, sort_keys=True), key))
+
+
+def _record(key: str, ok: bool, new: int, message: str, partial: bool = False,
+            paused: bool = False) -> None:
+    with get_db() as db:
+        if paused:
+            # Not this source's failure: no backoff, but the health page shows why it waited.
+            db.execute("UPDATE sources SET last_run_at=?,last_error=? WHERE key=?",
+                       (_now(), message, key))
+        elif partial:
             # Some companies remain available: retain the base polling interval
             # so a broken company does not delay all the others for six hours.
             db.execute("""UPDATE sources SET last_run_at=?,fail_count=0,last_error=? WHERE key=?""",
@@ -275,6 +308,8 @@ def run_due_sources() -> dict:
                              (s["key"],)).fetchone()
         if not row or not row["enabled"]:
             continue
+        if http.host_paused_until(s.get("url", "")) is not None:
+            continue  # the host asked us to wait; run again once the pause is over
         if row["last_run_at"]:
             last = datetime.fromisoformat(row["last_run_at"])
             if now < last + timedelta(minutes=retry_interval(row["interval_minutes"], row["fail_count"])):
