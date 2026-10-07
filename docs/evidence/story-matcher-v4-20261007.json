@@ -1,0 +1,52 @@
+{
+  "scope": "titles-v4 story matching: exact flash headlines and members staying with their event (app/stories.py)",
+  "recorded_at": "2026-10-07T00:00:00Z",
+  "environment": "macOS isolated copies of the Mac legacy database (89,575 items, 57,924 story memberships, items 2026-09-11..10-03); no network, no model calls",
+  "production_changed": false,
+  "problem": {
+    "flash_headline_split": "Sina 7x24 and WSCN live write “【headline】body” and CLS opens untitled telegraphs with “财联社X月X日电，”. The body's and dateline's digits failed the number guard, Sina's body made the title ratio fall below 0.72, and copies whose AI event types disagreed were never compared. Of 3,525 cross-source pairs sharing a normalized headline within 6 hours, titles-v3 left 796 in different stories.",
+    "reindex_churn": "A re-checked member left its story whenever any other anchor matched, and stayed only when none did. Two consecutive full titles-v3 reindexes from the same state differed by 10,216 added and 10,205 removed same-story pairs, with 7,326 items moving."
+  },
+  "headline_window": {
+    "data": "12,551 visible flash items (Sina, CLS, WSCN), consecutive repeats of one normalized headline",
+    "cross_wire_repeats": {"total": 1704, "within_30_minutes": 1615, "within_6_hours": 1694},
+    "same_wire_repeats": {"total": 174, "within_6_hours": 46, "over_12_hours": 125, "over_24_hours": 95},
+    "decision": "same headline (>= 8 normalized characters), both non-official, within 6 hours, companies not disjoint -> score 1.0 before the channel, event-type and number guards; compared with every member, not only anchors"
+  },
+  "cutover_path": {
+    "method": "prepare-release on a fresh backup of the legacy database (titles-v2 memberships), compared with the rehearsal database prepared with titles-v3 from the same backup",
+    "prepare_release_seconds": {"titles_v3_rehearsal": "285-294 (226 estimated after PR #150)", "titles_v4": 190},
+    "live_stories": {"titles_v3": 43650, "titles_v4": 42968},
+    "same_story_pairs": {"titles_v3": 35584, "titles_v4": 38756},
+    "headline_pairs_split": {"titles_v3": 796, "titles_v4": 52, "of": 3525}
+  },
+  "same_start_comparison": {
+    "method": "full reindex with titles-v3 and with titles-v4 from the same converged titles-v3 state",
+    "live_stories": {"titles_v3": 43588, "titles_v4": 42906},
+    "same_story_pairs": {"titles_v3": 35949, "titles_v4": 38525, "added": 8500, "removed": 5924},
+    "headline_pairs_split": {"titles_v3": 786, "titles_v4": 39},
+    "remaining_split_reasons_before_channel_bypass": {"channel differs": 93, "anchor of a multi-item story": 22, "companies disjoint": 3, "other": 10},
+    "reviewed_samples": {
+      "reviewer": "Claude, by reading titles; not owner labels",
+      "pairs_only_titles_v4_joins": {"sampled": 60, "same_event": 57, "different_event": 1, "unclear": 2, "different_event_example": "What's Going On With Oracle Stock Tuesday? (identical titles a day apart, matched by the 72-hour title ratio, not by the headline rule)"},
+      "pairs_only_titles_v3_joins": {"sampled": 60, "same_event": 56, "different_event": 0, "unclear": 4, "note": "mostly large events (AMD $1T, Amazon/21 Air, Gemini hacking test) that both versions split into several stories, cut differently"},
+      "pairs_added_by_channel_bypass": {"sampled": 40, "same_event": 40, "note": "IT之家 (AI channel) against Sina/CLS/WSCN (stock channel) with the same headline"}
+    }
+  },
+  "stability": {
+    "method": "second full reindex from each version's own result",
+    "titles_v3": {"pairs_added": 10216, "pairs_removed": 10205, "items_moved": 7326},
+    "titles_v4": {"pairs_added": 159, "pairs_removed": 0, "items_moved": 185}
+  },
+  "reindex_seconds_same_machine": {"titles_v3": [241.3, 254.6], "titles_v4": [185.1, 197.2, 215.8, 227.1], "note": "some runs shared the machine with a second reindex"},
+  "limits": [
+    "No owner-labelled story pairs exist yet; precision above is a reading of sampled titles, not an evaluation against gold labels.",
+    "Paraphrased copies and multi-article stories anchored on different wording still stay apart; a periodic story merge is the next step.",
+    "The 22 remaining splits where an item anchors a multi-item story are kept on purpose: a published event keeps its anchor and URL."
+  ],
+  "tests": [
+    "tests/test_story_match_score.py (cached facts and pruning equal a rule-by-rule titles-v4 reference on 4,000 random pairs with wire decorations)",
+    "tests/test_story_headlines.py (three wires, member-level headline match, recurring headline a day apart, CLS column brackets, official documents)",
+    "six mutations of the new rules each fail at least one test"
+  ]
+}

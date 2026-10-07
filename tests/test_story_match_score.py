@@ -1,22 +1,39 @@
 import json
 import random
 import re
+import unicodedata
 import unittest
 from datetime import datetime, timedelta, timezone
 from difflib import SequenceMatcher
 
-from app.provenance import object_json
-from app.stories import MATCH_THRESHOLD, MAX_EVENT_HOURS, _Facts, _dt, _norm, _score, _titles, match_score
+from app.provenance import display_title, object_json
+from app.stories import MATCH_THRESHOLD, MAX_EVENT_HOURS, _Facts, _dt, _norm, _score, match_score
+
+
+def undated(title):
+    return re.sub(r'^财联社\d{1,2}月\d{1,2}日电[，,]\s*', '', title)
+
+
+def reference_headline(row):
+    title = unicodedata.normalize('NFKC', undated(row['title']).strip())
+    if row.get('source_type') in ('sina', 'wscn_live') and re.match(r'【[^】]+】', title):
+        title = title[1:title.index('】')]
+    return _norm(title)
 
 
 def reference_match_score(row, anchor):
-    """titles-v3 match_score exactly as it was before per-item facts were cached."""
-    if abs((_dt(row['published_at']) - _dt(anchor['published_at'])).total_seconds()) > MAX_EVENT_HOURS * 3600:
+    """titles-v4 match_score written out rule by rule, without cached facts or pruning."""
+    gap = abs((_dt(row['published_at']) - _dt(anchor['published_at'])).total_seconds())
+    if gap > MAX_EVENT_HOURS * 3600:
         return 0.0
     companies = set(json.loads(row['companies'] or '[]'))
     others = set(json.loads(anchor['companies'] or '[]'))
     if companies and others and not companies.intersection(others):
         return 0.0
+    headline = reference_headline(row)
+    if (not row['official'] and not anchor['official'] and gap <= 6 * 3600
+            and len(headline) >= 8 and headline == reference_headline(anchor)):
+        return 1.0
     if row['channel'] != anchor['channel'] and not (companies & others):
         return 0.0
     a_event, b_event = row['event_type'], anchor['event_type']
@@ -27,13 +44,13 @@ def reference_match_score(row, anchor):
             return 0.0
         if 'hkexnews.hk' in row['url'] and 'hkexnews.hk' in anchor['url']:
             return 0.0
-    original_numbers = set(re.findall(r'\d+(?:\.\d+)*', row['title']))
-    anchor_numbers = set(re.findall(r'\d+(?:\.\d+)*', anchor['title']))
+    original_numbers = set(re.findall(r'\d+(?:\.\d+)*', undated(row['title'])))
+    anchor_numbers = set(re.findall(r'\d+(?:\.\d+)*', undated(anchor['title'])))
     if original_numbers and anchor_numbers and original_numbers != anchor_numbers:
         return 0.0
     best = 0.0
-    for a in _titles(row):
-        for b in _titles(anchor):
+    for a in dict.fromkeys([undated(row['title']), undated(display_title(row))]):
+        for b in dict.fromkeys([undated(anchor['title']), undated(display_title(anchor))]):
             a_numbers = set(re.findall(r'\d+(?:\.\d+)*', a))
             b_numbers = set(re.findall(r'\d+(?:\.\d+)*', b))
             if a_numbers and b_numbers and a_numbers != b_numbers:
@@ -69,9 +86,17 @@ def random_item(rng, base=None):
         else:
             words[rng.randrange(len(words))] = rng.choice(["launched", "releases", "人工智能", "v2", "Q3", "plan"])
     zh = rng.choice([None, "-", "", "新模型发布 " + rng.choice(["今日", "正式", "3.5"]), rng.choice(PHRASES)])
+    title = " ".join(words)
+    # How the wires decorate a headline: a CLS dateline, or Sina/WSCN's 【headline】body.
+    wrap = rng.random()
+    if wrap < 0.25:
+        title = f"财联社10月{rng.choice([2, 3])}日电，" + title
+    elif wrap < 0.5:
+        title = f"【{title}】据报道，{rng.choice(['10月2日', '今日', '截至发稿'])}，" + rng.choice(PHRASES)
     return {
-        "title": " ".join(words), "title_zh": zh,
-        "published_at": (T0 + timedelta(hours=rng.choice([0, 5, 30, 71, 73, 200]) * rng.choice([1, -1]))).isoformat(),
+        "title": title, "title_zh": zh,
+        "source_type": rng.choice(["rss", "sina", "cls", "wscn_live", "googlenews"]),
+        "published_at": (T0 + timedelta(hours=rng.choice([0, 5, 7, 30, 71, 73, 200]) * rng.choice([1, -1]))).isoformat(),
         "companies": json.dumps(rng.choice([[], ["openai"], ["nvidia"], ["openai", "nvidia"]])),
         "channel": rng.choice(["ai", "ai", "stock"]),
         "event_type": rng.choice(["", "other", "earnings", "product"]),
@@ -89,14 +114,16 @@ class StoryMatchScoreTests(unittest.TestCase):
             anchor = random_item(rng, base=row["title"] if rng.random() < 0.6 else None)
             yield rng, row, anchor
 
-    def test_cached_facts_reproduce_the_previous_score_exactly(self):
-        compared = matched = 0
+    def test_cached_facts_reproduce_the_rules_exactly(self):
+        compared = matched = by_headline = 0
         for _, row, anchor in self.pairs(4000, 20261005):
             expected = reference_match_score(row, anchor)
             self.assertEqual(match_score(row, anchor), expected)
             compared += 1
             matched += expected >= MATCH_THRESHOLD
+            by_headline += _Facts(row).headline == _Facts(anchor).headline and row['title'] != anchor['title']
         self.assertGreater(matched, compared // 10)  # the generator reaches the threshold
+        self.assertGreater(by_headline, compared // 40)  # and differently decorated copies of a headline
 
     def test_pruned_score_decides_like_the_exact_score(self):
         decided = 0
