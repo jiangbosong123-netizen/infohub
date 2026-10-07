@@ -102,6 +102,16 @@ SQLite 官方 2026-03 公布：3.7.0 至 3.51.2 在 WAL 模式下，如果不同
 64 MB：日常 WAL（默认 1000 页自动检查点，几 MB）不受影响，超过 64 MB 的峰值在复位后截回。最后一个连接关闭时 SQLite
 本来就会删除 WAL，所以这个上限只在持续繁忙、始终有连接开着的期间起作用，作用有限但没有副作用。
 
+## 不收集查询规划统计（不运行 ANALYZE）
+
+数据库里没有 `sqlite_stat1`，SQLite 按索引结构估算选择查询计划；各页面的查询（主题页的物化写法、`+i.id` 防止误用索引等）
+都是在这个前提下调好的。SQLite 官方建议定期 `PRAGMA optimize`，2026-10-07 在升级演练库的副本上做过对照（固定时钟、
+全部精选开关打开，ANALYZE 耗时 21.4 秒，生成 178 行统计）：首页、频道页、深分页、搜索、健康页的变化都在噪声内，
+但 `/topics` 从 1,255 ms 变为 7,221 ms，`/topics/product-updates` 从 606 ms 变为 3,938 ms——统计让规划器放弃了调好的计划。
+因此代码里不调用 `ANALYZE` / `PRAGMA optimize`，迁移与校验也不会生成统计（`tests/test_sqlite_safety.py` 检查）。
+如果以后要启用，需要先给受影响的查询固定计划，并重新跑页面基准；误跑了 ANALYZE 时，`DROP TABLE sqlite_stat1`
+（有 `sqlite_stat4` 时一并删除）后重新连接即可恢复原计划。
+
 ## 启动校验的耗时
 
 migrate、web、worker 启动时都会对数据库做完整校验（`verify_database`）：除 schema 结构外，还逐条核对分析账本
