@@ -49,6 +49,22 @@ def _is_quote_page(title: str) -> bool:
     return bool(_QUOTE_PAGE.search(title or ""))
 
 
+# moomoo/Futu community posts ("$Oracle (ORCL.US)$ Next one, come here.", "Day 26 Check-In: ...") are
+# retail chatter; the owner chose not to collect them either (D25). moomoo also reposts wire news
+# (MT Newswires "Market Chatter", Dow Jones), so only two forms are dropped: titles carrying the
+# community's "$Name (TICKER.MARKET)$" tag, 170 legacy items all from moomoo, and moomoo's daily
+# "Day N" check-in posts, 17 more.
+_COMMUNITY_TAG = re.compile(r"\$[^$\n]{1,80}?\([A-Z0-9]{1,6}(?:\.[A-Z]{1,2})?\)\$")
+_COMMUNITY_PUBLISHER = re.compile(r"(?i)^(?:moomoo(?:\.com)?|富途牛牛|(?:news\.)?futunn\.com)$")
+_CHECK_IN = re.compile(r"(?i)^day\s+\d+\b")
+
+
+def _is_community_post(title: str, publisher: str) -> bool:
+    title, publisher = title or "", (publisher or "").strip()
+    return bool(_COMMUNITY_TAG.search(title)
+                or (_COMMUNITY_PUBLISHER.match(publisher) and _CHECK_IN.match(title)))
+
+
 def _clean_title(title: str) -> str:
     """Google News 标题尾部带 ' - 媒体名'，去掉。"""
     return re.sub(r"\s+-\s+[^-]{1,40}$", "", title or "").strip()
@@ -74,13 +90,13 @@ def fetch_company_news(slug: str, name: str, aliases: list[str], when: str = "2d
     for entry in parsed.entries[:50]:
         title = _clean_title(getattr(entry, "title", ""))
         link = getattr(entry, "link", "")
-        if not title or not link or _is_quote_page(title):
+        publisher = getattr(entry, "source", None)
+        publisher = publisher.get("title") if publisher and hasattr(publisher, "get") else ""
+        if not title or not link or _is_quote_page(title) or _is_community_post(title, publisher):
             continue
         # 严格匹配：必须命中公司别名，防止 Google News 的相关性漂移
         if slug not in match_companies(title):
             continue
-        publisher = getattr(entry, "source", None)
-        publisher = publisher.get("title") if publisher and hasattr(publisher, "get") else ""
         raw_time = getattr(entry, "published", None)
         source_time = parse_source_time(
             raw_time, field_path="entry.published", role="other", parser="feed",
