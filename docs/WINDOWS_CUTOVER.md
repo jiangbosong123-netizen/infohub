@@ -100,8 +100,9 @@ INFOHUB_PUBLIC_ORIGIN=https://windows-server.tail29d4dd.ts.net
 以 Serve 实际输出的地址为准。不要启用 Funnel，不要开放 8000 端口。
 
 建议（所有者已选 Healthchecks.io + 邮件，见 [D25](spec/DECISIONS.md)）：在 healthchecks.io 建一个推送检查（周期 5 分钟、
-宽限约 20 分钟，通知方式选邮件），把推送地址作为 `INFOHUB_EXTERNAL_HEARTBEAT_URL=https://...` 加进同一个 `.env`。笔记本关机、睡眠或断网时由外部服务通知（见
-`docs/WORKER_OPERATIONS.md`）。
+宽限约 20 分钟，通知方式选邮件），把推送地址作为 `INFOHUB_EXTERNAL_HEARTBEAT_URL=https://...` 加进同一个 `.env`。笔记本关机、睡眠或断网时由外部服务通知；
+系统还在跑但抓取大面积失败、AI 停摆、后台任务失败、备份过期或磁盘快满时，也会立刻收到邮件，正文写明原因（见
+`docs/WORKER_OPERATIONS.md` 的“告警自检”）。
 
 ## 6. 升级（停机约 4–5 分钟）
 
