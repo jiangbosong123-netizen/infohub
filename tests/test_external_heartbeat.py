@@ -1,3 +1,4 @@
+import logging
 import unittest
 from unittest.mock import patch
 
@@ -34,6 +35,25 @@ class ExternalHeartbeatTests(unittest.TestCase):
         with patch.object(config, "EXTERNAL_HEARTBEAT_URL", URL), \
                 patch.object(external_heartbeat.httpx, "get", side_effect=httpx.ConnectError("offline")):
             self.assertFalse(external_heartbeat.ping())
+
+    def test_the_cli_logging_keeps_the_ping_url_out_of_the_logs(self):
+        import cli
+        records = []
+        handler = logging.Handler()
+        handler.emit = records.append
+        root = logging.getLogger()
+        saved = {name: logging.getLogger(name).level for name in ("", "httpx", "httpcore")}
+        root.addHandler(handler)
+        self.addCleanup(root.removeHandler, handler)
+        self.addCleanup(lambda: [logging.getLogger(name).setLevel(level) for name, level in saved.items()])
+        root.setLevel(logging.INFO)
+        cli.configure_logging()
+        transport = httpx.MockTransport(lambda request: httpx.Response(200))
+        with httpx.Client(transport=transport) as client, \
+                patch.object(config, "EXTERNAL_HEARTBEAT_URL", URL), \
+                patch.object(external_heartbeat.httpx, "get", client.get):
+            self.assertTrue(external_heartbeat.ping())
+        self.assertEqual([r.getMessage() for r in records if "secret-token" in r.getMessage()], [])
 
     def test_only_a_finished_crawl_cycle_pings(self):
         with patch.object(config, "EXTERNAL_HEARTBEAT_URL", URL), \

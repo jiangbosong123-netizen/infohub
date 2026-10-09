@@ -1009,8 +1009,16 @@ def cmd_report_publish_reviewed(review_id: str) -> None:
     print(json.dumps(publish_reviewed_report(review_id), ensure_ascii=False, indent=2))
 
 
-def main() -> None:
+def configure_logging() -> None:
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
+    # httpx logs every request URL at INFO. The external heartbeat URL is a credential, and every
+    # crawl fetch would add a line of its own; failures are logged by our own modules.
+    for name in ("httpx", "httpcore"):
+        logging.getLogger(name).setLevel(logging.WARNING)
+
+
+def main() -> None:
+    configure_logging()
     cmd = sys.argv[1] if len(sys.argv) > 1 else ""
     if cmd == "init-db":
         cmd_init_db()
