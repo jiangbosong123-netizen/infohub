@@ -32,7 +32,7 @@ from .timeutil import format_utc, utc_now
 log = logging.getLogger(__name__)
 JOB_KINDS = (
     "crawl", "ai", "reconcile", "report", "prune", "curation-search",
-    "curation-hot", "topic-statistics", "sync-snapshot",
+    "curation-hot", "topic-statistics", "sync-snapshot", "backup",
 )
 # Succeeded routine jobs are kept a month for operations; fetch_log keeps 14 days.
 JOB_RETENTION_DAYS = 30
@@ -66,6 +66,11 @@ def register_default_schedules(now: datetime | None = None) -> None:
         (
             "maintenance:prune", "prune", _next_daily(4, 5, current), 86_400, 0, 3,
             {"timezone": str(config.APP_TZ), "local_time": "04:05"},
+        ),
+        (
+            "maintenance:backup", "backup",
+            _next_daily(config.BACKUP_HOUR, config.BACKUP_MINUTE, current), 86_400, 5, 2,
+            {"timezone": str(config.APP_TZ), "local_time": f"{config.BACKUP_HOUR:02d}:{config.BACKUP_MINUTE:02d}"},
         ),
     )
     for schedule_id, kind, due, interval, priority, attempts, payload in definitions:
@@ -178,6 +183,11 @@ def _prune() -> dict:
             "sync_snapshots": snapshots.to_dict()}
 
 
+def _backup() -> dict:
+    from .scheduled_backup import run_nightly_backup
+    return run_nightly_backup()
+
+
 def _curation_search_refresh() -> dict:
     if not config.CURATION_SEARCH_ENABLED:
         return {"status": "disabled", "batches": 0}
@@ -238,6 +248,7 @@ def default_handlers() -> dict[str, Callable[[], object]]:
         "reconcile": _reconcile,
         "report": _report,
         "prune": _prune,
+        "backup": _backup,
         "curation-search": _curation_search_refresh,
         "curation-hot": _curation_hot_refresh,
         "topic-statistics": _topic_statistics_refresh,

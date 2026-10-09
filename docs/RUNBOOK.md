@@ -100,6 +100,19 @@ python cli.py legacy-backfill 250            # maintenance 下可续跑迁移历
   被多行引用的文件只读一次。单独执行的 `db-bundle-verify` 始终做完整校验。演练规模（4.9 GB、89,575 个证据文件）上
   同机对照：打包 662 → 379 秒，恢复 674 → 199 秒，产出的备份包与恢复结果逐字节相同。
 - 操作前先暂停 worker，避免备份期间与 blob 清理竞争；命令不会自动停止服务。
+- **夜间自动备份**：worker 每天 03:30（`BACKUP_HOUR`/`BACKUP_MINUTE`，按 `APP_TZ`）在 worker 内部执行与
+  `db-bundle-backup` 相同的打包与校验，写到 `data/backups/nightly/`，与其他 worker 任务不会同时运行。
+  - 写入前检查空间：剩余空间至少要有“数据库 + 全部证据文件 + `BACKUP_RESERVE_MB`（默认 2048 MB）”，不够就直接失败、
+    什么都不写，旧备份全部保留；任务失败会出现在 `/api/pipeline` 的 job 状态里。
+  - 新备份包校验通过后才清理：`nightly/` 只留最新 `BACKUP_KEEP` 份（默认 3），`pre-migration/` 只留最新
+    `BACKUP_KEEP_PRE_MIGRATION` 份（默认 2）。只认这两个目录里按时间戳命名的条目；手工 `db-backup`、
+    `db-bundle-backup` 的产物和其他文件一律不动。被杀死的进程留下的 `.…tmp` 临时目录超过 6 小时后删除。
+  - 规模：上线时数据库约 4.6 GB、证据文件约 350 MB，每份约 5 GB，3 份约 15 GB，打包时还需要再放下一份；
+    同机打包约 6–7 分钟（上面的 379 秒）。
+  - 这只是同一块硬盘上的副本，防误操作和软件故障，不防硬盘损坏；异地副本放在 Mac（D25），复制方式在 Windows
+    检查后确定。
+- 升级（`prepare-release`/`db-migrate`）需要改库时，先把运行库的一致性副本写到 `data/backups/pre-migration/`；
+  回退旧版本时用这里的文件。对其他路径的数据库执行迁移时，副本仍放在该数据库旁的 `backups/`。
 - 恢复旧备份后，只有在 worker 已停止且租约不再存活时，才可执行
   `python cli.py dataset-new-epoch EXPECTED_EPOCH REASON`；普通重启与同一最新备份恢复不切换 epoch。
   原理见 [发布账本说明](PUBLICATION_LEDGER.md)，证据与恢复细节见 [采集证据说明](INGEST_EVIDENCE.md)。

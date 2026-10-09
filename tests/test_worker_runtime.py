@@ -68,7 +68,7 @@ class WorkerRuntimeTests(unittest.TestCase):
                 row["id"]: row["next_due_at"]
                 for row in db.execute("SELECT id,next_due_at FROM schedules")
             }
-        self.assertEqual(len(first), 5)
+        self.assertEqual(len(first), 6)
         register_default_schedules(T0 + timedelta(minutes=1))
         with database.get_db() as db:
             second = {

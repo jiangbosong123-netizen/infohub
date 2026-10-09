@@ -6861,6 +6861,19 @@ def backup_database(
     return same_bytes_as_verified(target, verified)
 
 
+PRE_MIGRATION_DIRECTORY = "pre-migration"
+
+
+def _pre_migration_target(source: Path) -> Path | None:
+    """Pre-migration copies of the live database get a folder of their own, so the nightly
+    backup can keep only the newest ones without touching manual backups."""
+    if source != config.DB_PATH.expanduser().resolve():
+        return None
+    stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S.%fZ")
+    return (config.BACKUP_PATH / PRE_MIGRATION_DIRECTORY
+            / f"{source.stem}.{config.ENVIRONMENT_ID}.{stamp}.db")
+
+
 def migrate_database(
     path: Path | str | None = None, backup_before_change: bool = True
 ) -> MigrationReport:
@@ -6875,7 +6888,7 @@ def migrate_database(
     needs_change = previous_state != "current"
     backup_path = None
     if needs_change and previous_state != "empty" and backup_before_change:
-        backup_path = backup_database(target).path
+        backup_path = backup_database(target, _pre_migration_target(target)).path
 
     with database.get_db(target) as db:
         applied = apply_migrations(db)

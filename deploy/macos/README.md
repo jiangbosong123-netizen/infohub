@@ -52,7 +52,7 @@ Tailscale Serve 把私网 HTTPS 转发到 `127.0.0.1:8000`（`tailscale serve --
 
 ## 日常
 
-- 升级：`install-code <新 SHA>` → `migrate` → `start`。数据库只做兼容扩展，迁移前自动备份到 `data/backups/`。
+- 升级：`install-code <新 SHA>` → `migrate` → `start`。数据库只做兼容扩展，迁移前自动备份到 `data/backups/pre-migration/`。
 - 状态：`infohub-macos.sh status`（等待 `/api/ready` 最多 180 秒，并输出 worker 心跳）。
 - 停止：`infohub-macos.sh stop`。
 
@@ -60,7 +60,7 @@ Tailscale Serve 把私网 HTTPS 转发到 `127.0.0.1:8000`（`tailscale serve --
 
 1. `infohub-macos.sh stop`。
 2. 代码回退：`install-code <上一个 SHA>`。新版本迁移过的数据库，旧代码可能拒绝打开未知 schema——这是设计上的保护。
-3. 数据回退：把 `data/backups/` 中迁移前的备份复制为 `data/app.db`（先保存当前文件），再 `start`。回退旧备份后，
+3. 数据回退：把 `data/backups/pre-migration/` 中迁移前的备份复制为 `data/app.db`（先保存当前文件），再 `start`。回退旧备份后，
    若曾有新数据写入并对外同步过，按 [发布账本说明](../../docs/PUBLICATION_LEDGER.md) 处理 epoch。
 4. 旧 `com.infohub.server` 已禁用；恢复它只适用于旧代码与旧 `data/app.db`：
    `launchctl enable gui/$(id -u)/com.infohub.server`。

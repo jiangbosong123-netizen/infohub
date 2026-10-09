@@ -86,7 +86,7 @@ Copy-Item -Recurse data "data-before-upgrade-$stamp"
 ```
 
 `down` 不带 `-v`，不会删除数据。容器停止后复制整个 `data` 目录（数据库与证据文件）是一致的。迁移时应用还会
-再自动做一次一致性备份到 `data\backups\`。
+再自动做一次一致性备份到 `data\backups\pre-migration\`。
 
 ## 5. 私网 HTTPS 与配置
 
@@ -159,7 +159,7 @@ docker compose logs --tail 60 migrate
 
 - `migrate` 报 `INFOHUB_PUBLIC_ORIGIN is required in production`：web/worker 没有启动。完成第 2、5 步后运行
   `docker compose up -d`，再从第 6 步的检查继续。
-- `migrate` 成功、服务 healthy：迁移已完成，应用在迁移前已自动备份到 `data\backups\`。完成第 2、5 步，再执行第 7、8 步。
+- `migrate` 成功、服务 healthy：迁移已完成，应用在迁移前已自动备份到 `data\backups\pre-migration\`。完成第 2、5 步，再执行第 7、8 步。
 - 其他错误：不要反复重试，保留日志发给 Claude。
 
 ## 10. 之后的自动部署
