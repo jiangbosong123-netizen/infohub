@@ -47,6 +47,9 @@ INFOHUB_LEGACY_DATA_LAYOUT=true .venv/bin/python cli.py runtime-config
 - `worker`：唯一后台，负责调度、抓取和模型调用，只有它读取 `.env` 中的模型凭据。
 
 两个常驻容器均为 `restart: unless-stopped`。SQLite、blob、备份和进程心跳持久化在宿主机 `data/`。
+容器日志每个最多保留 5 × 10 MB（`docker compose logs` 只能看到这么多）；停止时 worker 先做完手上的任务，最多等
+3 分钟，超过后被强制结束，未完成的任务在租约到期后自动重试。`SEC_USER_AGENT` 仍是示例地址时 worker 启动日志会提醒，
+SEC 要求填写真实的名称和邮箱。
 三个角色的权限和数据路径由 Compose 显式注入，缺少生产标识、路径或角色时应用拒绝启动。
 
 生产入口使用 Tailscale Serve 的私网 HTTPS 地址。不要启用 Tailscale Funnel，不要为 8000 端口添加入站

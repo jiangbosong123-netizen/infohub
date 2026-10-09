@@ -234,6 +234,16 @@ class RuntimeConfigurationTests(unittest.TestCase):
             {"INFOHUB_PUBLIC_ORIGIN": "https://WINDOWS-SERVER.EXAMPLE.TS.NET/"}, self.root)
         self.assertEqual(settings.public_origin, "https://windows-server.example.ts.net")
 
+    def test_compose_bounds_logs_and_stops_the_worker_gracefully(self):
+        compose = yaml.safe_load((config.BASE_DIR / "compose.yaml").read_text(encoding="utf-8"))
+        for name, service in compose["services"].items():
+            with self.subTest(service=name):
+                self.assertTrue(service["init"])
+                self.assertEqual(service["logging"], {
+                    "driver": "json-file", "options": {"max-size": "10m", "max-file": "5"}})
+        self.assertEqual(compose["services"]["worker"]["stop_grace_period"], "3m")
+        self.assertEqual(compose["services"]["migrate"]["healthcheck"], {"disable": True})
+
     def test_compose_production_environment_passes_runtime_validation(self):
         compose = yaml.safe_load((config.BASE_DIR / "compose.yaml").read_text(encoding="utf-8"))
         expected_roles = {"migrate": "maintenance", "infohub": "web", "worker": "worker"}

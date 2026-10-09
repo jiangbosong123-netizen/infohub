@@ -9,6 +9,14 @@ x-infohub-common: &infohub-common
       APP_VERSION: ${APP_VERSION:-unknown}
   volumes:
     - ./data:/app/data
+  # tini as PID 1 forwards stop signals to Python and reaps child processes.
+  init: true
+  # Docker keeps container logs forever by default; keep 5 x 10 MB per container.
+  logging:
+    driver: json-file
+    options:
+      max-size: "10m"
+      max-file: "5"
 
 x-infohub-environment: &infohub-environment
   INFOHUB_ENVIRONMENT: production
@@ -40,6 +48,9 @@ services:
     <<: *infohub-common
     restart: "no"
     command: ["python", "cli.py", "prepare-release"]
+    # The image's web healthcheck means nothing for a one-shot migration.
+    healthcheck:
+      disable: true
     environment:
       <<: *infohub-environment
       INFOHUB_PROCESS_ROLE: maintenance
@@ -78,6 +89,10 @@ services:
     container_name: infohub-worker
     restart: unless-stopped
     command: ["python", "cli.py", "worker"]
+    # On SIGTERM the worker finishes its current job before exiting (a crawl cycle takes a minute
+    # or two). Docker's default 10 s kills it mid-job; a job still running after 3 minutes is
+    # killed and retried after its lease expires.
+    stop_grace_period: 3m
     depends_on:
       migrate:
         condition: service_completed_successfully

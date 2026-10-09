@@ -432,6 +432,8 @@ def run_worker() -> None:
     pump = HeartbeatPump(worker_id, started_at)
     pump.start()
     log.info("worker %s started for %s at version %s", worker_id, config.ENVIRONMENT_ID, config.APP_VERSION)
+    if config.SEC_USER_AGENT.endswith("@example.com"):
+        log.warning("SEC_USER_AGENT still uses the example contact; SEC asks for a real name and email")
     try:
         while not stopping.is_set():
             try:
