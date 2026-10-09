@@ -119,6 +119,30 @@ python cli.py legacy-backfill 250            # maintenance 下可续跑迁移历
 - 恢复旧备份后，只有在 worker 已停止且租约不再存活时，才可执行
   `python cli.py dataset-new-epoch EXPECTED_EPOCH REASON`；普通重启与同一最新备份恢复不切换 epoch。
   原理见 [发布账本说明](PUBLICATION_LEDGER.md)，证据与恢复细节见 [采集证据说明](INGEST_EVIDENCE.md)。
+  下面的 `db-bundle-promote` 会自动判断并切换，不需要再手工执行。
+
+### 从备份恢复到线上
+
+数据库损坏、误操作或升级后数据有问题时，用夜间备份包（或手工 `db-bundle-backup` 的产物）替换运行库：
+
+```powershell
+$env:APP_VERSION = (git rev-parse --short=12 HEAD)   # 当前部署的版本
+docker compose stop infohub worker                    # 必须先停 web 和 worker
+dir data\backups\nightly                             # 挑一份，名字里是 UTC 时间
+docker compose run --rm migrate python cli.py db-bundle-verify /app/data/backups/nightly/<名称>.bundle
+docker compose run --rm migrate python cli.py db-bundle-promote /app/data/backups/nightly/<名称>.bundle
+docker compose up -d                                   # migrate 会再校验一遍，然后启动 web 和 worker
+```
+
+`db-bundle-promote` 只在 maintenance 角色下运行，并且：
+
+- worker 心跳仍新鲜、或运行库正被其他进程打开时拒绝执行，什么都不改；备份包属于别的运行环境或别的数据集时也拒绝。
+- 先完整校验备份包；证据文件只往运行库的证据目录里补（缺失的补上、损坏的换成备份里的正确文件），从不删除。
+- 当前运行库（连同它的 `-wal`/`-shm` 文件）整体移到 `data/replaced/<UTC 时间>/`，不会删除；确认恢复无误后再手工删。
+  运行库已经损坏、打不开时同样可以替换。
+- 备份之后对外发布过新的变化、或无法读取原运行库时，自动开启新的同步代际（epoch），外部消费者会重新全量同步，
+  不会悄悄漏掉变化；备份与运行库完全一致时保留原代际。
+- 输出 JSON 里有被移走的旧库位置、补回的证据文件数和代际是否切换。
 
 ## 4. 采集、精选与 AI 策展
 
