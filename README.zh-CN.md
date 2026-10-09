@@ -117,13 +117,16 @@ evaluation/                数据集契约、合成样本、基线（私有数�
 
 ## 无人值守运行
 
-生产是 Windows 上的 **Docker Compose**：一次性 `migrate` 容器（`cli.py prepare-release`，先备份再迁移）、
+生产目标是 Windows 上的 **Docker Compose**（尚未切换：Mac 旧采集器 2026-10-04 起停用，Windows 尚未升级，目前没有机器在采集；
+切换步骤见 [Windows 升级指南](docs/WINDOWS_CUTOVER.md)）：一次性 `migrate` 容器（`cli.py prepare-release`，先备份再迁移）、
 永不抓取的只读 `infohub` 门户容器，以及唯一负责调度、抓取和模型调用的 `worker` 容器。SQLite、证据
 blob、备份和心跳持久化在 `./data`。门户端口只绑定 `127.0.0.1`，通过 Tailscale Serve 私网 HTTPS 访问
 （[私网 HTTPS 生产入口](docs/PRIVATE_HTTPS_INGRESS.md)）。
 
 配套部署管理器（独立仓库）轮询本仓库并以 fast-forward 方式应用 `main` 的更新，把提交 SHA 传入容器，
-使 `/api/health` 报告确切的运行版本。日常命令、备份与恢复见 [运行手册](docs/RUNBOOK.md)。第一次生产升级的方案（基于真实数据完整演练）见
+使 `/api/health` 报告确切的运行版本。worker 每晚自动做完整备份（保留 3 份），每轮抓取后自检，抓取大面积失败、
+AI 停摆、后台任务失败、备份过期或磁盘不足时通过 Healthchecks 发邮件。**所有者先读 [所有者手册](docs/OWNER_GUIDE.md)**；
+日常命令、备份与恢复见 [运行手册](docs/RUNBOOK.md)。第一次生产升级的方案（基于真实数据完整演练）见
 [生产升级方案](docs/CUTOVER_PLAN.md)。在这台 Mac 上用 launchd
 运行同样三种角色的备选方案见 [`deploy/macos/`](deploy/macos/README.md)，两台机器只能有一台采集。
 

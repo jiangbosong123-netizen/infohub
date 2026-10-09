@@ -39,6 +39,8 @@ INFOHUB_LEGACY_DATA_LAYOUT=true .venv/bin/python cli.py runtime-config
 
 ## 2. Windows 生产
 
+所有者日常只需要看 [所有者手册](OWNER_GUIDE.md)；本节是给维护者的细节。
+
 在 Windows 的 Docker Desktop + WSL2 中常驻运行。首次部署复制 `.env.example` 为 `.env`，按需填写模型
 配置，然后执行 `docker compose up -d --build`：
 

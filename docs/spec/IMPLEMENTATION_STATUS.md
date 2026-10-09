@@ -100,6 +100,14 @@ the implementation PR series proceeded. It was restored on 2026-09-27 after `mai
   source runs and Google News reconciliation store candidates on reused connections too (a 50-item run of
   stored items: about 207 ms to 28 ms, identical rows); web connections are unchanged.
 
+- Production readiness (2026-10-09/10): dependencies are a hashed lock installed on a digest-pinned base image,
+  and CI runs the tests inside the built image and starts it production-like. The worker makes a verified nightly
+  bundle with a free-space guard and bounded retention (nightly 3, pre-migration 2), runs a windowed self-check
+  after every crawl cycle and reports problems to the external heartbeat's `/fail` URL. Compose bounds container
+  logs and gives the worker 3 minutes to finish a job on stop. `db-bundle-promote` replaces the live database with
+  a verified bundle, keeping the old one under `replaced/` and rotating the epoch when history could rewind.
+  The owner's guide is `docs/OWNER_GUIDE.md`. None of this has run on the Windows host yet.
+
 ## Status rule
 
 For any capability, use this precedence when deciding whether it is available:
