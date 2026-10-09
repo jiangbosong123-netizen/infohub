@@ -1,0 +1,20 @@
+# Direct dependencies with the version ranges the code supports. requirements.txt pins every
+# package (including indirect ones) with hashes and is what CI, the image and the macOS kit
+# install. After editing this file, regenerate it with:
+#   uv pip compile requirements.in --universal --python-version 3.11 --generate-hashes -o requirements.txt
+fastapi>=0.110
+uvicorn[standard]>=0.29
+jinja2>=3.1
+httpx>=0.27
+feedparser>=6.0
+beautifulsoup4>=4.12
+lxml>=5.0
+pyyaml>=6.0
+openai>=1.30
+python-dotenv>=1.0
+markdown>=3.5
+nh3>=0.2.18,<0.4
+rfc8785>=0.1.4,<0.2
+# Imported directly (app/api_*.py, app/web/*), not only through fastapi.
+pydantic>=2.6
+starlette>=0.37

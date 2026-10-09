@@ -1,5 +1,11 @@
 name: Checks
-on: [push, pull_request]
+on:
+  push:
+    branches: [main]
+  pull_request:
+concurrency:
+  group: checks-${{ github.ref }}
+  cancel-in-progress: true
 permissions:
   contents: read
 jobs:
@@ -14,13 +20,42 @@ jobs:
         with:
           python-version: ${{ matrix.python-version }}
           cache: pip
-      - run: python -m pip install -r requirements.txt
+      # The same pinned, hash-checked set the image installs.
+      - run: python -m pip install --require-hashes -r requirements.txt
       - run: python -m compileall -q app cli.py
       - run: python -m unittest discover -s tests -v
   docker:
     runs-on: ubuntu-latest
+    env:
+      APP_VERSION: ${{ github.sha }}
+      INFOHUB_PUBLIC_ORIGIN: https://infohub-ci.example.ts.net
     steps:
       - uses: actions/checkout@v4
       - run: cp .env.example .env
       - run: docker compose config --quiet
-      - run: APP_VERSION=ci docker compose build
+      - run: docker compose build
+      # The tests again, on the image's Python, packages and compiled SQLite.
+      - name: Tests inside the image
+        run: docker run --rm -v "$PWD:/src" -w /src "infohub:$APP_VERSION" python -m unittest discover -s tests
+      # migrate then web, as production starts them (the worker would crawl the internet).
+      - name: Start the image like production
+        run: |
+          docker compose up -d infohub
+          for attempt in $(seq 1 60); do
+            curl -fsS http://127.0.0.1:8000/api/live > /dev/null && break
+            sleep 2
+          done
+          curl -sS http://127.0.0.1:8000/api/health > health.json
+          python3 - <<'PY'
+          import json, os
+          health = json.load(open("health.json"))
+          runtime = health["runtime"]
+          print(json.dumps({"version": health["version"], **{k: runtime[k] for k in
+                ("environment", "process_role", "sqlite_version", "sqlite_wal_reset_safe")}}))
+          assert health["version"] == os.environ["APP_VERSION"], health["version"]
+          assert runtime["environment"] == "production" and runtime["process_role"] == "web"
+          assert runtime["sqlite_wal_reset_safe"] is True, runtime["sqlite_version"]
+          PY
+      - name: Logs
+        if: always()
+        run: docker compose logs --no-color

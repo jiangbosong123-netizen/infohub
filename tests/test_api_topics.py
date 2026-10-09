@@ -215,7 +215,10 @@ class ApiTopicTests(unittest.TestCase):
                 reviewer_id="api-fixture",
                 reason="Accepted member portal fixture.", now=NOW,
             )
-        with patch("app.web.routes.TOPIC_READ_ENABLED", True):
+        # The selected view hides this unscored item by design; pin the flag rather than inherit
+        # it from a developer's .env (.env.example turns it on).
+        with patch("app.web.routes.TOPIC_READ_ENABLED", True), \
+                patch("app.web.routes.CURATED_FEED_ENABLED", False):
             listing = self.client.get("/topics")
             detail = self.client.get("/topics/alpha")
         self.assertEqual(listing.status_code, 200)
