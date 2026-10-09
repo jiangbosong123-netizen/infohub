@@ -27,7 +27,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from urllib.parse import urlsplit
 
-from .evaluation import EvaluationDatasetError, _load_cases, validate_evaluation_dataset
+from .evaluation import _load_cases, validate_evaluation_dataset
 from .evaluation_metrics import evaluate_classification, write_classification_report
 from .evaluation_review_intake import TASK as RELEVANCE_TASK
 from .evaluation_sampling import legacy_content_sha256, legacy_item_content

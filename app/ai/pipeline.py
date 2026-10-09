@@ -159,7 +159,6 @@ def backfill_tmt(days: int = 0, max_batches: int = 60) -> int:
     """给未判定 TMT 的条目补判定（+推荐理由/子分类），默认不限时间，返回处理条数。"""
     if not config.llm_enabled():
         return 0
-    client = OpenAI(base_url=config.LLM_BASE_URL, api_key=config.LLM_API_KEY, timeout=180)
     total = 0
     for _ in range(max_batches):
         with get_db() as db:
@@ -241,7 +240,6 @@ def backfill_titles(days: int = 4, max_batches: int = 40) -> int:
     if not config.llm_enabled():
         return 0
     cutoff = (datetime.now(timezone.utc) - timedelta(days=days)).isoformat()
-    client = OpenAI(base_url=config.LLM_BASE_URL, api_key=config.LLM_API_KEY, timeout=180)
     total = 0
     for _ in range(max_batches):
         with get_db() as db:

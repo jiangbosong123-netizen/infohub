@@ -16,7 +16,7 @@ from . import config, database
 from .db_admin import (
     VerificationReport, backup_database, same_bytes_as_verified, verify_database,
 )
-from .ingest import PayloadIntegrityError, audit_evidence_payloads, payload_path, verify_payload
+from .ingest import PayloadIntegrityError, audit_evidence_payloads, verify_payload
 
 
 FORMAT = "infohub-evidence-bundle-v1"

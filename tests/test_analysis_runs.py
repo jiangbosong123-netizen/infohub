@@ -35,7 +35,7 @@ class AnalysisRunTests(unittest.TestCase):
   self.doc,self.raw=row[0],row[1]
 
  def job(self,key):
-  job=enqueue_job(kind="analysis",idempotency_key=f"job:{key}",subject_id=self.doc,input_version=self.doc,scheduled_for=T0)
+  enqueue_job(kind="analysis",idempotency_key=f"job:{key}",subject_id=self.doc,input_version=self.doc,scheduled_for=T0)
   return claim_job(worker_id="analysis-worker",lease_seconds=300,now=T0)
 
  def prepare(self,job,**changes):

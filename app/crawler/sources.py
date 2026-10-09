@@ -5,7 +5,6 @@ from __future__ import annotations
 type:  rss=RSS订阅  html=网页抓取(解析器在 html_source.py)  sec=SEC EDGAR  hkex=港交所披露易  googlenews=对账兜底
 tier:  official=官方一手  media=财经媒体  info=科技资讯  reconcile=每日对账
 """
-from ..config import BASE_DIR
 
 SEC_SUBMISSIONS_URL = "https://data.sec.gov/submissions"
 HKEX_BASE = "https://www1.hkexnews.hk"

@@ -4,7 +4,6 @@ from __future__ import annotations
 import json
 import sqlite3
 from datetime import datetime, timedelta, timezone
-from pathlib import Path
 
 from fastapi import FastAPI, Request, Response, HTTPException, Query
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse

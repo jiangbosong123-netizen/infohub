@@ -9,7 +9,6 @@ import re
 from datetime import datetime
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
-from typing import Iterable
 
 from .evaluation import EvaluationDatasetError, _load_cases, _load_json, _verified_holdout, validate_evaluation_dataset
 from .owner_recheck import KEY_LABELS, owner_recheck_report

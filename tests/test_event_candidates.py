@@ -116,7 +116,7 @@ class EventCandidateProjectionTests(unittest.TestCase):
 
     def test_redirected_legacy_story_ids_resolve_to_one_event(self):
         one = self._ingest("OpenAI releases a coding platform for developers")
-        two = self._ingest("OpenAI 发布全新开发者编程平台")
+        self._ingest("OpenAI 发布全新开发者编程平台")
         refresh_derived()
         with database.get_db() as db:
             db.execute(

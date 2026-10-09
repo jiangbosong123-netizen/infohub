@@ -9,7 +9,6 @@ from app.topic_review_sample_gate import (
     TopicReviewSampleGateError,
     approved_sample_evaluation,
     record_sample_evaluation,
-    sample_gate_preview,
 )
 from app.topic_review_sampling import create_sample_batch, sample_queue
 
