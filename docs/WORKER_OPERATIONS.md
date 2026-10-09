@@ -67,6 +67,22 @@ schedule 的下一次时间保存在 SQLite。进程停机期间错过多个周�
   worker 每完成一轮抓取就访问一次，信号中断由该服务按所选渠道通知。只有跑完的一轮才算存活；访问失败只记日志、不影响抓取；
   该地址等同密钥，不进日志和 `runtime-config`，`/api/health` 只显示 `runtime.external_heartbeat_configured`。旧采集器在
   356 小时里约 40 小时没有抓取却无人知晓，就是这类情况。
+- 告警自检：每轮抓取结束后 worker 还会检查下面几项；有任何一项时，心跳改为访问 `<地址>/fail`（Healthchecks.io 的约定），
+  正文是原因，监控服务立刻发“故障”邮件，恢复后下一轮自动发“恢复”。其他服务不认 `/fail` 时，表现为心跳中断，
+  宽限期后同样会通知。每项都按时间窗口判断，一轮偶发失败不会报警：
+
+  | 代码 | 条件 |
+  |---|---|
+  | `sources_failing` | 启用的来源至少 5 个，且超过一半最近一次抓取失败（断网、被封或代码故障） |
+  | `ai_off` | worker 没有模型配置，新闻不会被评分和翻译 |
+  | `ai_stalled` | 1–6 小时前抓到的新闻至少 5 条，且超过一半仍未评分（密钥失效、额度用完、服务故障） |
+  | `jobs_failed` | 24 小时内有后台任务重试用尽（dead_letter/blocked），按类型计数 |
+  | `backup_stale` | 最新夜间备份超过 36 小时；或备份计划建立已超过 36 小时却从未成功 |
+  | `disk_low` | 数据库、证据或备份所在磁盘剩余空间低于 `ALERT_DISK_FREE_MB`（默认 10240 MB） |
+  | `self_check_error` | 自检本身出错 |
+
+  结果同时写到 `data/runtime/self-check.json`，`/api/pipeline` 的 `self_check` 显示最近一次结果与时间（网页进程没有
+  模型密钥，所以由 worker 判断）。手工检查：`docker compose exec worker python cli.py self-check`，有问题时退出码为 1。
 
 `/api/health` 是兼容的完整快照，HTTP 状态采用 readiness，JSON 中的 `pipeline.status` 独立表达
 数据新鲜度。网页 `/health` 同时展示三者。一个启用来源从未成功抓取也计入异常，不能用

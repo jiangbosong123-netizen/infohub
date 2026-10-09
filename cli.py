@@ -24,6 +24,7 @@ from __future__ import annotations
   python cli.py db-verify [PATH]       # 严格验证当前版本数据库
   python cli.py runtime-config         # 显示当前环境、角色与数据路径（不含密钥）
   python cli.py jobs-status            # 显示持久任务各状态数量
+  python cli.py self-check             # 运行告警自检（抓取、AI、后台任务、备份、磁盘），有问题时退出码为 1
   python cli.py dataset-status         # 显示数据集、epoch 与变化高水位
   python cli.py dataset-new-epoch EXPECTED_EPOCH REASON  # 恢复后切换同步代际
   python cli.py sync-retention [--apply] # 检查或清理已过期快照文件（账本不删除）
@@ -201,6 +202,17 @@ def cmd_db_migrate() -> None:
 def cmd_db_verify(path: str | None = None) -> None:
     from app.db_admin import report_json, verify_database
     print(report_json(verify_database(path or config.DB_PATH, require_current=True)))
+
+
+def cmd_self_check() -> None:
+    """The checks the worker reports to the external heartbeat; run it in the worker container."""
+    from app.self_check import find_problems
+    problems = find_problems()
+    print(json.dumps({"status": "problems" if problems else "ok",
+                      "problems": [problem.to_dict() for problem in problems]},
+                     ensure_ascii=False, indent=2))
+    if problems:
+        sys.exit(1)
 
 
 def cmd_jobs_status() -> None:
@@ -1064,6 +1076,8 @@ def main() -> None:
         print(json.dumps(config.RUNTIME.public_manifest(), ensure_ascii=False, indent=2))
     elif cmd == "jobs-status":
         cmd_jobs_status()
+    elif cmd == "self-check":
+        cmd_self_check()
     elif cmd == "dataset-status":
         cmd_dataset_status()
     elif cmd == "dataset-new-epoch" and len(sys.argv) >= 4:

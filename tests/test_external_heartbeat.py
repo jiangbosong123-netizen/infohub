@@ -1,5 +1,7 @@
 import logging
+import tempfile
 import unittest
+from pathlib import Path
 from unittest.mock import patch
 
 import httpx
@@ -56,6 +58,12 @@ class ExternalHeartbeatTests(unittest.TestCase):
         self.assertEqual([r.getMessage() for r in records if "secret-token" in r.getMessage()], [])
 
     def test_only_a_finished_crawl_cycle_pings(self):
+        temporary = tempfile.TemporaryDirectory()
+        self.addCleanup(temporary.cleanup)
+        for item in (patch.object(config, "RUNTIME_PATH", Path(temporary.name)),
+                     patch("app.self_check.find_problems", return_value=[])):
+            item.start()
+            self.addCleanup(item.stop)
         with patch.object(config, "EXTERNAL_HEARTBEAT_URL", URL), \
                 patch.object(external_heartbeat.httpx, "get",
                              return_value=httpx.Response(200, request=httpx.Request("GET", URL))) as get, \

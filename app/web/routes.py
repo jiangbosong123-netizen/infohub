@@ -148,6 +148,7 @@ from ..curation_hot_query import curated_top_clusters, hot_metrics_usable, story
 from ..report_query import published_calendar_dates, published_calendar_report
 from ..provenance import publisher, display_title
 from ..runtime_health import read_worker_heartbeat
+from ..self_check import recorded as recorded_self_check
 from ..source_activity import SourceActivity, source_activity
 from ..timeutil import format_utc, parse_utc
 from ..topics import GROUPS
@@ -2014,6 +2015,8 @@ def api_pipeline():
         "ingest": snapshot["ingest"],
         "items": snapshot["items"],
         "reports": snapshot["reports"],
+        # Recorded by the worker after each crawl cycle; the same result the heartbeat reports.
+        "self_check": recorded_self_check(),
         "checked_at": snapshot["checked_at"],
     }
 
