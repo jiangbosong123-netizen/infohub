@@ -137,7 +137,9 @@ source means one entry in `app/crawler/sources.py`. Neither requires touching th
 
 ## Running it unattended
 
-Production is a Windows host running **Docker Compose**: a one-shot `migrate` container
+Production is meant to be a Windows host running **Docker Compose** (not switched yet: the legacy Mac collector has
+been disabled since 2026-10-04 and the Windows host is not upgraded, so nothing is collecting; see
+[`docs/WINDOWS_CUTOVER.md`](docs/WINDOWS_CUTOVER.md)): a one-shot `migrate` container
 (`cli.py prepare-release`: verified backup, then migration), a read-only `infohub` web
 container that never crawls, and a single `worker` container that owns scheduling, crawling
 and model calls. SQLite, evidence blobs, backups and heartbeats persist under `./data`. The
@@ -147,6 +149,9 @@ web port is bound to `127.0.0.1` and reached privately through Tailscale Serve
 A companion deployment manager (separate repository) polls this repository and applies
 fast-forward-only updates of `main`, passing the commit SHA into the container so
 `/api/health` reports the exact running version.
+The worker makes a verified full backup every night (keeping 3) and, after each crawl cycle, reports failing
+sources, a stalled model, failed jobs, a stale backup or low disk to Healthchecks, which emails the owner. The
+owner's guide (Chinese) is [`docs/OWNER_GUIDE.md`](docs/OWNER_GUIDE.md).
 Day-to-day commands, backups and restores are in [`docs/RUNBOOK.md`](docs/RUNBOOK.md). The first production
 upgrade is planned in [`docs/CUTOVER_PLAN.md`](docs/CUTOVER_PLAN.md) from a full rehearsal on real data. A tested macOS
 launchd alternative with the same roles lives in [`deploy/macos/`](deploy/macos/README.md); only one host may collect.
