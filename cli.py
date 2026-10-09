@@ -15,6 +15,7 @@ from __future__ import annotations
   python cli.py db-bundle-verify PATH   # 校验完整备份包
   python cli.py db-bundle-restore BUNDLE DEST  # 恢复到全新隔离目录，不切换线上库
   python cli.py db-bundle-smoke PATH     # 用临时副本验收门户读路径
+  python cli.py db-bundle-promote PATH   # 停掉 web 与 worker 后，用备份包替换运行库（maintenance only）
   python cli.py db-coverage [PATH]      # 只读统计旧数据到新模型的实际覆盖
   python cli.py db-legacy-compare BEFORE AFTER  # 核对迁移前后旧表的原有列和行
   python cli.py db-event-audit [PATH]   # 只读验收旧 story 的候选事件投影
@@ -147,6 +148,11 @@ def cmd_db_bundle_verify(path: str) -> None:
 def cmd_db_bundle_restore(bundle: str, destination: str) -> None:
     from app.evidence_backup import restore_backup_bundle
     print(json.dumps(restore_backup_bundle(bundle, destination), ensure_ascii=False, indent=2))
+
+
+def cmd_db_bundle_promote(path: str) -> None:
+    from app.evidence_backup import promote_backup_bundle
+    print(json.dumps(promote_backup_bundle(path), ensure_ascii=False, indent=2))
 
 
 def cmd_db_bundle_smoke(path: str) -> None:
@@ -1058,6 +1064,8 @@ def main() -> None:
         cmd_db_bundle_restore(sys.argv[2], sys.argv[3])
     elif cmd == "db-bundle-smoke" and len(sys.argv) == 3:
         cmd_db_bundle_smoke(sys.argv[2])
+    elif cmd == "db-bundle-promote" and len(sys.argv) == 3:
+        cmd_db_bundle_promote(sys.argv[2])
     elif cmd == "db-coverage" and len(sys.argv) <= 3:
         cmd_db_coverage(sys.argv[2] if len(sys.argv) == 3 else None)
     elif cmd == "db-legacy-compare" and len(sys.argv) == 4:

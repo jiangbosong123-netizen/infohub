@@ -52,6 +52,8 @@ SQLite 备份从 P06a 起不再代表完整数据集，必须和 blob 一起保�
    `database.db` 与 `blobs/`，不会覆盖当前运行库或自动切换服务；
 5. 运行 `db-bundle-smoke DEST`。它在一次性数据库副本上打开门户主要路由，
    返回逐页状态；正式切换后还需在实际服务上检查 worker 与 `/api/ready`。
+6. 需要替换运行库时，停掉 web 与 worker 后运行 `db-bundle-promote BUNDLE`：只补证据文件、把旧库移到
+   `replaced/`，并在可能让消费者见过的高水位倒退时自动切换 epoch（步骤见运维手册“从备份恢复到线上”）。
 
 原有 `db-backup` 只备份 SQLite，仍可用于迁移前的快速回滚点，不能单独充当完整证据备份。
 `db-bundle-backup` 要求当前 schema，不会替旧数据库自动迁移，也不会自动暂停 worker。

@@ -7,6 +7,7 @@ import json
 import logging
 import os
 import sqlite3
+from contextlib import closing
 from dataclasses import asdict, dataclass, replace
 from datetime import datetime, timedelta, timezone
 from itertools import groupby
@@ -6753,7 +6754,7 @@ def verify_database(path: Path | str, require_current: bool = False) -> Verifica
     dataset_id = None
     dataset_epoch = None
     change_high_water = None
-    with _connect_readonly(target) as db:
+    with closing(_connect_readonly(target)) as db:
         db.execute(f"PRAGMA cache_size=-{VERIFY_CACHE_KIB}")
         state, version = database_state(db)
         if require_current and state != "current":
@@ -6836,7 +6837,8 @@ def backup_database(
         raise FileExistsError(f"backup destination already exists: {target}")
     temporary = target.parent / f".{target.name}.{uuid4().hex}.tmp"
     try:
-        with _connect_readonly(source) as source_db, sqlite3.connect(temporary) as backup_db:
+        # closing(): a sqlite3 connection's own context manager commits but never closes.
+        with closing(_connect_readonly(source)) as source_db, closing(sqlite3.connect(temporary)) as backup_db:
             source_db.backup(backup_db)
             # Publish one self-contained file. Inheriting WAL mode can require
             # sidecar files merely to open the backup read-only on Windows.
@@ -6880,7 +6882,7 @@ def migrate_database(
     target = Path(path or database.DB_PATH).expanduser().resolve()
     target.parent.mkdir(parents=True, exist_ok=True)
     if target.exists() and target.stat().st_size:
-        with _connect_readonly(target) as before_db:
+        with closing(_connect_readonly(target)) as before_db:
             previous_state, previous_version = database_state(before_db)
     else:
         previous_state, previous_version = "empty", 0
