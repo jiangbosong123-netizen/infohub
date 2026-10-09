@@ -37,6 +37,12 @@ python3.12 -m venv .venv
 .venv/bin/python cli.py serve            # portal on http://127.0.0.1:8000
 ```
 
+`requirements.txt` pins every package, including indirect ones, with hashes; CI, the Docker image
+and the macOS kit all install exactly that set. Version ranges live in `requirements.in`. To change
+or update a dependency, edit it there and regenerate the lock with
+`uv pip compile requirements.in --universal --python-version 3.11 --generate-hashes -o requirements.txt`.
+The image's Python base is pinned by digest in `Dockerfile`.
+
 Development defaults are deliberately inert: data lives under `.runtime/development-local/`,
 and network tasks, the scheduler and model calls are all off. A one-off crawl must be asked
 for explicitly:

@@ -2,7 +2,11 @@
 # processes write or checkpoint at the same instant (https://sqlite.org/wal.html#walresetbug),
 # and web and worker are such processes. Debian trixie, under python:3.12-slim, ships 3.46.1,
 # so the image builds its own library from the checksummed release.
-FROM python:3.12-slim AS sqlite
+#
+# Both stages use one base pinned by digest (python:3.12-slim: Python 3.12.15 on Debian trixie,
+# published 2026-10-06, amd64 and arm64), so rebuilding a commit gives the base CI tested.
+# Dependabot proposes digest updates; keep the two lines identical.
+FROM python:3.12-slim@sha256:a6e34c598f2467ed0e9a8d349809fcd8b5c603269512df273a0bb1784edc11b1 AS sqlite
 
 ARG SQLITE_YEAR=2026
 ARG SQLITE_VERSION=3530400
@@ -23,13 +27,10 @@ RUN curl -fsSLO "https://sqlite.org/${SQLITE_YEAR}/sqlite-autoconf-${SQLITE_VERS
     && make -j"$(nproc)" \
     && make install
 
-FROM python:3.12-slim
-
-ARG APP_VERSION=unknown
+FROM python:3.12-slim@sha256:a6e34c598f2467ed0e9a8d349809fcd8b5c603269512df273a0bb1784edc11b1
 
 ENV PYTHONDONTWRITEBYTECODE=1 \
-    PYTHONUNBUFFERED=1 \
-    APP_VERSION=${APP_VERSION}
+    PYTHONUNBUFFERED=1
 
 WORKDIR /app
 
@@ -43,11 +44,19 @@ COPY --from=sqlite /usr/local/lib/libsqlite3.so* /usr/local/lib/
 RUN ldconfig \
     && python -c "import sqlite3; v = sqlite3.sqlite_version_info; assert v >= (3, 51, 3), sqlite3.sqlite_version; c = sqlite3.connect(':memory:'); c.execute(\"CREATE VIRTUAL TABLE t USING fts5(x, tokenize='trigram')\"); print('SQLite', sqlite3.sqlite_version)"
 
+# requirements.txt pins every package with hashes (generated from requirements.in).
 COPY requirements.txt ./
-RUN python -m pip install --no-cache-dir -r requirements.txt
+RUN python -m pip install --no-cache-dir --require-hashes -r requirements.txt
 
-COPY . .
+# Only what runs: documentation and tests stay out, so they cannot change the image.
+COPY config ./config
+COPY cli.py ./
+COPY app ./app
 RUN mkdir -p /app/data/blobs /app/data/backups
+
+# Last, so a new version reuses every layer above instead of resolving dependencies again.
+ARG APP_VERSION=unknown
+ENV APP_VERSION=${APP_VERSION}
 
 EXPOSE 8000
 

@@ -1,0 +1,12 @@
+# Monthly proposals for the pinned Python base image and the CI actions. Python packages are
+# locked in requirements.txt and refreshed from requirements.in (see README).
+version: 2
+updates:
+  - package-ecosystem: docker
+    directory: /
+    schedule:
+      interval: monthly
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: monthly

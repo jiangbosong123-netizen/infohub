@@ -32,6 +32,11 @@ python3.12 -m venv .venv
 .venv/bin/python cli.py serve            # 浏览器打开 http://127.0.0.1:8000
 ```
 
+`requirements.txt` 锁定了全部依赖（含间接依赖）的版本和校验哈希，CI、Docker 镜像和 macOS 部署包装的都是这同一套。
+版本范围写在 `requirements.in`；要改或升级依赖，改那里后用
+`uv pip compile requirements.in --universal --python-version 3.11 --generate-hashes -o requirements.txt`
+重新生成。镜像的 Python 基础镜像在 `Dockerfile` 里按摘要固定。
+
 开发环境默认是“静止”的：数据在 `.runtime/development-local/`，网络任务、调度和模型调用全部关闭。
 确实需要一次性抓取样本时必须显式放行：
 

@@ -1,4 +1,8 @@
 x-infohub-common: &infohub-common
+  # Each version is its own image, so the previous one is still there to roll back to. It is
+  # always built from this checkout, never pulled.
+  image: infohub:${APP_VERSION:-unknown}
+  pull_policy: build
   build:
     context: .
     args:
