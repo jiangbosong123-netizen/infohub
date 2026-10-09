@@ -8,7 +8,7 @@ from datetime import datetime, timedelta, timezone
 import markdown as md
 import nh3
 
-from .. import config, ranking
+from .. import config
 from ..database import get_db
 
 log = logging.getLogger(__name__)

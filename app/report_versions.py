@@ -3,7 +3,6 @@ from __future__ import annotations
 """Publish a cited, deterministic fallback from an immutable report input."""
 
 import html
-import json
 import re
 from datetime import datetime, timezone
 from urllib.parse import urlsplit

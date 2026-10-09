@@ -1,7 +1,6 @@
 import json
 import re
 import unittest
-from pathlib import Path
 
 from app.evaluation import validate_evaluation_dataset
 from app.owner_label_console import OwnerLabelSession

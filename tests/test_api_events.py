@@ -5,7 +5,7 @@ from unittest.mock import patch
 
 from fastapi.testclient import TestClient
 
-from app import config, database, db_admin
+from app import config, database
 from app.api_auth import create_consumer, issue_api_key
 from app.event_admission import record_admission_review
 from app.event_dataset_release import record_release_review

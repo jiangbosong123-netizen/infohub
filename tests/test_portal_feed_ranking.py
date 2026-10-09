@@ -1,5 +1,4 @@
 import random
-import sqlite3
 import tempfile
 import unittest
 from pathlib import Path
@@ -43,7 +42,7 @@ def old_query_items(channel="all", company="", event="", cat="", limit=60, offse
     if event:
         where += " AND i.event_type=?"
         params.append(event)
-    base = f"""SELECT i.*, s.name AS source_name, si.story_id
+    base = """SELECT i.*, s.name AS source_name, si.story_id
               FROM items i JOIN sources s ON s.id=i.source_id
               LEFT JOIN story_items si ON si.item_id=i.id""" + curation_join + where
     with database.get_db() as db:

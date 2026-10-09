@@ -9,6 +9,18 @@ concurrency:
 permissions:
   contents: read
 jobs:
+  checks:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: python -m pip install ruff==0.13.3 pip-audit==2.9.0
+      # Pyflakes rules only: undefined names, unused imports and variables.
+      - run: ruff check --select F app cli.py tests
+      # Known vulnerabilities in the locked dependency set.
+      - run: pip-audit --requirement requirements.txt --require-hashes --disable-pip --progress-spinner off
   regression:
     runs-on: ubuntu-latest
     strategy:

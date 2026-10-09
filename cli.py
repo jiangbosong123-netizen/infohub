@@ -1,5 +1,3 @@
-from __future__ import annotations
-
 #!/usr/bin/env python3
 """命令行工具：
 
@@ -79,6 +77,8 @@ from __future__ import annotations
   python cli.py report-publish-reviewed REVIEW_ID  # 发布已人工批准的模型日报（maintenance only）
   python cli.py api-admin ACTION [ARGS]  # 本机管理 API 消费者和密钥（只在签发时输出明文）
 """
+from __future__ import annotations
+
 import json
 import logging
 import sys
@@ -90,7 +90,6 @@ from app.database import get_db, init_schema
 
 
 def _load_companies() -> int:
-    from pathlib import Path
     data = yaml.safe_load(config.WATCHLIST_PATH.read_text(encoding="utf-8"))
     n = 0
     with get_db() as db:
