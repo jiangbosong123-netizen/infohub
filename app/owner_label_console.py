@@ -39,6 +39,7 @@ from .evaluation import (
     validate_evaluation_dataset,
 )
 from .evaluation_sampling import legacy_content_sha256, legacy_item_content
+from .relevance_definition import CURRENT_DEFINITION, DEFINITIONS
 from .review_intake import (
     OWNER_BATCH_VERSION,
     OWNER_RECHECK_BATCH_VERSION,
@@ -46,7 +47,8 @@ from .review_intake import (
 )
 
 TASK = "relevance"
-LABEL_DEFINITION = "relevance-definition-v1"
+# New datasets are labeled under the current definition; a dataset that declares one keeps it.
+LABEL_DEFINITION = CURRENT_DEFINITION
 LABELS = ("relevant", "not_relevant", "unknown")
 DRAFT_VERSION = "owner-label-draft-v1"
 DRAFT_FIELDS = frozenset({
@@ -125,9 +127,10 @@ class OwnerLabelSession:
         self.cases_sha256 = hashlib.sha256(cases_bytes).hexdigest()
         protocol = owner_protocol(json.loads(manifest_bytes))
         if protocol is not None and (
-            protocol["owner_id"] != self.owner_id or protocol["label_definition"] != LABEL_DEFINITION
+            protocol["owner_id"] != self.owner_id or protocol["label_definition"] not in DEFINITIONS
         ):
             raise OwnerConsoleError("dataset belongs to another owner or label definition")
+        self.definition = protocol["label_definition"] if protocol else LABEL_DEFINITION
         all_cases = _parse_cases(cases_bytes.decode("utf-8"))
         legacy = [
             case for case in all_cases
@@ -321,7 +324,7 @@ class OwnerLabelSession:
         manifest = {
             "schema_version": BATCH_SCHEMAS[self.mode],
             "task": TASK,
-            "label_definition": LABEL_DEFINITION,
+            "label_definition": self.definition,
             "source_dataset_version": self.dataset_version,
             "source_manifest_sha256": self.manifest_sha256,
             "source_cases_sha256": self.cases_sha256,
@@ -386,7 +389,8 @@ def create_owner_label_console(session: OwnerLabelSession, *, csrf_token: str) -
                 "csrf_token": csrf_token,
                 "owner_id": session.owner_id,
                 "dataset_version": session.dataset_version,
-                "definition": LABEL_DEFINITION,
+                "definition": session.definition,
+                "criteria": DEFINITIONS[session.definition],
                 "mode": session.mode,
                 "labels": LABELS,
                 "progress": session.progress(),

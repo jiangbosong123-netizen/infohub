@@ -130,6 +130,21 @@ python -m app.legacy_relevance_run \
 - **与指标联动。** `classification-metrics-v5` 对 owner 层直接读取该报告，未完成时逐条列出原因；完成后 owner 层
   test 报告的 `experimental_claim_allowed` 才可能为 true（`quality_claim_allowed` 仍只属于 gold）。
 
+## 定义变更（D26）
+
+所有者决定改用新定义时，已有的 owner 数据集不重标，而是生成一个声明新定义的新版本：
+
+```bash
+python -m app.owner_label_intake --task relevance --kind redefine --dataset OWNER_V1 \
+  --output OWNER_V2 --dataset-version relevance-owner-v2 \
+  --definition relevance-definition-v2 --decision "D26 ..." --decided-at 2026-10-11
+```
+
+- 标签与全部 annotation 原样复制；清单的 `annotation_protocol.label_definition` 改为新定义，`label_definition_change`
+  记录原定义、新定义、决定、日期和 `labels_unchanged=true`，并按父版本 hash 链接。
+- 只接受已声明 single-owner 协议的数据集、已知的新定义；已有复核或裁定时拒绝（它们是在原定义下做的）。
+- 之后的标注台、复核与银标器都按新定义工作；银标结果与数据集定义不同时，评估和导入都拒绝。
+
 ## 复核分歧裁定（D23-e）
 
 复核与首次标签不同的 case 需要 owner 写出最终决定与理由。这一步**不是盲的**：标注台 `--resolve` 模式同时
