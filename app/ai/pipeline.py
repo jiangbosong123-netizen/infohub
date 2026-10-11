@@ -19,12 +19,13 @@ log = logging.getLogger(__name__)
 VALID_EVENTS = {"earnings", "insider", "buyback", "ma", "personnel", "product",
                 "regulation", "rating", "offering", "other"}
 
-SYSTEM_PROMPT = """你是科技与财经资讯编辑，为 TMT 信息聚合站处理条目。对输入的每条资讯输出：
+# The tmt field follows relevance-definition-v2 (D26): technology plus markets and macro.
+SYSTEM_PROMPT = """你是科技与财经资讯编辑，为科技与财经信息聚合站处理条目。对输入的每条资讯输出：
 1. title_zh：中文标题。英文标题翻译成简洁的中文新闻标题；中文标题精简润色，保留关键实体与数字。
-2. tmt：布尔值。是否属于 TMT（科技/传媒/电信）领域——AI、机器人、半导体、智能硬件、互联网大厂、软件与云、智能汽车、电信、科技公司动态与股价事件算 true；宏观大盘、地缘政治、民生医疗、体育娱乐、农产品能源等传统行情算 false（政策/监管仅当直接围绕科技行业或科技公司时才算 true，如「美司法部审查英伟达并购」算，「美联储加息预期」不算）。
-3. score：0-100 重要性评分。对科技行业格局、相关公司股价影响越大分越高（重大财报/并购/监管/重磅产品 80-100，一般行业动态 50-79，例行文件/水文/软文 <50）。
+2. tmt：布尔值。是否属于本站关注范围——科技（AI、机器人、半导体、智能硬件与消费电子、互联网平台、软件与云、智能汽车、电信，科技公司动态与股价事件，针对科技行业的政策监管）或财经与市场（货币政策与央行、宏观数据、大盘与指数、国债与汇率、能源与大宗商品、贸易与关税、财政政策，任何公司的财报、股价异动、并购融资，产业数据，会影响市场的地缘政治）算 true；不影响市场的政治军事新闻、社会民生、文娱体育游戏、购物促销与生活方式、医疗健康、只是与关注公司同名的内容（如苹果派、ARM 浮动利率房贷）算 false。
+3. score：0-100 重要性评分。对科技行业格局、相关公司股价或整体市场影响越大分越高（重大财报/并购/监管/重磅产品、央行利率决议、关键宏观数据、重大地缘与能源冲击 80-100，一般行业与市场动态 50-79，例行行情波动与数据、例行文件、水文软文 <50）。
 4. summary_zh：用简体中文写 1-2 句摘要。英文内容翻译提炼，中文内容直接浓缩。客观、信息密度优先，别写成广告腔。
-5. reason：一句话推荐理由（30-60 字），说明这条为什么值得看、事件的影响是什么。非 TMT 条目给空字符串。
+5. reason：一句话推荐理由（30-60 字），说明这条为什么值得看、事件的影响是什么。tmt 为 false 的条目给空字符串。
 6. event_type：仅当该条 channel 为 "stock" 时，从 [earnings,insider,buyback,ma,personnel,product,regulation,rating,offering,other] 选最贴切的一个；其余情况给 null。
 7. ai_cat：仅当该条 channel 为 "ai" 且 tmt 为 true 时，从 [model, product, industry, paper, opinion] 选最贴切的一个（大模型发布/更新=model，应用与硬件产品=product，行业格局/投融资/政策=industry，论文与技术突破=paper，观点/评论=opinion）；其余情况给 null。
 
@@ -226,9 +227,11 @@ def _call_llm_tmt(payload: list[dict]) -> list:
         extra_body={"thinking": {"type": "disabled"}},
         messages=[
             {"role": "system",
-             "content": ("判断每条资讯是否属于 TMT（科技/传媒/电信）领域，并给出一句话推荐理由。"
-                         "tmt=true 的条件：AI、机器人、半导体、智能硬件、互联网大厂、软件云、智能汽车、"
-                         "电信、科技公司动态；宏观/地缘/民生/传统行业行情=false。"
+             "content": ("判断每条资讯是否属于本站关注范围，并给出一句话推荐理由。"
+                         "tmt=true：科技（AI、机器人、半导体、智能硬件、互联网平台、软件云、智能汽车、电信、"
+                         "科技公司动态）或财经与市场（央行与宏观数据、大盘指数、国债汇率、能源大宗商品、贸易关税、"
+                         "公司财报与股价异动、会影响市场的地缘政治）；不影响市场的政治军事、社会民生、文娱体育、"
+                         "购物与生活方式、医疗健康、只是与关注公司同名的内容=false。"
                          '只输出 JSON 数组：[{"id": 1, "tmt": true, "reason": "…", "ai_cat": null}]'
                          "（ai_cat 仅当明显是 AI 资讯时从 [model,product,industry,paper,opinion] 选，否则 null）")},
             {"role": "user", "content": json.dumps(payload, ensure_ascii=False)}])

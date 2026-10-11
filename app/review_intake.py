@@ -42,6 +42,7 @@ BATCH_MANIFEST_FIELDS = frozenset({
 OWNER_BATCH_VERSION = "owner-label-batch-v1"
 OWNER_RECHECK_BATCH_VERSION = "owner-recheck-batch-v1"
 OWNER_RESOLUTION_BATCH_VERSION = "owner-resolution-batch-v1"
+OWNER_REDEFINITION_VERSION = "owner-label-definition-change-v1"
 RESOLUTION_ROW_FIELDS = frozenset({"case_id", "content_sha256", "recorded_at", "labels", "reason"})
 OWNER_BATCH_MANIFEST_FIELDS = frozenset({
     "schema_version", "task", "label_definition", "source_dataset_version",
@@ -581,6 +582,60 @@ def run_owner_resolution_intake(
         "owner_id": owner,
         "resolved_cases": resolved,
     }
+
+
+def run_owner_redefinition(
+    task: ReviewIntakeTask,
+    source: Path | str,
+    output: Path | str,
+    *,
+    dataset_version: str,
+    definition: str,
+    decision: str,
+    decided_at: str,
+) -> dict:
+    """Re-declare a single-owner dataset's label definition on the owner's recorded decision.
+
+    Labels are copied unchanged and the manifest records both definitions and the decision, so
+    nobody can mistake them for labels made while the new wording was shown. It is refused once
+    a recheck or resolution exists: those were judged under the old definition.
+    """
+    label = "owner redefinition"
+    source, output = Path(source), Path(output)
+    _check_paths(label, source, source, output)
+    loaded = _load_source(task, label, source, dataset_version)
+    declared = owner_protocol(loaded.manifest)
+    if declared is None:
+        raise EvaluationDatasetError("dataset has no single-owner protocol to redefine")
+    definition = _require_text(definition, "definition", "redefinition")
+    if declared["label_definition"] == definition:
+        raise EvaluationDatasetError(f"dataset already uses {definition}")
+    if any("owner_recheck" in case["annotation"] or "owner_resolution" in case["annotation"]
+           for case in loaded.cases):
+        raise EvaluationDatasetError("rechecks or resolutions were made under the old definition")
+    record = {
+        "schema_version": OWNER_REDEFINITION_VERSION,
+        "task": task.task_id,
+        "from_definition": declared["label_definition"],
+        "to_definition": definition,
+        "decided_by": declared["owner_id"],
+        "decided_at": _require_text(decided_at, "decided_at", "redefinition"),
+        "decision": _require_text(decision, "decision", "redefinition"),
+        "labels_unchanged": True,
+    }
+    record_bytes = json.dumps(record, ensure_ascii=False, sort_keys=True).encode("utf-8")
+    _publish(
+        task, label, source, output, loaded, _Batch(record, record_bytes, b""),
+        dataset_version=dataset_version,
+        prefix="label_definition_change",
+        schema_version=OWNER_REDEFINITION_VERSION,
+        extra_manifest={
+            "annotation_protocol": {**loaded.manifest["annotation_protocol"], "label_definition": definition},
+            "label_definition_change": record,
+        },
+    )
+    return {"task": task.task_id, "source_dataset_version": loaded.report.dataset_version,
+            "dataset_version": dataset_version, **record}
 
 
 def review_intake_cli(description: str, importer: Callable[..., Any]) -> int:

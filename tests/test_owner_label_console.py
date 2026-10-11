@@ -8,6 +8,7 @@ from pathlib import Path
 from fastapi.testclient import TestClient
 
 from app.evaluation import validate_evaluation_dataset
+from app.relevance_definition import CURRENT_DEFINITION
 from app.evaluation_admission import admit_sampling_plan
 from app.evaluation_sampling import build_sampling_plan
 from app.owner_label_console import (
@@ -94,7 +95,7 @@ class OwnerLabelConsoleTests(unittest.TestCase):
         manifest = json.loads((batch / "manifest.json").read_text())
         self.assertEqual(
             (manifest["task"], manifest["label_definition"], manifest["blind"]),
-            ("relevance", "relevance-definition-v1", True),
+            ("relevance", CURRENT_DEFINITION, True),
         )
         report = import_owner_label_batch(
             "relevance", self.dataset, batch, self.root / "owner-v1",
