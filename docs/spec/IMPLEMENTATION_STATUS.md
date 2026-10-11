@@ -100,6 +100,12 @@ the implementation PR series proceeded. It was restored on 2026-09-27 after `mai
   source runs and Google News reconciliation store candidates on reused connections too (a 50-item run of
   stored items: about 207 ms to 28 ms, identical rows); web connections are unchanged.
 
+- First real owner labels (2026-10-11): the owner blind-labeled all 600 relevance cases. Their labels counted
+  markets and macro news as relevant, so relevance-definition-v2 (D26) adds them. The curation prompt follows v2,
+  and the owner dataset was re-declared as `relevance-owner-v2` with its labels unchanged. Against the owner's
+  test split, the GLM silver labeler agrees 86.7% under v1 and 93.3% under v2 (dev 80.8% → 88.3%). Every owner-tier
+  claim stays experimental until the 30-case blind recheck, due on or after 2026-10-18.
+  Evidence: `docs/evidence/relevance-definition-v2-20261011.json`.
 - Production readiness (2026-10-09/10): dependencies are a hashed lock installed on a digest-pinned base image,
   and CI runs the tests inside the built image and starts it production-like. The worker makes a verified nightly
   bundle with a free-space guard and bounded retention (nightly 3, pre-migration 2), runs a windowed self-check
