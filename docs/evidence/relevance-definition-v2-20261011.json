@@ -1,0 +1,82 @@
+{
+  "decision": "D26 relevance-definition-v2 (owner, 2026-10-11)",
+  "pr": 206,
+  "owner_labels": {
+    "dataset": "relevance-owner-v2 (labels identical to relevance-owner-v1)",
+    "cases": 600,
+    "relevant": 560,
+    "not_relevant": 39,
+    "unknown": 1,
+    "labeled_utc": "2026-10-11T14:42Z to 22:28Z",
+    "blind": true,
+    "tier": "owner (experimental)",
+    "cases_sha256": "24f6504a10f01a6a7b1e64bbe6f083191fe2d39270fa04c00e1ce8580a631ddb"
+  },
+  "silver_runs": {
+    "relevance-llm-v1": {
+      "config_sha256": "dc19372a13205b5c915698e7c648e4d6cad8723d461ff6066e0a41b436268070",
+      "model": "glm-4.6",
+      "usage": {
+        "calls": 30,
+        "completion_tokens": 8202,
+        "failed_batches": 0,
+        "prompt_tokens": 46947
+      }
+    },
+    "relevance-llm-v2": {
+      "config_sha256": "52393803b37788e837501bcd96dbcdbafa0a1399b8ef07eb451eaa104f2abebe",
+      "model": "glm-4.6",
+      "usage": {
+        "calls": 30,
+        "completion_tokens": 8144,
+        "failed_batches": 0,
+        "prompt_tokens": 49707
+      },
+      "all_splits": true
+    }
+  },
+  "agreement_with_owner": {
+    "train_360": {
+      "v1": "303 (84.2%)",
+      "v2": "322 (89.4%)"
+    },
+    "dev_120": {
+      "v1": "97 (80.8%)",
+      "v2": "106 (88.3%)"
+    },
+    "test_120": {
+      "v1": "104 (86.7%, Wilson 79.4-91.6%)",
+      "v2": "112 (93.3%, Wilson 87.4%-96.6%)"
+    },
+    "protocol": "boundary written from train disagreements only; dev checked next; test graded once, after the prompt was fixed"
+  },
+  "test_v2_per_class": {
+    "not_relevant": {
+      "support": 7,
+      "predicted": 7,
+      "true_positive": 4,
+      "precision": 0.5714285714285714,
+      "recall": 0.5714285714285714
+    },
+    "relevant": {
+      "support": 113,
+      "predicted": 111,
+      "true_positive": 108,
+      "precision": 0.972972972972973,
+      "recall": 0.9557522123893806
+    }
+  },
+  "remaining_train_disagreements_v2": {
+    "total": 38,
+    "owner_label_conflicts_with_v2": "name matches (a band, ARM mortgage rates), shopping roundups and a fraud story labeled relevant; a graphics card, a projector, a robotics video and developer blogs labeled not relevant",
+    "labeler_misses": "tech-company news pushed out by the v2 exclusions (Xbox strategy as games, Oracle health data as health, a Xiaomi thermos as consumer goods) and AI blog posts left unknown; in production most are kept anyway because watched-company and official items are forced relevant"
+  },
+  "legacy_curation_hidden_under_v1": {
+    "items": 89575,
+    "hidden": 31651,
+    "sina_7x24": 20153,
+    "cls": 5330,
+    "wscn_live": 5029
+  },
+  "claims": "experimental only: single owner; the 30-case blind recheck is due on or after 2026-10-18; not_relevant has 7 test cases, so its metrics are wide"
+}
