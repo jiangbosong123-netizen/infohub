@@ -12,6 +12,7 @@ from datetime import datetime, timedelta, timezone
 from openai import OpenAI
 
 from .. import config
+from ..crawler.article_text import excerpts, waiting_for_text_clause
 from ..database import get_db
 
 log = logging.getLogger(__name__)
@@ -91,19 +92,23 @@ def process_pending(limit: int = 20) -> int:
     if not config.llm_enabled():
         return 0
     limit = max(1,min(limit,100))
+    # A title-only item waits a while for its article text (D27) so it is judged on more than its headline.
+    waiting, params = waiting_for_text_clause(datetime.now(timezone.utc))
     with get_db() as db:
-        query = """SELECT id,title,summary,raw_summary,channel,event_type,official,companies
-                   FROM items WHERE score IS NULL ORDER BY id {} LIMIT ?"""
+        query = ("SELECT i.id,i.title,i.summary,i.raw_summary,i.channel,i.event_type,i.official,i.companies "
+                 "FROM items i WHERE i.score IS NULL" + waiting + " ORDER BY i.id {} LIMIT ?")
         # Reserve a quarter of each batch for the oldest backlog, while keeping
         # most capacity for fresh news. A busy feed cannot starve old items.
-        oldest = db.execute(query.format('ASC'),(max(1,limit//4),)).fetchall()
-        latest = db.execute(query.format('DESC'),(limit,)).fetchall()
+        oldest = db.execute(query.format('ASC'),(*params, max(1,limit//4))).fetchall()
+        latest = db.execute(query.format('DESC'),(*params, limit)).fetchall()
         rows = list({r['id']:r for r in oldest+latest}.values())[:limit]
+        texts = excerpts(db, (r["id"] for r in rows))
     if not rows:
         return 0
 
     payload = [dict(id=r["id"], channel=r["channel"], title=r["title"],
-                    excerpt=(r["raw_summary"] if r["raw_summary"] is not None else r["summary"] or "")[:200]) for r in rows]
+                    excerpt=texts.get(r["id"]) or (r["raw_summary"] if r["raw_summary"] is not None else r["summary"] or "")[:200])
+               for r in rows]
     try:
         results = _call_llm(payload)
     except Exception as exc:  # noqa: BLE001

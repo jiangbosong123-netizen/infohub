@@ -32,7 +32,7 @@ from .timeutil import format_utc, utc_now
 log = logging.getLogger(__name__)
 JOB_KINDS = (
     "crawl", "ai", "reconcile", "report", "prune", "curation-search",
-    "curation-hot", "topic-statistics", "sync-snapshot", "backup",
+    "curation-hot", "topic-statistics", "sync-snapshot", "backup", "article-text",
 )
 # Succeeded routine jobs are kept a month for operations; fetch_log keeps 14 days.
 JOB_RETENTION_DAYS = 30
@@ -108,6 +108,16 @@ def register_default_schedules(now: datetime | None = None) -> None:
         with get_db() as db:
             db.execute("""UPDATE schedules SET enabled=0,updated_at=?
                           WHERE id='curation-hot:refresh' AND enabled=1""", (utc_now(),))
+    if config.ARTICLE_TEXT_ENABLED:
+        upsert_interval_schedule(
+            schedule_id="article-text:fetch", kind="article-text",
+            next_due_at=current, interval_seconds=300, priority=12, max_attempts=2,
+        )
+    else:
+        from .database import get_db
+        with get_db() as db:
+            db.execute("""UPDATE schedules SET enabled=0,updated_at=?
+                          WHERE id='article-text:fetch' AND enabled=1""", (utc_now(),))
     if config.TOPIC_STATISTICS_ENABLED:
         upsert_interval_schedule(
             schedule_id="topic-statistics:refresh", kind="topic-statistics",
@@ -183,6 +193,11 @@ def _prune() -> dict:
             "sync_snapshots": snapshots.to_dict()}
 
 
+def _article_text() -> dict:
+    from .crawler.article_text import fetch_article_texts
+    return fetch_article_texts()
+
+
 def _backup() -> dict:
     from .scheduled_backup import run_nightly_backup
     return run_nightly_backup()
@@ -249,6 +264,7 @@ def default_handlers() -> dict[str, Callable[[], object]]:
         "report": _report,
         "prune": _prune,
         "backup": _backup,
+        "article-text": _article_text,
         "curation-search": _curation_search_refresh,
         "curation-hot": _curation_hot_refresh,
         "topic-statistics": _topic_statistics_refresh,

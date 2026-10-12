@@ -60,6 +60,9 @@ docker compose exec worker python cli.py self-check
 - **升级后有问题，回到上一版**：同一指南第 11 步。
 - **数据坏了或误操作，用夜间备份恢复**：[运维手册](RUNBOOK.md)“从备份恢复到线上”，四条命令；当前库会被移到
   `data\replaced\`，不会被删除。
+- **上线稳定后打开正文补全**：在 `.env` 加一行 `INFOHUB_ARTICLE_TEXT_ENABLED=true`，再运行
+  `docker compose up -d worker`。之后只有标题的新闻（主要是 Google News）会自动补正文，约六成能补上；
+  想关掉就改回 `false` 再运行同一条命令。
 
 ## 6. 千万不要做的事
 

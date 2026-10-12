@@ -15,6 +15,8 @@ python-dotenv>=1.0
 markdown>=3.5
 nh3>=0.2.18,<0.4
 rfc8785>=0.1.4,<0.2
+# Article text for title-only items (D27); the worker imports it only when the feature is on.
+trafilatura>=2.0,<3
 # Imported directly (app/api_*.py, app/web/*), not only through fastapi.
 pydantic>=2.6
 starlette>=0.37

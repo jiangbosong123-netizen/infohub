@@ -16,7 +16,7 @@
   {% if r.summary %}<p>{{ r.summary }}</p>{% endif %}
   {% if r.reason %}<div class="t-reason"><b>推荐理由</b>：{{ r.reason }}</div>{% endif %}
   <details class="provenance"><summary>查看原文信息与归并依据</summary>
-    <dl><dt>原始标题</dt><dd>{{ r.title }}</dd><dt>原始摘要</dt><dd>{{ r.raw_summary if r.raw_summary is not none else '这条历史记录未保留原始摘要，请以原文为准。' }}</dd><dt>采集入口</dt><dd>{{ r.source_name }}</dd><dt>归并依据</dt><dd>标题与实体规则 · {{ r.match_reason }} · 匹配值 {{ '%.2f'|format(r.match_score) }}（不代表事实可信度）</dd></dl>
+    <dl><dt>原始标题</dt><dd>{{ r.title }}</dd><dt>原始摘要</dt><dd>{{ r.raw_summary if r.raw_summary is not none else '这条历史记录未保留原始摘要，请以原文为准。' }}</dd>{% if r.article_opening %}<dt>原文开头</dt><dd>{{ r.article_opening }}…（自动抓取，仅供参考，以原文为准）</dd>{% endif %}<dt>采集入口</dt><dd>{{ r.source_name }}</dd><dt>归并依据</dt><dd>标题与实体规则 · {{ r.match_reason }} · 匹配值 {{ '%.2f'|format(r.match_score) }}（不代表事实可信度）</dd></dl>
     <a class="more" href="{{ r.url }}" target="_blank" rel="noopener noreferrer">打开原始报道 ↗</a>
   </details>
 </article>

@@ -113,11 +113,12 @@ class SourceDiscoveryIndexMigrationTests(unittest.TestCase):
         with database.get_db(path) as db:
             db_admin.apply_migrations(db, db_admin.MIGRATIONS[:51])
             before = {row[0] for row in db.execute("SELECT name FROM sqlite_master")}
-        report = db_admin.migrate_database(path)
-        self.assertEqual(report.applied_versions, tuple(range(52, db_admin.CURRENT_SCHEMA_VERSION + 1)))
-        with sqlite3.connect(path) as db:
+        with database.get_db(path) as db:
+            self.assertEqual(db_admin.apply_migrations(db, db_admin.MIGRATIONS[:52]), (52,))
             after = {row[0] for row in db.execute("SELECT name FROM sqlite_master")}
         self.assertEqual(after - before, {"idx_item_discoveries_source_seen"})
+        self.assertEqual(db_admin.migrate_database(path).applied_versions,
+                         tuple(range(53, db_admin.CURRENT_SCHEMA_VERSION + 1)))
 
 
 if __name__ == "__main__":

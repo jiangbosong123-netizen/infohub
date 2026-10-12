@@ -146,6 +146,7 @@ from ..curation_search_query import search_curated, search_index_usable
 from ..curation_hot_query import curated_top_clusters, hot_metrics_usable, story_member_filters
 from ..report_query import published_calendar_dates, published_calendar_report
 from ..provenance import publisher, display_title
+from ..crawler.article_text import excerpts as article_excerpts
 from ..runtime_health import read_worker_heartbeat
 from ..self_check import recorded as recorded_self_check
 from ..source_activity import SourceActivity, source_activity
@@ -2159,6 +2160,10 @@ def topic_detail(request: Request,slug: str,mode: str='selected',page: int=Query
         has_next=len(rows)>20,last_update=_relative(topic['last_at']) if topic['last_at'] else '暂无收录'))
 
 
+# The opening of an item's fetched article text (D27); the full text is never served.
+STORY_EXCERPT_CHARS = 300
+
+
 @app.get('/story/{story_id}',response_class=HTMLResponse)
 def story_detail(request: Request,story_id: str,page: int=Query(1,ge=1)):
     cte, curation_join, visible, _, _ = portal_curation_sql(CURATION_READ_ENABLED)
@@ -2180,6 +2185,7 @@ def story_detail(request: Request,story_id: str,page: int=Query(1,ge=1)):
             WHERE si.story_id=? AND {visible}
             ORDER BY i.published_at DESC,i.id DESC LIMIT 51 OFFSET ?""",(story_id,(page-1)*50)).fetchall()
         publications = published_curation(db, (r['id'] for r in rows[:50])) if CURATION_READ_ENABLED else {}
+        article_openings = article_excerpts(db, (r['id'] for r in rows[:50]), STORY_EXCERPT_CHARS)
         source_rows = [dict(r) for r in db.execute(cte + f"""SELECT i.*,s.name AS source_name FROM story_items si
             JOIN items i ON i.id=si.item_id JOIN sources s ON s.id=i.source_id
             {curation_join}
@@ -2197,7 +2203,8 @@ def story_detail(request: Request,story_id: str,page: int=Query(1,ge=1)):
     for row in rows[:50]:
         data = display_curation(dict(row), publications.get(row['id']))
         data.update(title_display=display_title(data),publisher=publisher(data)[1],
-                    published_label=_fmt_dt(row['published_at']).strftime('%m月%d日 %H:%M'))
+                    published_label=_fmt_dt(row['published_at']).strftime('%m月%d日 %H:%M'),
+                    article_opening=article_openings.get(row['id']))
         reports.append(data)
     story_view = dict(story)
     if CURATION_READ_ENABLED:
