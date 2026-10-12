@@ -3969,6 +3969,32 @@ def _source_discovery_index(db: sqlite3.Connection) -> None:
     _execute_script(db, SOURCE_DISCOVERY_INDEX_SQL)
 
 
+# Article text for title-only items (D27): kept privately for curation and a short excerpt on the
+# story page, compressed in SQLite so backups carry it, never served through the API.
+ARTICLE_TEXTS_SQL = """
+CREATE TABLE article_texts (
+    item_id INTEGER PRIMARY KEY REFERENCES items(id) ON DELETE CASCADE,
+    status TEXT NOT NULL CHECK(status IN ('ok','no_text','blocked','gone','not_html','failed')),
+    article_url TEXT,
+    http_status INTEGER,
+    attempts INTEGER NOT NULL CHECK(attempts >= 1),
+    text_zlib BLOB,
+    text_sha256 TEXT,
+    chars INTEGER NOT NULL DEFAULT 0 CHECK(chars >= 0),
+    extractor TEXT NOT NULL,
+    error TEXT,
+    fetched_at TEXT NOT NULL,
+    next_attempt_at TEXT,
+    CHECK ((status = 'ok') = (text_zlib IS NOT NULL AND text_sha256 IS NOT NULL AND chars > 0))
+);
+CREATE INDEX idx_article_texts_retry ON article_texts(status, next_attempt_at);
+"""
+
+
+def _article_texts(db: sqlite3.Connection) -> None:
+    _execute_script(db, ARTICLE_TEXTS_SQL)
+
+
 # Migration 1 freezes the exact legacy schema at main@88a2a1e. Future schema
 # changes must append a new Migration instead of editing this definition.
 MIGRATIONS = (
@@ -4161,6 +4187,7 @@ MIGRATIONS = (
               PUBLICATION_RESULT_INDEX_SQL, _publication_result_index),
     Migration(52, "index item discoveries by source and first sighting",
               SOURCE_DISCOVERY_INDEX_SQL, _source_discovery_index),
+    Migration(53, "article text for title-only items", ARTICLE_TEXTS_SQL, _article_texts),
 )
 CURRENT_SCHEMA_VERSION = MIGRATIONS[-1].version
 REQUIRED_MIGRATION_COLUMNS = {
@@ -4197,7 +4224,7 @@ EXPECTED_TABLES = LEGACY_ANCHORS | {
     "report_input_snapshots", "report_input_members", "report_versions", "report_publications",
     "report_generation_runs", "report_generation_attempts",
     "report_generation_reviews", "api_consumers", "api_keys", "api_key_audit",
-    "api_rate_buckets", "api_request_leases",
+    "api_rate_buckets", "api_request_leases", "article_texts",
     "api_request_audit",
     "legacy_topic_backfill_state", "legacy_topic_assignment_snapshot",
     "legacy_topic_assignment_mappings",

@@ -1,0 +1,34 @@
+{
+  "trial": "fulltext-trial-v1, 2026-10-12, 200 title-only legacy items (185 Google News + 15 other), seed fulltext-trial-v1",
+  "method": "Google News link decoded via garturlreq after answering Google's consent page with Reject all (connection seen as gl=GB); article fetched with a browser user agent, one pass, no retries, robots.txt not consulted; text extracted with trafilatura 2.0.0 favor_precision",
+  "google_news_185": {
+    "decoded": 185,
+    "usable_text": 117,
+    "usable_pct": 63.2,
+    "partial_text_150_500_chars": 12,
+    "failed": 56,
+    "failed_breakdown": {
+      "blocked_401_403_429_451": 27,
+      "no_text_js_or_empty": 11,
+      "removed_404_400": 7,
+      "paywall": 3,
+      "timeout": 2,
+      "wrong_or_non_article_page": 6
+    },
+    "manual_review": "15 low title-match pages read by hand: 9 correct articles (counted usable), 6 wrong",
+    "median_chars_usable": 3604
+  },
+  "other_15": "11 were flash items (Sina/CLS/WSCN) whose headline is the whole item and whose pages render in JavaScript; not candidates for fetching. Hugging Face blog: full text.",
+  "blocked_domains_seen": [
+    "reuters.com (401)",
+    "investing.com (403)",
+    "blogs.oracle.com (403)",
+    "wsj.com/barrons.com (paywall or preview)",
+    "finance.sina.com.cn / wallstreetcn.com articles (JavaScript)"
+  ],
+  "timing": {
+    "median_seconds_per_item": 1.72,
+    "total_minutes": 7.0
+  },
+  "decision": "D27"
+}

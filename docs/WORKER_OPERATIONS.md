@@ -36,6 +36,8 @@ worker 维护以下 schedule：
 - AI 策展：默认每 15 分钟；没有模型配置时安全完成空轮次，派生索引仍会刷新；
 - Google News 对账：每天配置时间；
 - 日报：每天配置时间；
+- 正文补全（默认关闭）：`INFOHUB_ARTICLE_TEXT_ENABLED=true` 时每 5 分钟为最近 2 天只有标题的条目抓正文，
+  规则见 [信息源说明](SOURCES.md)“正文补全”。
 - 夜间备份：每天 `BACKUP_HOUR:BACKUP_MINUTE`（默认 03:30）生成一份完整备份包（数据库 + 引用的全部证据文件），
   校验通过后才删除旧的：`data/backups/nightly/` 只留最新 `BACKUP_KEEP` 份（默认 3），`data/backups/pre-migration/`
   只留最新 `BACKUP_KEEP_PRE_MIGRATION` 份（默认 2）。写入前先检查剩余空间（见 [运维手册](RUNBOOK.md) 第 3 节）。
