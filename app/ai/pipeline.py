@@ -69,8 +69,19 @@ def _category(result, row):
         "model", "product", "industry", "paper", "opinion"} else ""
 
 
-def _keep_tmt(result, row):
-    return int(bool(row["official"] or row["companies"] != "[]" or result["tmt"]))
+# A watched-company name keeps an item the model judged out of scope, unless the model also scored
+# it at most this low: in the legacy data those were name collisions (an Apple festival, a hockey
+# player named Claude, a game called Twin Oracle Point) and shopping roundups. Official filings are
+# always kept; an item the model has not scored is kept until it is.
+COMPANY_KEEP_MIN_SCORE = 31
+
+
+def _keep_tmt(result, row, score=None) -> int:
+    if row["official"] or result["tmt"]:
+        return 1
+    if row["companies"] != "[]":
+        return int(score is None or score >= COMPANY_KEEP_MIN_SCORE)
+    return 0
 
 
 def _call_llm(payload: list[dict]) -> list:
@@ -154,7 +165,7 @@ def process_pending(limit: int = 20) -> int:
                 """UPDATE items SET score=?, summary=?, title_zh=?, event_type=?,
                                       tmt=?, reason=?, ai_cat=? WHERE id=?""",
                 (score, summary or row["summary"], title_zh, etype,
-                 _keep_tmt(r, row),
+                 _keep_tmt(r, row, score),
                  _text(r.get("reason"), 200),
                  _category(r, row),
                  item_id))
@@ -169,7 +180,7 @@ def backfill_tmt(days: int = 0, max_batches: int = 60) -> int:
     total = 0
     for _ in range(max_batches):
         with get_db() as db:
-            sql = """SELECT id, title, title_zh, summary, channel, event_type, official, companies FROM items
+            sql = """SELECT id, title, title_zh, summary, channel, event_type, official, companies, score FROM items
                      WHERE tmt IS NULL"""
             params: list = []
             if days:
@@ -214,10 +225,8 @@ def backfill_tmt(days: int = 0, max_batches: int = 60) -> int:
                     continue
                 if type(r.get("tmt")) is not bool:
                     continue
-                tmt = _keep_tmt(r, row)
-                # 官方文件与公司关联条目是盯盘刚需，即使 LLM 判否也保留
-                if row["official"] or row["companies"] != "[]":
-                    tmt = 1
+                # 官方文件始终保留；公司关联条目除非 LLM 判否且评分很低（多为同名误匹配）
+                tmt = _keep_tmt(r, row, row["score"] if row["score"] is not None and row["score"] >= 0 else None)
                 db.execute("UPDATE items SET tmt=?, reason=?, ai_cat=? WHERE id=?",
                            (tmt, _text(r.get("reason"), 200),
                             _category(r, row),
