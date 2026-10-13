@@ -77,6 +77,35 @@ def _legacy_publication_projection(raw: dict) -> tuple[str, str]:
         return observed.isoformat(), basis
 
 
+# Google News lists one article under a new link each time it re-surfaces it: the legacy data held
+# 1,744 such copies (Apple's software-update notice 14 times in a day, a game page 32 times).
+GOOGLE_NEWS_REPEAT_WINDOW = timedelta(days=7)
+
+
+def _same_page_url(url: str) -> tuple[str, str]:
+    """The URL and its form with or without a trailing slash: the same page, stored once."""
+    parts = urlsplit(url)
+    if parts.path in ("", "/"):
+        return url, url
+    other = parts.path[:-1] if parts.path.endswith("/") else parts.path + "/"
+    return url, urlunsplit((parts.scheme, parts.netloc, other, parts.query, ""))
+
+
+def _google_news_repeat(db, title: str, raw: dict) -> int | None:
+    publisher = (raw.get("extra") or {}).get("publisher") or ""
+    if not publisher:
+        return None
+    cutoff = (datetime.now(timezone.utc) - GOOGLE_NEWS_REPEAT_WINDOW).isoformat()
+    row = db.execute(
+        """SELECT i.id FROM items i JOIN sources s ON s.id=i.source_id
+           WHERE i.title=? AND s.type='googlenews' AND i.fetched_at>=?
+             AND CASE WHEN json_valid(i.extra) THEN json_extract(i.extra,'$.publisher') END=?
+           ORDER BY i.id LIMIT 1""",
+        (title, cutoff, publisher),
+    ).fetchone()
+    return row["id"] if row else None
+
+
 def insert_item(
     source_key: str,
     raw: dict,
@@ -104,20 +133,28 @@ def insert_item(
         slugs = list(dict.fromkeys((raw.get("companies") or []) + company_match.match_companies(text)))
         legacy_extra = dict(raw.get("extra") or {})
         legacy_extra["_legacy_time_basis"] = legacy_time_basis
-        cur = db.execute(
-            """INSERT OR IGNORE INTO items (source_id, url, title, title_en, summary, raw_summary, channel, event_type,
-                                  score, heat, companies, official, via, published_at, fetched_at, extra)
-               VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
-            (src["id"], url, title, raw.get("title_en") or "", raw.get("summary") or "", raw.get("summary") or "",
-             raw.get("channel") or src["channel"], raw.get("event_type") or "", None, 0,
-             json.dumps(slugs, ensure_ascii=False), 1 if raw.get("official") or src["tier"] == "official" else 0,
-             via, published_at, _now(), json.dumps(legacy_extra, ensure_ascii=False)),
-        )
-        inserted = bool(cur.rowcount)
+        known = db.execute("SELECT id FROM items WHERE url IN (?,?) ORDER BY id LIMIT 1",
+                           _same_page_url(url)).fetchone()
+        repeat_of = known["id"] if known else (
+            _google_news_repeat(db, title, raw) if src["type"] == "googlenews" else None)
+        inserted = False
+        if repeat_of is None:
+            cur = db.execute(
+                """INSERT OR IGNORE INTO items (source_id, url, title, title_en, summary, raw_summary, channel, event_type,
+                                      score, heat, companies, official, via, published_at, fetched_at, extra)
+                   VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+                (src["id"], url, title, raw.get("title_en") or "", raw.get("summary") or "", raw.get("summary") or "",
+                 raw.get("channel") or src["channel"], raw.get("event_type") or "", None, 0,
+                 json.dumps(slugs, ensure_ascii=False), 1 if raw.get("official") or src["tier"] == "official" else 0,
+                 via, published_at, _now(), json.dumps(legacy_extra, ensure_ascii=False)),
+            )
+            inserted = bool(cur.rowcount)
         if inserted:
             item_id = cur.lastrowid
         else:
-            existing = db.execute('SELECT id,companies FROM items WHERE url=?',(url,)).fetchone()
+            existing = db.execute('SELECT id,companies FROM items WHERE id=?',
+                                  (repeat_of or db.execute('SELECT id FROM items WHERE url=?', (url,)).fetchone()['id'],)
+                                  ).fetchone()
             item_id = existing['id']
             merged = list(dict.fromkeys(json.loads(existing['companies']) + slugs))
             if merged != json.loads(existing['companies']):
@@ -148,7 +185,9 @@ def insert_item(
                     observation=observation,
                     document=projection,
                 )
-            if projection.created_version and not inserted:
+            # A re-surfaced copy under another link is evidence of the same article, not a correction
+            # of it: it must not move the item's time forward and make old news look new.
+            if projection.created_version and not inserted and known is not None:
                 # ``items`` remains the compatibility projection used by the
                 # portal until versioned reads are enabled in a later PR.
                 values = [title, raw.get("summary") or "", raw.get("summary") or ""]

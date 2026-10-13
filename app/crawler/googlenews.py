@@ -5,6 +5,7 @@ from __future__ import annotations
 Google News 支持按任意关键词生成 RSS：news.google.com/rss/search?q=...&when:2d
 对每家关注公司拉一遍最新新闻，凡是没入库的（漏抓的）就补录，via 标记为 reconcile。
 """
+import html
 import json
 import logging
 import re
@@ -65,13 +66,13 @@ def _is_community_post(title: str, publisher: str) -> bool:
                 or (_COMMUNITY_PUBLISHER.match(publisher) and _CHECK_IN.match(title)))
 
 
-def _clean_title(title: str) -> str:
-    """Google News 标题尾部带 ' - 媒体名'，去掉。"""
-    return re.sub(r"\s+-\s+[^-]{1,40}$", "", title or "").strip()
-
-
-def _norm_title(t: str) -> str:
-    return re.sub(r"[\s\W_]+", "", (t or "").lower())
+def _clean_title(title: str, publisher: str = "") -> str:
+    """Google News 标题尾部带 ' - 媒体名'，去掉；已知媒体名时按原样去掉（名字里可以有连字符，如 KELO-AM）。"""
+    title = html.unescape(title or "").strip()
+    suffix = f" - {publisher.strip()}" if publisher and publisher.strip() else ""
+    if suffix and title.endswith(suffix) and len(title) > len(suffix):
+        return title[: -len(suffix)].strip()
+    return re.sub(r"\s+-\s+[^-]{1,40}$", "", title).strip()
 
 
 def _company_query(aliases: list[str]) -> str:
@@ -88,10 +89,10 @@ def fetch_company_news(slug: str, name: str, aliases: list[str], when: str = "2d
         raise RuntimeError('Google News 返回的内容不是有效 RSS，不能记为无新闻')
     out = []
     for entry in parsed.entries[:50]:
-        title = _clean_title(getattr(entry, "title", ""))
         link = getattr(entry, "link", "")
         publisher = getattr(entry, "source", None)
         publisher = publisher.get("title") if publisher and hasattr(publisher, "get") else ""
+        title = _clean_title(getattr(entry, "title", ""), publisher)
         if not title or not link or _is_quote_page(title) or _is_community_post(title, publisher):
             continue
         # 严格匹配：必须命中公司别名，防止 Google News 的相关性漂移
