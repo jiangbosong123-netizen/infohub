@@ -160,12 +160,15 @@ from .v1_auth import v1_auth_guard
 from .transport_security import private_https_headers
 from .v1_errors import v1_error
 
-app = FastAPI(title="行业情报站")
+# The interactive docs load scripts from a CDN; the schema itself stays at /openapi.json.
+app = FastAPI(title="行业情报站", docs_url=None, redoc_url=None)
 app.middleware("http")(v1_auth_guard)
 app.middleware("http")(private_https_headers)
 app.mount("/static", StaticFiles(directory=BASE_DIR / "app" / "web" / "static"), name="static")
 templates = Jinja2Templates(directory=str(BASE_DIR / "app" / "web" / "templates"))
 
+# Deep pages cost a scan of every earlier row; nobody reads past page 1,000.
+MAX_PAGE = 1000
 CHANNEL_TABS = [("all", "全部"), ("ai", "AI"), ("robot", "机器人"), ("stock", "股市")]
 STARTED_AT = datetime.now(timezone.utc)
 
@@ -747,7 +750,7 @@ def _top_clusters(limit: int = 10, channel: str = "all", topic: str = "", days: 
 
 @app.get("/", response_class=HTMLResponse)
 def index(request: Request, channel: str = "all", company: str = "", event: str = "",
-          cat: str = "", mode: str = "selected", page: int = 1):
+          cat: str = "", mode: str = "selected", page: int = Query(1, le=MAX_PAGE)):
     page = max(1, page)
     mode = mode if mode in ("selected", "all") else "selected"
     page_size = 30 if mode == "selected" else 60
@@ -1796,9 +1799,11 @@ async def api_v1_create_snapshot(request: Request):
         return v1_error(422, "invalid_parameter", request_id)
     try:
         idempotency_key = keys[0].decode("ascii")
-        raw = await request.body()
-        if len(raw) > 4096:
-            raise ValueError("body too large")
+        raw = b""
+        async for chunk in request.stream():  # stop reading at the limit, not after the whole body
+            raw += chunk
+            if len(raw) > 4096:
+                raise ValueError("body too large")
         body = SnapshotCreate.model_validate_json(raw)
         with get_db() as db:
             result = create_snapshot(
@@ -2093,7 +2098,7 @@ def topics_index(request: Request):
 
 
 @app.get('/topics/{slug}',response_class=HTMLResponse)
-def topic_detail(request: Request,slug: str,mode: str='selected',page: int=Query(1,ge=1)):
+def topic_detail(request: Request,slug: str,mode: str='selected',page: int=Query(1,ge=1,le=MAX_PAGE)):
     mode = mode if mode in ('all','selected') else 'selected'
     cte, curation_join, visible, score_expr, _ = portal_curation_sql(CURATION_READ_ENABLED, streamed=True)
     selected = " AND " + _selected_clause(score_expr=score_expr) if mode=='selected' and CURATED_FEED_ENABLED else ''
@@ -2165,7 +2170,7 @@ STORY_EXCERPT_CHARS = 300
 
 
 @app.get('/story/{story_id}',response_class=HTMLResponse)
-def story_detail(request: Request,story_id: str,page: int=Query(1,ge=1)):
+def story_detail(request: Request,story_id: str,page: int=Query(1,ge=1,le=MAX_PAGE)):
     cte, curation_join, visible, _, _ = portal_curation_sql(CURATION_READ_ENABLED)
     with get_db() as db:
         story = db.execute('SELECT * FROM stories WHERE id=?',(story_id,)).fetchone()
