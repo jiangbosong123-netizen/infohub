@@ -22,9 +22,21 @@ from .database import get_db
 from .provenance import display_title, object_json, publisher
 from .topics import sync_topics, assign_topics
 
-MATCH_VERSION = 'titles-v4'
+MATCH_VERSION = 'titles-v5'
 MATCH_THRESHOLD = 0.72
 MAX_EVENT_HOURS = 72
+# Each article joins the event whose anchor it matches, so one event worded several ways can
+# become several events whose articles match one another but whose anchors do not (Gemini
+# breaking into three companies was 8 events of the titles-v4 rehearsal index). Events with
+# MERGE_MIN_PAIRS articles matching across merge: on that index (57,924 articles) 821 merges in
+# six rounds left 41,907 of 42,716 events, and 38 of 40 sampled merges joined one event (the
+# others: funds each buying Amazon shares, one unclear). One matching pair is weaker: it joined
+# different events in 2 of 15 sampled pairs. Copies of one headline already join the earliest
+# copy's event as articles are placed.
+MERGE_MIN_PAIRS = 2
+MEMBER_CANDIDATES = 60
+MEMBER_MIN_SHARED = 0.3
+MERGE_ROUNDS = 10
 # The flash wires repeat one another's headline: in the 2026-09-11..10-03 rehearsal data
 # 1,615 of 1,704 cross-wire repeats came within 30 minutes and 1,694 within 6 hours, while
 # 125 of 174 repeats by the same wire (“美股盘前要闻速递”) were more than 12 hours apart.
@@ -173,10 +185,8 @@ def _moves_of_different_days(item, other):
     return item.stock_move and other.stock_move and item.trading_day != other.trading_day
 
 
-def _score(item, other, beat=None):
-    """match_score on cached facts. With ``beat``, pairs that cannot reach a score that is
-    both >= MATCH_THRESHOLD and > beat are skipped, so the result equals match_score
-    whenever it passes that test and fails the test whenever match_score does."""
+def _guard(item, other):
+    """0.0 when a rule keeps two articles apart, 1.0 for a shared headline, else None."""
     row, anchor = item.row, other.row
     if abs((item.published - other.published).total_seconds()) > MAX_EVENT_HOURS * 3600:
         return 0.0
@@ -200,6 +210,16 @@ def _score(item, other, beat=None):
             return 0.0
     if item.numbers and other.numbers and item.numbers != other.numbers:
         return 0.0
+    return None
+
+
+def _score(item, other, beat=None):
+    """match_score on cached facts. With ``beat``, pairs that cannot reach a score that is
+    both >= MATCH_THRESHOLD and > beat are skipped, so the result equals match_score
+    whenever it passes that test and fails the test whenever match_score does."""
+    guard = _guard(item, other)
+    if guard is not None:
+        return guard
     best = 0.0
     for a_numbers, na in item.titles:
         for b_numbers, nb in other.titles:
@@ -221,7 +241,136 @@ def _score(item, other, beat=None):
     return best
 
 
-def _merge_stories(db, affected, anchors, facts_of, wanted):
+class _MemberEvidence:
+    """How well two events' articles match, from their membership when this round began."""
+
+    def __init__(self, db, stories, facts):
+        self.facts = facts
+        self.scores = {}
+        self.members = defaultdict(list)
+        stories = sorted(stories)
+        for start in range(0, len(stories), 500):
+            chunk = stories[start:start + 500]
+            for member in db.execute(
+                    f"""SELECT si.story_id,i.*,s.type AS source_type FROM story_items si
+                        JOIN items i ON i.id=si.item_id JOIN sources s ON s.id=i.source_id
+                        WHERE si.story_id IN ({",".join("?" * len(chunk))}) AND COALESCE(i.tmt,1)!=0""", chunk):
+                self.members[member['story_id']].append(dict(member))
+
+    def fact(self, row):
+        return _fact(self.facts, row)
+
+    def score(self, a, b):
+        """The best article pair's score if the events qualify for a merge, else 0.0.
+
+        Title similarity is not symmetric; as when an article is placed, the later one is
+        compared with the earlier one.
+        """
+        key = (a, b) if a < b else (b, a)
+        if key not in self.scores:
+            pairs, best = 0, 0.0
+            for row in self.members.get(a, ()):
+                for other in self.members.get(b, ()):
+                    item, earlier = sorted((self.fact(row), self.fact(other)),
+                                           key=lambda fact: (fact.published, fact.row['id']), reverse=True)
+                    score = _score(item, earlier)
+                    if score >= MATCH_THRESHOLD:
+                        pairs, best = pairs + 1, max(best, score)
+            self.scores[key] = best if pairs >= MERGE_MIN_PAIRS else 0.0
+        return self.scores[key]
+
+    def partners(self, nominated):
+        partners = defaultdict(dict)
+        for a, b in nominated:
+            score = self.score(a, b)
+            if score:
+                partners[a][b] = partners[b][a] = score
+        return partners
+
+
+def _fact(facts, row):
+    found = facts.get(row['id'])
+    if found is None:
+        found = facts[row['id']] = _Facts(row)
+    return found
+
+
+def _member_support(db, item, story_id):
+    """The best match among an event's other articles if they would merge it, else 0.0."""
+    scores = [score for score in (
+        _score(item, _Facts(dict(other))) for other in db.execute(
+            """SELECT i.*,s.type AS source_type FROM story_items si JOIN items i ON i.id=si.item_id
+               JOIN sources s ON s.id=i.source_id
+               WHERE si.story_id=? AND si.item_id!=? AND COALESCE(i.tmt,1)!=0""", (story_id, item.row['id'])))
+        if score >= MATCH_THRESHOLD]
+    return max(scores) if len(scores) >= MERGE_MIN_PAIRS else 0.0
+
+
+def _nominate(db, rows, facts):
+    """Pairs of events with articles that match across, found from the articles re-indexed now.
+
+    Each re-indexed article is compared with the articles of other events published within
+    MAX_EVENT_HOURS that share the most title trigrams with it; a match nominates the pair of
+    events, and _MemberEvidence decides on all their articles. Two articles indexed before were
+    compared when the later of them was indexed, so only pairs involving an article indexed now
+    are compared (on a full reindex, every pair once).
+    """
+    rows = [row for row in rows if row['tmt'] != 0]
+    if not rows:
+        return set()
+    window = timedelta(hours=MAX_EVENT_HOURS)
+    lower = (_dt(rows[0]['published_at']) - window).isoformat()
+    upper = (_dt(rows[-1]['published_at']) + window).isoformat()
+    live = [dict(r) for r in db.execute(
+        """SELECT si.story_id,i.*,s.type AS source_type FROM story_items si
+           JOIN stories st ON st.id=si.story_id JOIN items i ON i.id=si.item_id JOIN sources s ON s.id=i.source_id
+           WHERE st.redirect_to IS NULL AND COALESCE(i.tmt,1)!=0 AND i.published_at BETWEEN ? AND ?""",
+        (lower, upper))]
+    dirty = {row['id'] for row in rows}
+    live.sort(key=lambda row: (_fact(facts, row).published, row['id']))
+    times = [_fact(facts, row).published for row in live]
+    keys = [_keys(row) for row in live]
+    index = defaultdict(set)
+    indexed = set()
+    nominated = set()
+    ahead = behind = 0
+    for n, row in enumerate(live):
+        if row['id'] not in dirty:
+            continue
+        # Articles indexed before enter while within the window ahead; re-indexed ones enter
+        # after their own comparison, so a pair of them is compared once.
+        while ahead < len(live) and times[ahead] <= times[n] + window:
+            if live[ahead]['id'] not in dirty:
+                indexed.add(ahead)
+                for token in keys[ahead]:
+                    index[token].add(ahead)
+            ahead += 1
+        while times[behind] < times[n] - window:
+            if behind in indexed:
+                indexed.discard(behind)
+                for token in keys[behind]:
+                    index[token].discard(behind)
+            behind += 1
+        candidates = Counter()
+        for token in keys[n]:
+            candidates.update(index[token])
+        for other in heapq.nsmallest(MEMBER_CANDIDATES, candidates, key=lambda m: (-candidates[m], m)):
+            # Titles sharing under MEMBER_MIN_SHARED of the shorter one's trigrams are not
+            # compared: on the rehearsal index this skipped 7 of 443 qualifying pairs of events
+            # and took the comparison from 90 s to 38 s.
+            if candidates[other] < MEMBER_MIN_SHARED * min(len(keys[n]), len(keys[other])):
+                continue
+            pair = tuple(sorted((row['story_id'], live[other]['story_id'])))
+            if pair[0] != pair[1] and pair not in nominated and _score(
+                    _fact(facts, row), _fact(facts, live[other]), beat=0.0) >= MATCH_THRESHOLD:
+                nominated.add(pair)
+        indexed.add(n)
+        for token in keys[n]:
+            index[token].add(n)
+    return nominated
+
+
+def _merge_stories(db, affected, anchors, facts_of, wanted, matched=None):
     """Merge live stories that the per-item pass leaves apart because each keeps its anchor.
 
     A published multi-article event keeps its anchor, so two events that formed separately stay
@@ -229,19 +378,30 @@ def _merge_stories(db, affected, anchors, facts_of, wanted):
     ``wanted`` holds those cases, recorded when an anchor was kept although it matched another
     event's anchor or shared a headline with one of its members. Stories are visited by anchor
     time and each joins its best earlier partner, then redirects there like a merged singleton;
-    its anchor goes on representing the members that came with it. A partner already merged in
-    this pass counts only if the event it went into matches directly, anchor against anchor, so
-    merges never chain A~B~C into one event when A and C do not match.
+    its anchor goes on representing the members that came with it. ``matched`` adds the pairs
+    of events whose articles match across (_MemberEvidence), unless a rule keeps their anchors
+    apart: an event must not take in events whose version, amount, company, filing, event type
+    or day contradict its own, or whose anchor lies more than MAX_EVENT_HOURS from its own. A
+    partner already merged in this call counts only if the event it went into matches directly,
+    anchor against anchor. The caller repeats the call on the merged memberships, so A~B and
+    B~C join A, B and C only when A's and C's anchors do not contradict each other. Returns
+    {merged story: story it joined}.
     """
     def key(sid):
         return (anchors[sid]['published_at'], sid)
 
+    def compatible(a, b):
+        return _guard(facts_of(anchors[a]), facts_of(anchors[b])) != 0.0
+
+    candidates = [(sid, target, score) for sid, targets in wanted.items() for target, score in targets.items()]
+    candidates += [(sid, target, score) for sid, targets in (matched or {}).items()
+                   for target, score in targets.items()
+                   if sid in anchors and target in anchors and compatible(sid, target)]
     partners = defaultdict(dict)
-    for story_id, targets in wanted.items():
-        for target, score in targets.items():
-            if story_id != target and story_id in anchors and target in anchors:
-                later, earlier = sorted((story_id, target), key=key, reverse=True)
-                partners[later][earlier] = max(score, partners[later].get(earlier, 0.0))
+    for story_id, target, score in candidates:
+        if story_id != target and story_id in anchors and target in anchors:
+            later, earlier = sorted((story_id, target), key=key, reverse=True)
+            partners[later][earlier] = max(score, partners[later].get(earlier, 0.0))
     merged = {}
 
     def surviving(sid):
@@ -265,7 +425,7 @@ def _merge_stories(db, affected, anchors, facts_of, wanted):
         db.execute('UPDATE stories SET redirect_to=? WHERE id=?', (target, later))
         merged[later] = target
         affected.update((later, target))
-    return len(merged)
+    return merged
 
 
 def _refresh_stats(db, affected):
@@ -442,9 +602,14 @@ def refresh_derived() -> dict:
                     # anchor of an event merged into this one also counts for its old members.
                     # Nor does a day's stock-move piece stay under another day's: former anchors
                     # of that day could otherwise keep each other there.
-                    stay = 0.0 if _moves_of_different_days(facts_of(row), facts_of(old_anchor)) else max(
+                    other_day = _moves_of_different_days(facts_of(row), facts_of(old_anchor))
+                    stay = 0.0 if other_day else max(
                         _score(facts_of(row), facts_of(anchor))
                         for anchor in (old_anchor, *former.get(old_id, ())) if anchor['id'] != row['id'])
+                    # An event merged in because its articles matched this one's brought articles
+                    # that need not match an anchor here; they stay while they match its articles.
+                    if stay < MATCH_THRESHOLD and not other_day:
+                        stay = _member_support(db, facts_of(row), old_id)
                     if stay >= MATCH_THRESHOLD and stay >= best_score:
                         best_id,best_score = old_id,stay
                 if best_id is None:
@@ -476,7 +641,20 @@ def refresh_derived() -> dict:
                 matched += 1
             db.execute('INSERT OR IGNORE INTO indexed_items(item_id) VALUES(?)',(row['id'],))
             db.execute('DELETE FROM derived_dirty WHERE item_id=?',(row['id'],))
-        merged = _merge_stories(db, affected, anchors, facts_of, wanted)
+        # Merging two events can make a third qualify against their union, so merges repeat
+        # until none is left; each round decides on the memberships it starts with.
+        member_facts = {}
+        nominated = _nominate(db, rows, member_facts)
+        merged = 0
+        for _ in range(MERGE_ROUNDS):
+            evidence = _MemberEvidence(db, {story for pair in nominated for story in pair}, member_facts)
+            merges = _merge_stories(db, affected, anchors, facts_of, wanted, evidence.partners(nominated))
+            merged += len(merges)
+            nominated = {tuple(sorted((merges.get(a, a), merges.get(b, b)))) for a, b in nominated}
+            nominated = {pair for pair in nominated if pair[0] != pair[1]}
+            wanted = {}
+            if not merges or not nominated:
+                break
         _refresh_stats(db,affected)
         return dict(processed=len(rows),matched=matched,merged=merged,
                     stories=db.execute('SELECT COUNT(*) FROM stories WHERE item_count>0 AND redirect_to IS NULL').fetchone()[0])

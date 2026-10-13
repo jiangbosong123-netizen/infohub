@@ -81,7 +81,10 @@ class HotPathPlanTests(unittest.TestCase):
     def test_story_refresh_finds_anchors_through_an_index(self):
         with traced_statements() as statements:
             refresh_derived()
-        self.assertEqual(self.full_scans(statements, "anchor_item_id IN (SELECT item_id FROM derived_dirty)"), [])
+        for marker in ("anchor_item_id IN (SELECT item_id FROM derived_dirty)",
+                       "COALESCE(i.tmt,1)!=0 AND i.published_at BETWEEN"):
+            with self.subTest(marker=marker):
+                self.assertEqual(self.full_scans(statements, marker), [])
 
 
 if __name__ == "__main__":
