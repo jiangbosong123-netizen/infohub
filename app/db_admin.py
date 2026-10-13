@@ -3995,6 +3995,16 @@ def _article_texts(db: sqlite3.Connection) -> None:
     _execute_script(db, ARTICLE_TEXTS_SQL)
 
 
+# Google News re-posts are matched by exact title (crawler/runner.py _google_news_repeat).
+ITEM_TITLE_INDEX_SQL = """
+CREATE INDEX idx_items_title ON items(title);
+"""
+
+
+def _item_title_index(db: sqlite3.Connection) -> None:
+    _execute_script(db, ITEM_TITLE_INDEX_SQL)
+
+
 # Migration 1 freezes the exact legacy schema at main@88a2a1e. Future schema
 # changes must append a new Migration instead of editing this definition.
 MIGRATIONS = (
@@ -4188,6 +4198,7 @@ MIGRATIONS = (
     Migration(52, "index item discoveries by source and first sighting",
               SOURCE_DISCOVERY_INDEX_SQL, _source_discovery_index),
     Migration(53, "article text for title-only items", ARTICLE_TEXTS_SQL, _article_texts),
+    Migration(54, "index item titles for Google News re-posts", ITEM_TITLE_INDEX_SQL, _item_title_index),
 )
 CURRENT_SCHEMA_VERSION = MIGRATIONS[-1].version
 REQUIRED_MIGRATION_COLUMNS = {

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 """RSS 抓取器（feedparser），产出统一 RawItem。"""
+import html
 import json
 from datetime import datetime, timezone
 
@@ -84,7 +85,8 @@ def fetch_rss(source: dict) -> list[dict]:
 
     for entry in parsed.entries[:60]:
         url = getattr(entry, "link", "")
-        title = getattr(entry, "title", "").strip()
+        # Some feeds escape their titles twice (The Verge sends &#8216;); feedparser undoes only one.
+        title = html.unescape(getattr(entry, "title", "")).strip()
         if not url or not title:
             continue
         summary = _clean_html(getattr(entry, "summary", "") or getattr(entry, "description", ""))

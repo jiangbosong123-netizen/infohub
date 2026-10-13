@@ -335,11 +335,11 @@ class ArticleTextMigrationTests(unittest.TestCase):
                 db_admin.apply_migrations(db, db_admin.MIGRATIONS[:52])
             with sqlite3.connect(path) as db:
                 before = {row[0] for row in db.execute("SELECT name FROM sqlite_master")}
-            report = db_admin.migrate_database(path)
-            self.assertEqual(report.applied_versions, (53,))
-            with sqlite3.connect(path) as db:
+            with database.get_db(path) as db:
+                self.assertEqual(db_admin.apply_migrations(db, db_admin.MIGRATIONS[:53]), (53,))
                 after = {row[0] for row in db.execute("SELECT name FROM sqlite_master")}
             self.assertEqual(after - before, {"article_texts", "idx_article_texts_retry"})
+            db_admin.migrate_database(path)
             self.assertEqual(db_admin.verify_database(path).state, "current")
 
 
