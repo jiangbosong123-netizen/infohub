@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import hashlib
 import json
-import re
 import sqlite3
 from typing import Literal
 from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
@@ -12,6 +11,7 @@ from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 import rfc8785
 from pydantic import BaseModel, ConfigDict, Field
 
+from .url_secrets import is_secret_param
 from .api_auth import ApiPrincipal
 from .api_cursor import CursorError, decode_cursor, encode_cursor
 from .timeutil import format_utc, parse_utc, utc_now
@@ -20,10 +20,6 @@ from .timeutil import format_utc, parse_utc, utc_now
 DOCUMENT_KINDS = frozenset({
     "article", "flash", "filing", "policy_release", "research",
     "commentary", "transcript", "other",
-})
-_SECRET_QUERY_NAMES = frozenset({
-    "accesstoken", "apikey", "auth", "authorization", "clientsecret", "key",
-    "password", "secret", "sign", "signature", "token",
 })
 
 
@@ -212,10 +208,8 @@ def public_document_url(value: str) -> str | None:
             host = f"{host}:{parts.port}"
     except ValueError as exc:
         raise ItemCatalogUnavailable("document URL port is invalid") from exc
-    query = [
-        (key, item) for key, item in parse_qsl(parts.query, keep_blank_values=True)
-        if re.sub(r"[^a-z0-9]", "", key.casefold()) not in _SECRET_QUERY_NAMES
-    ]
+    query = [(key, item) for key, item in parse_qsl(parts.query, keep_blank_values=True)
+             if not is_secret_param(key)]
     return urlunsplit((parts.scheme.lower(), host, parts.path or "/", urlencode(query), ""))
 
 
