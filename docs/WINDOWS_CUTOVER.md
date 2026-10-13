@@ -134,6 +134,7 @@ docker compose stop worker
 docker compose run --rm migrate python cli.py legacy-backfill 1000      # 约 3 分钟
 docker compose run --rm migrate python cli.py legacy-topic-backfill 1000
 docker compose run --rm migrate python cli.py legacy-event-project
+docker compose run --rm migrate python cli.py routine-filings-mark --apply   # 几秒；旧库的 SEC 内部人申报与港交所翌日披露報表不再进精选
 docker compose run --rm migrate python cli.py legacy-curation-run       # 约 20 分钟（含排队）；中断后重新运行即可续跑
 docker compose run --rm migrate python cli.py projection-builders-run   # 约 3 分钟
 docker compose start worker
