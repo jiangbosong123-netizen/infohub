@@ -76,8 +76,18 @@ def _legacy_publication_projection(raw: dict) -> tuple[str, str]:
             raise ValueError("future source timestamp")
         return published.isoformat(), "source_published"
     except (TypeError, ValueError):
-        basis = "connector_observed" if observed != inserted else "item_inserted"
-        return observed.isoformat(), basis
+        pass
+    # A filing has no publication time, but the registry's acceptance time places it: without it
+    # an old filing seen for the first time (a newly followed company) would sort as new.
+    accepted = next((value["utc"] for value in raw.get("source_time_values") or []
+                     if value.get("role") == "accepted" and value.get("status") == "valid" and value.get("utc")),
+                    None)
+    if accepted:
+        accepted_at = datetime.fromisoformat(accepted.replace("Z", "+00:00"))
+        if accepted_at <= observed + timedelta(minutes=10):
+            return accepted_at.isoformat(), "source_accepted"
+    basis = "connector_observed" if observed != inserted else "item_inserted"
+    return observed.isoformat(), basis
 
 
 # Google News lists one article under a new link each time it re-surfaces it: the legacy data held

@@ -42,11 +42,13 @@
 
 ### SEC
 
-目前使用 acceptanceDateTime 生成 published_at，仅保留 form/cik 辅助字段；每公司只取 recent 前 40 条。应首先保存 accession、CIK、form、primaryDocument、acceptanceDateTime、filingDate、reportDate 及原 API record，随后按字段语义分别解析。
+采集器保存 accession、CIK、form、primaryDocument、acceptanceDateTime、filingDate、reportDate 及原 API record，按字段语义分别解析；每公司只取 recent 前 40 条。
+
+submissions API 的 acceptanceDateTime 不是可靠的时刻。2026-10-13 与 EDGAR 文件头逐份核对：苹果最近 10 份都晚 4 小时，微软的全部一致，英伟达最新一份一致、较早的晚 4 小时；旧采集器把几分钟内抓到的文件存早了 4 小时（演练数据 641 份中 119 份早了正好 4 小时，其余 522 份一致）。所以这个字段只以 `other` 角色保存原值。受理时间取每份文件 EDGAR 文件头（`{accession}-index-headers.html`）的 `ACCEPTANCE-DATETIME`，按 America/New_York 解析为 `accepted` 角色；文件头原值、地址和读取时间写进原始记录的 `header` 字段。新文件只读一次文件头，每轮最多 60 份、最新的优先，其余留到下一轮再入库；文件头不存在（404）的文件按首次看到的时间入库。
 
 接收、归属申报日、公开传播并不相同；SEC 官方说明，多数美东 17:30 后提交的文件会归入下一工作日且推迟公开传播，同时存在表单例外。[SEC 申报状态说明](https://www.sec.gov/submit-filings/filer-support-resources/how-do-i-guides/determine-status-my-filing)
 
-所以，不能仅凭 acceptanceDateTime 断言“市场当时已经得到文件”。只有来源明确提供公开发布时间或经验证的来源规则时才填写 published_at；否则保持 NULL，在门户显示“SEC 接收时间”并附系统首次收到时间。本文未验证全部 SEC 输入格式及每种表单的延迟规则，不把任何 naive 值推定为 UTC/ET。后续 PR 需冻结真实脱敏格式样本及规则依据。
+所以，不能仅凭受理时间断言“市场当时已经得到文件”，published_at 保持 NULL。门户排序用的旧 `items.published_at` 投影取 SEC 受理时间（`_legacy_time_basis=source_accepted`），否则一家新关注公司的 40 份旧文件会按首次看到的时间排成最新；没有可信受理时间时才用系统首次收到时间。旧库条目用 `cli.py sec-acceptance-times --apply` 按文件头改正。
 
 来源本身支持更长历史提交文件，现有 recent[:40] 是采集器的截取；不能把最近 40 条全部抓完标成历史完整。[SEC API 文档](https://www.sec.gov/search-filings/edgar-application-programming-interfaces)
 

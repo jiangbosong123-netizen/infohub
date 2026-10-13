@@ -135,6 +135,7 @@ docker compose run --rm migrate python cli.py legacy-backfill 1000      # 约 3 
 docker compose run --rm migrate python cli.py legacy-topic-backfill 1000
 docker compose run --rm migrate python cli.py legacy-event-project
 docker compose run --rm migrate python cli.py routine-filings-mark --apply   # 几秒；旧库的 SEC 内部人申报与港交所翌日披露報表不再进精选
+docker compose run --rm migrate python cli.py sec-acceptance-times --apply   # 约 5 分钟，需联网；按 SEC 文件头改正旧 SEC 卡片时间（演练数据 641 份中 119 份早了 4 小时），中断后重新运行即可续跑
 docker compose run --rm migrate python cli.py legacy-curation-run       # 约 20 分钟（含排队）；中断后重新运行即可续跑
 docker compose run --rm migrate python cli.py projection-builders-run   # 约 3 分钟
 docker compose start worker

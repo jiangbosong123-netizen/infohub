@@ -25,14 +25,15 @@ class SourceTimeConnectorTests(unittest.TestCase):
         self.assertEqual(values[0]["status"], "missing")
         self.assertEqual(values[1]["utc"], "2026-09-16T09:00:00.000000Z")
 
-    def test_sec_fields_keep_distinct_semantics_and_naive_acceptance_is_unresolved(self):
+    def test_sec_fields_keep_distinct_semantics_and_naive_api_time_is_unresolved(self):
         values = sec_source._source_times({
             "acceptanceDateTime": ["2026-09-16T17:31:02"],
             "filingDate": ["2026-09-17"],
             "reportDate": ["2026-06-30"],
         }, 0)
+        # The API's acceptanceDateTime is kept but is not the acceptance time (the header is).
         self.assertEqual([value["role"] for value in values], [
-            "accepted", "filing_date", "report_period",
+            "other", "filing_date", "report_period",
         ])
         self.assertEqual(values[0]["status"], "missing_timezone")
         self.assertIsNone(values[0]["utc"])
