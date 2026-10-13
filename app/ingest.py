@@ -24,17 +24,10 @@ from uuid import uuid4
 from . import config
 from .database import get_db
 from .timeutil import format_utc
+from .url_secrets import is_secret_key, is_secret_param, without_userinfo
 
 
 _FINAL_RUN_STATES = {"succeeded", "partial", "failed", "skipped"}
-_SECRET_KEY_SUFFIXES = (
-    "authorization", "cookie", "password", "secret", "token", "apikey",
-    "signature", "privatekey", "clientsecret", "accesstoken", "refreshtoken",
-)
-_SECRET_QUERY_NAMES = {
-    "access_token", "api_key", "apikey", "auth", "authorization", "key",
-    "password", "secret", "sign", "signature", "token",
-}
 _HASH = re.compile(r"^[0-9a-f]{64}$")
 _PAYLOAD_KINDS = {
     "feed_entry", "api_record", "html", "pdf", "legacy_excerpt", "generated_metadata",
@@ -145,23 +138,12 @@ def _safe_url(value: object) -> str:
         parts = urlsplit(text)
     except ValueError:
         return ""
-    netloc = parts.netloc.rsplit("@", 1)[-1]
-    query = []
-    for key, item in parse_qsl(parts.query, keep_blank_values=True):
-        query.append((
-            key,
-            "[redacted]"
-            if key.casefold() in _SECRET_QUERY_NAMES or _is_secret_key(key)
-            else item,
-        ))
+    netloc = without_userinfo(parts.netloc)
+    query = [(key, "[redacted]" if is_secret_param(key) else item)
+             for key, item in parse_qsl(parts.query, keep_blank_values=True)]
     # URL fragments can carry OAuth tokens and are never sent to the origin.
     # Keeping them adds no request provenance, so omit them entirely.
     return urlunsplit((parts.scheme, netloc, parts.path, urlencode(query), ""))
-
-
-def _is_secret_key(key: str) -> bool:
-    normalized = re.sub(r"[^a-z0-9]", "", key.casefold())
-    return any(normalized.endswith(suffix) for suffix in _SECRET_KEY_SUFFIXES)
 
 
 def _is_url_key(key: str) -> bool:
@@ -170,7 +152,7 @@ def _is_url_key(key: str) -> bool:
 
 
 def _safe_value(value: object, *, key: str = "", depth: int = 0) -> object:
-    if _is_secret_key(key):
+    if is_secret_key(key):
         return "[redacted]"
     if depth > 8:
         return "[depth-limited]"

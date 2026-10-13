@@ -12,6 +12,7 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime, timedelta, timezone
 from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 
+from ..url_secrets import is_secret_param, without_userinfo
 from .. import company_match
 from ..database import get_db, reused_connections
 from ..documents import project_candidate
@@ -43,9 +44,11 @@ def _normalize_url(url: str) -> str:
     parts = urlsplit((url or "").strip())
     if parts.scheme.lower() not in ("http", "https") or not parts.netloc:
         return ""
+    # Tracking parameters and anything credential-like (signed CDN links, tokens) never reach the
+    # stored URL, nor does a user:password@ prefix; the same rule guards evidence and the API.
     query = [(k, v) for k, v in parse_qsl(parts.query, keep_blank_values=True)
-             if not k.lower().startswith("utm_")]
-    return urlunsplit((parts.scheme.lower(), parts.netloc.lower(), parts.path or "/",
+             if not k.lower().startswith("utm_") and not is_secret_param(k)]
+    return urlunsplit((parts.scheme.lower(), without_userinfo(parts.netloc).lower(), parts.path or "/",
                        urlencode(query), ""))
 
 
