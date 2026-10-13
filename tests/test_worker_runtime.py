@@ -87,6 +87,22 @@ class WorkerRuntimeTests(unittest.TestCase):
         self.assertNotEqual(changed["report:daily"], first["report:daily"])
         self.assertEqual(changed["reconcile:daily"], first["reconcile:daily"])
 
+    def test_a_job_queued_before_its_schedule_changed_is_cancelled_not_retried(self):
+        from app.jobs import enqueue_due_schedules
+        register_default_schedules(T0)
+        enqueue_due_schedules(now=T0 + timedelta(days=1))
+        with patch.object(config, "REPORT_HOUR", (config.REPORT_HOUR + 1) % 24):
+            register_default_schedules(T0 + timedelta(days=1))  # e.g. a deploy changed the hour
+        calls = []
+        handlers = {kind: (lambda kind=kind: calls.append(kind) or {}) for kind in
+                    ("crawl", "ai", "reconcile", "report", "prune", "backup")}
+        results = []
+        while (job := process_one_job(worker_id="w", handlers=handlers, now=T0 + timedelta(days=1))) is not None:
+            results.append((job.kind, job.state))
+        self.assertIn(("report", "cancelled"), results)
+        self.assertNotIn("report", calls)
+        self.assertTrue(all(state in ("succeeded", "cancelled") for _, state in results))
+
     def test_search_refresh_schedule_can_be_enabled_and_disabled(self):
         with patch.object(config, "CURATION_SEARCH_ENABLED", True):
             register_default_schedules(T0)

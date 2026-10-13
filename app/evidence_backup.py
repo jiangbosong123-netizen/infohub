@@ -238,7 +238,8 @@ def _worker_running() -> bool:
         age = datetime.now(timezone.utc) - parse_utc(value["heartbeat_at"])
     except (OSError, ValueError, TypeError, KeyError, AttributeError):
         return False
-    return value.get("state") == "running" and age.total_seconds() <= config.WORKER_HEARTBEAT_TTL_SECONDS
+    # A degraded worker is still alive and retrying; only a clean stop or silence means it is gone.
+    return value.get("state") != "stopped" and age.total_seconds() <= config.WORKER_HEARTBEAT_TTL_SECONDS
 
 
 def _in_use(path: Path) -> bool:
@@ -278,6 +279,30 @@ def _copy_verified(source: Path, target: Path, digest: str | None = None) -> Non
         temporary.unlink(missing_ok=True)
 
 
+def _require_quiet(live: Path) -> None:
+    if _worker_running():
+        raise EvidenceBackupError("the worker is running; stop web and worker first")
+    if live.exists() and _in_use(live):
+        raise EvidenceBackupError("the live database is open elsewhere; stop web and worker first")
+
+
+def _rotate_staged(stage: Path, expected_epoch: str, bundle_name: str) -> str:
+    """Start the new epoch in the staged copy, so the live database never holds the bundle without it."""
+    from .publication import rotate_dataset_epoch
+    with closing(sqlite3.connect(stage)) as db:
+        # No process holds a lease inside a copy (the nightly bundle is taken by a running job).
+        db.execute("UPDATE jobs SET lease_expires_at=? WHERE state='running'",
+                   (datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%S.%fZ"),))
+        db.commit()
+    epoch = rotate_dataset_epoch(expected_epoch=expected_epoch, reason=f"promote backup {bundle_name}",
+                                 path=stage).epoch
+    with closing(sqlite3.connect(stage)) as db:
+        db.execute("PRAGMA journal_mode=DELETE")  # fold the WAL into the file before the rename
+    if any(Path(f"{stage}{suffix}").exists() for suffix in ("-wal", "-shm", "-journal")):
+        raise EvidenceBackupError("the staged database kept a journal file")
+    return epoch
+
+
 def promote_backup_bundle(bundle: Path | str) -> dict:
     """Make a verified bundle the live database. Web and worker must be stopped.
 
@@ -296,12 +321,9 @@ def promote_backup_bundle(bundle: Path | str) -> dict:
             f"bundle belongs to environment {restored[2]!r}, not {config.ENVIRONMENT_ID!r}")
     live = Path(database.DB_PATH).expanduser().resolve()
     blob_root = Path(config.BLOB_PATH).expanduser().resolve()
-    if _worker_running():
-        raise EvidenceBackupError("the worker is running; stop web and worker first")
+    _require_quiet(live)
     previous = None
     if live.exists():
-        if _in_use(live):
-            raise EvidenceBackupError("the live database is open elsewhere; stop web and worker first")
         try:
             previous = _identity(live)
         except (sqlite3.Error, TypeError):
@@ -329,12 +351,19 @@ def promote_backup_bundle(bundle: Path | str) -> dict:
         _copy_verified(source / "blobs" / relative, target, digest)
         _sync_directory(target.parent)
 
+    continuous = previous is not None and previous[1] == restored[1] and previous[3] == restored[3]
+    epoch = restored[1]
     live.parent.mkdir(parents=True, exist_ok=True)
     stage = live.parent / f".{live.name}.{uuid4().hex}.promote.tmp"
     replaced = None
     try:
         _copy_verified(source / "database.db", stage)
         same_bytes_as_verified(stage, report)
+        if not continuous:
+            # Before the swap: a failure here leaves the live database untouched, and a retry
+            # compares against it again instead of against the bundle.
+            epoch = _rotate_staged(stage, restored[1], source.name)
+        _require_quiet(live)  # copying took a while; nothing may have started meanwhile
         if live.exists():
             stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S.%fZ")
             replaced = live.parent / "replaced" / stamp
@@ -349,14 +378,8 @@ def promote_backup_bundle(bundle: Path | str) -> dict:
         os.replace(stage, live)
         _sync_directory(live.parent)
     finally:
-        stage.unlink(missing_ok=True)
-
-    continuous = previous is not None and previous[1] == restored[1] and previous[3] == restored[3]
-    epoch = restored[1]
-    if not continuous:
-        from .publication import rotate_dataset_epoch
-        epoch = rotate_dataset_epoch(
-            expected_epoch=restored[1], reason=f"promote backup {source.name}").epoch
+        for suffix in ("", "-wal", "-shm", "-journal"):
+            Path(f"{stage}{suffix}").unlink(missing_ok=True)
     return {
         "status": "ok", "database_path": str(live), "bundle": str(source),
         "database_sha256": verified["database_sha256"], "dataset_id": restored[0],

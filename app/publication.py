@@ -8,6 +8,7 @@ import math
 import sqlite3
 from dataclasses import asdict, dataclass
 from datetime import datetime
+from pathlib import Path
 from typing import Callable, Iterable, Mapping
 from uuid import uuid4
 
@@ -214,11 +215,12 @@ def rotate_dataset_epoch(
     expected_epoch: str,
     reason: str,
     now: datetime | str | None = None,
+    path: Path | None = None,
 ) -> DatasetIdentity:
-    """Start a new cursor namespace after a discontinuous restore or reset."""
+    """Start a new cursor namespace after a discontinuous restore or reset (in ``path``, if given)."""
     current = _normalize_time(now)
     clean_reason = _clean(reason, "reason", 1_000)
-    with get_db() as db:
+    with get_db(path) as db:
         db.execute("BEGIN IMMEDIATE")
         identity = _current_identity(db)
         if identity.epoch != expected_epoch:
