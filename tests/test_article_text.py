@@ -119,7 +119,7 @@ class ArticleTextTests(unittest.TestCase):
     PUBLIC = {"news.example": "93.184.216.34", "blog.example": "93.184.216.35",
               "flaky.example": "93.184.216.36", "down.example": "93.184.216.39",
               "printer": "93.184.216.40", "nas.internal": "93.184.216.41",
-              "windows-server.tail29d4dd.ts.net": "93.184.216.42"}
+              "windows-server.example-tailnet.ts.net": "93.184.216.42"}
     PRIVATE = {"intranet.example": "10.0.0.5", "router.example": "192.168.1.1"}
 
     def resolve(self, host, port):
@@ -185,7 +185,7 @@ class ArticleTextTests(unittest.TestCase):
         direct = [self.item("blog", url) for url in (
             "http://192.168.1.1/admin", "http://127.0.0.1/x", "http://169.254.169.254/latest/meta-data",
             "https://intranet.example/doc", "https://news.example:8443/story", "http://printer/status",
-            "https://nas.internal/files", "https://windows-server.tail29d4dd.ts.net/")]
+            "https://nas.internal/files", "https://windows-server.example-tailnet.ts.net/")]
         fetch_article_texts(fetcher=self.fetcher())
         self.assertEqual((self.stored(bounced)["status"], self.stored(bounced)["error"]),
                          ("blocked", "unsafe target: host is not on the public internet"))

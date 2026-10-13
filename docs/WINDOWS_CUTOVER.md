@@ -1,6 +1,6 @@
 # Windows 生产升级手册
 
-生产主机：Windows 常开笔记本 `windows-server`（Tailscale：`windows-server.tail29d4dd.ts.net`），项目目录
+生产主机：Windows 常开笔记本 `windows-server`（Tailscale：`windows-server.<tailnet>.ts.net`，以 Tailscale 管理页显示为准），项目目录
 `C:\Users\serveradmin\Server\infohub`，部署器 `C:\Users\serveradmin\Server\manager`
 （[windows-server-manager](https://github.com/jiangbosong123-netizen/windows-server-manager)）。步骤与耗时来自
 [生产升级方案](CUTOVER_PLAN.md) 的完整演练；以下命令都在 Windows 的 PowerShell 中、`infohub` 目录下执行。
@@ -11,8 +11,8 @@
   有新提交就 `git pull --ff-only` 并 `docker compose up -d --build`。它不检查 CI，也没有暂停开关。
 - 新版本生产模式**必须**在 `.env` 中有 `INFOHUB_PUBLIC_ORIGIN`（私网 HTTPS 地址）。缺少时 `migrate` 容器报错，
   web 与 worker 都不会启动。
-- 新版本只在 `127.0.0.1:8000` 监听，旧地址 `http://100.69.211.16:8000/` 会失效，改用
-  `https://windows-server.tail29d4dd.ts.net/`（Tailscale Serve，见第 5 步）。
+- 新版本只在 `127.0.0.1:8000` 监听，旧地址 `http://<Windows 的 Tailscale IP>:8000/` 会失效，改用
+  `https://windows-server.<tailnet>.ts.net/`（Tailscale Serve，见第 5 步）。
 - Tailscale 显示这台机器最近在线到 2026-10-05 00:08 UTC。如果当时自动部署开着，它**可能已经自动升级过**，
   所以第 1 步先看日志。
 
@@ -48,7 +48,7 @@ powercfg /setactive SCHEME_CURRENT
 git fetch origin
 git rev-parse HEAD; git status --short; docker compose ps
 cmd /c "git show origin/main:deploy/windows/inspect_host.py > %TEMP%\inspect_host.py"
-docker run --rm -v "${PWD}\data:/data:ro" -v "${PWD}\.env:/env/.env:ro" -v "$env:TEMP\inspect_host.py:/inspect_host.py:ro" python:3.12-slim python /inspect_host.py
+docker run --rm --network none -v "${PWD}\data:/data:ro" -v "${PWD}\.env:/env/.env:ro" -v "$env:TEMP\inspect_host.py:/inspect_host.py:ro" python:3.12-slim@sha256:a6e34c598f2467ed0e9a8d349809fcd8b5c603269512df273a0bb1784edc11b1 python /inspect_host.py
 ```
 
 用 `cmd /c` 写文件是因为 PowerShell 5.1 的 `>` 会存成 UTF-16，Python 读不了。`git fetch` 不改动工作区；检查脚本只读，只输出 `.env` 的**键名**，不输出任何值。把输出发给 Claude，对照本机
@@ -94,7 +94,7 @@ Copy-Item -Recurse data "data-before-upgrade-$stamp"
 加入（不带结尾斜杠）：
 
 ```text
-INFOHUB_PUBLIC_ORIGIN=https://windows-server.tail29d4dd.ts.net
+INFOHUB_PUBLIC_ORIGIN=https://windows-server.<tailnet>.ts.net
 ```
 
 以 Serve 实际输出的地址为准。不要启用 Funnel，不要开放 8000 端口。

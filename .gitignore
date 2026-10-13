@@ -4,6 +4,14 @@ __pycache__/
 data/
 .runtime/
 .env
+.env.*
+!.env.example
+# Copies of a data folder (docs/WINDOWS_CUTOVER.md makes them before an upgrade) hold the database.
+/data-*/
+*.db
+*.db-wal
+*.db-shm
+.claude/
 .DS_Store
 evaluation/private/
 .zcode/

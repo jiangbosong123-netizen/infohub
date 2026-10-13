@@ -13,6 +13,7 @@ import nh3
 
 from .. import config
 from ..database import get_db
+from ..redaction import redact
 
 log = logging.getLogger(__name__)
 
@@ -128,7 +129,7 @@ def generate_daily(date_str: str | None = None, *, overwrite: bool = True) -> st
         try:
             content = _llm_report(date_str, data)
         except Exception as exc:  # noqa: BLE001
-            log.warning("LLM 日报失败，退化为摘要: %s", exc)
+            log.warning("LLM 日报失败，退化为摘要: %s", redact(str(exc)))
             content = _digest_fallback(date_str, data)
     else:
         content = _digest_fallback(date_str, data)
