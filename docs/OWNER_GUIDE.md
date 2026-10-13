@@ -27,13 +27,24 @@ Windows 还没有开机升级。上线前需要你做三件事：
 | `data\replaced\` | 从备份恢复时被换下来的旧库，确认无误后可手工删除 |
 | `.env` | 模型密钥、心跳地址等私密配置，只有 worker 读取 |
 
-## 3. 平时看什么
+## 3. 每次打开 PowerShell，先运行这两行
+
+```powershell
+cd C:\Users\serveradmin\Server\infohub
+$env:APP_VERSION = (git rev-parse --short=12 HEAD)
+```
+
+第二行告诉 Docker 现在运行的是哪个版本。不运行的话，`docker compose` 会直接报错并提示你运行它，而不会悄悄
+建出一个“unknown”版本（那样网站和后台会不一致，网站显示正常但后台其实没有就绪）。下面所有 `docker compose`
+命令都假定已经运行过这两行；换了新窗口就再运行一次。
+
+## 4. 平时看什么
 
 - **没收到告警邮件就是正常。** 系统每 5 分钟向 Healthchecks 报一次平安；有问题会立刻发邮件，问题解决后再发一封“恢复”。
 - 想看一眼：浏览器打开 `https://<你的机器名>.<tailnet>.ts.net/health`，红色的是有问题的来源。
 - 每周一次（可选）：`docker compose ps`，`infohub` 和 `infohub-worker` 应为 `healthy`（`migrate` 升级完就退出，不在列表里是正常的）。
 
-## 4. 收到告警邮件怎么办
+## 5. 收到告警邮件怎么办
 
 邮件正文第一段是代码和原因。先运行下面这条看现在的情况（有问题时会列出来）：
 
@@ -54,17 +65,17 @@ docker compose exec worker python cli.py self-check
 
 不确定时：不要删除任何东西，把 `docker compose ps` 和 `docker compose logs --tail 200 worker` 的输出发给 Claude。
 
-## 5. 升级、回退与恢复
+## 6. 升级、回退与恢复
 
 - **升级**：[Windows 升级指南](WINDOWS_CUTOVER.md) 第 6 步（停机几分钟，升级前自动备份）。
 - **升级后有问题，回到上一版**：同一指南第 11 步。
-- **数据坏了或误操作，用夜间备份恢复**：[运维手册](RUNBOOK.md)“从备份恢复到线上”，四条命令；当前库会被移到
+- **数据坏了或误操作，用夜间备份恢复**：[运维手册](RUNBOOK.md)“从备份恢复到线上”，照着那几条命令做；当前库会被移到
   `data\replaced\`，不会被删除。
 - **上线稳定后打开正文补全**：在 `.env` 加一行 `INFOHUB_ARTICLE_TEXT_ENABLED=true`，再运行
   `docker compose up -d worker`。之后只有标题的新闻（主要是 Google News）会自动补正文，约六成能补上；
   想关掉就改回 `false` 再运行同一条命令。
 
-## 6. 千万不要做的事
+## 7. 千万不要做的事
 
 - **不要让两台机器同时采集**，也**不要把两份数据库合并**（Mac 旧库和 Windows 库只能二选一）。
 - 不要运行 `docker compose down -v`（`-v` 会删数据卷），不要手工删除 `data\app.db`、`data\blobs\`。
@@ -72,7 +83,7 @@ docker compose exec worker python cli.py self-check
 - 不要把 `.env`、心跳地址或 API key 发到聊天、截图或公开仓库里。
 - 备份只在同一块硬盘上，防误操作，不防硬盘损坏；异地备份（放到 Mac）会在 Windows 检查后再做。
 
-## 7. 需要你保管的东西
+## 8. 需要你保管的东西
 
 - `.env`（模型密钥、心跳地址）；
 - Tailscale 账号（私网访问）；

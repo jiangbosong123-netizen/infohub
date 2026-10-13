@@ -20,7 +20,8 @@ maintenance 角色，不能把 Mac 变成第二个生产 worker。
    Compose 不启动 web/worker。
 2. 发布准备删除上一次的 `worker-heartbeat.json`，防止同 SHA 重试误认旧进程。
 3. web 与 worker 在 migrate 成功后分别启动。web 只调用严格数据库验证，不再隐式修改数据。
-4. worker 写入包含环境、构建 SHA、worker ID 和时间的原子心跳，并登记五类持久计划。
+4. worker 写入包含环境、构建 SHA、worker ID 和时间的原子心跳，并登记持久计划：抓取、AI、对账、日报、清理、夜间备份六项，
+   另有按开关启用的搜索、热度、主题统计与正文补全。
 5. `/api/health` 只有在当前 web 版本对应的 worker 心跳新鲜且 dataset owner 匹配时返回 200。
 6. Windows Server Manager 连续验收后，才把目标 SHA 记为健康版本。
 
@@ -42,7 +43,7 @@ worker 维护以下 schedule：
   校验通过后才删除旧的：`data/backups/nightly/` 只留最新 `BACKUP_KEEP` 份（默认 3），`data/backups/pre-migration/`
   只留最新 `BACKUP_KEEP_PRE_MIGRATION` 份（默认 2）。写入前先检查剩余空间（见 [运维手册](RUNBOOK.md) 第 3 节）。
 - `fetch_log` 清理：每天 04:05，只保留 14 天运行日志。
-- 例行任务清理：同一次清理删除 30 天前已成功的例行任务（抓取、AI、对账、日报、清理、夜间备份与三个构建器）及其尝试记录；
+- 例行任务清理：同一次清理删除 30 天前已成功的例行任务（抓取、AI、对账、日报、清理、夜间备份、正文补全与三个构建器）及其尝试记录；
   被变更日志、分析运行或同步快照引用的任务一律保留（见“例行任务的保留期（schema 50）”）。
 
 schedule 的配置（间隔、时间、优先级等）改变后，按旧配置排入、尚未完成的 job 直接取消而不运行，由新配置排入的
