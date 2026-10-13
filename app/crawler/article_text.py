@@ -11,16 +11,19 @@ Google's consent page is only ever answered with "Reject all".
 """
 
 import hashlib
+import ipaddress
 import json
 import logging
 import re
+import socket
+import threading
 import time
 import urllib.robotparser
 import zlib
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
 from typing import Callable
-from urllib.parse import quote, urlsplit
+from urllib.parse import quote, urljoin, urlsplit
 
 import httpx
 
@@ -36,6 +39,14 @@ SOURCE_TYPES = ("googlenews", "rss", "html")
 RECENT = timedelta(days=2)  # the backlog is never crawled
 MIN_CHARS = 200
 MAX_BYTES = 3_000_000
+ROBOTS_MAX_BYTES = 512 * 1024
+MAX_REDIRECTS = 5
+# Per read; the whole item (link decoding, robots.txt, article) must also finish within the deadline.
+READ_TIMEOUT_SECONDS = 15.0
+ITEM_DEADLINE_SECONDS = 60.0
+# Feed links come from strangers: never let one point the worker at the LAN, the tailnet, the
+# other containers or a cloud metadata service.
+_INTERNAL_SUFFIXES = (".localhost", ".local", ".internal", ".lan", ".home.arpa", ".ts.net")
 SITE_INTERVAL_SECONDS = 10.0
 ROBOTS_TTL_SECONDS = 24 * 3600
 RETRY_AFTER = timedelta(hours=1)
@@ -73,6 +84,36 @@ def excerpts(db, item_ids, limit: int = EXCERPT_CHARS) -> dict[int, str]:
     return {row[0]: decompress(row[1])[:limit] for row in rows}
 
 
+class UnsafeTarget(ValueError):
+    """The URL does not point at a public web server on a standard port."""
+
+
+class _RobotsDisallow(Exception):
+    pass
+
+
+class _Unavailable(Exception):
+    """A temporary condition (DNS, robots.txt unreachable): try the item again later."""
+
+
+class _TooLarge(Exception):
+    pass
+
+
+def _public_address(value: str) -> bool:
+    try:
+        address = ipaddress.ip_address(value.split("%", 1)[0])
+    except ValueError:
+        return False
+    if address.version == 6 and address.ipv4_mapped is not None:
+        address = address.ipv4_mapped
+    return address.is_global and not address.is_multicast
+
+
+def _resolve(host: str, port: int) -> list[str]:
+    return [info[4][0] for info in socket.getaddrinfo(host, port, type=socket.SOCK_STREAM)]
+
+
 @dataclass
 class _Outcome:
     status: str
@@ -89,6 +130,8 @@ class Fetcher:
     client: httpx.Client
     clock: Callable[[], float] = time.monotonic
     sleep: Callable[[float], None] = time.sleep
+    resolve: Callable[[str, int], list[str]] = _resolve
+    deadline_seconds: float = ITEM_DEADLINE_SECONDS
     robots: dict[str, tuple[float, urllib.robotparser.RobotFileParser | None]] = field(default_factory=dict)
     last_request: dict[str, float] = field(default_factory=dict)
 
@@ -103,6 +146,63 @@ class Fetcher:
     def get(self, url: str, **options) -> httpx.Response:
         self._wait_for((urlsplit(url).hostname or "").lower())
         return self.client.get(url, **options)
+
+    # --- publisher requests: public targets only, every redirect checked ----------------------
+
+    def check_target(self, url: str) -> None:
+        parts = urlsplit(url)
+        host = (parts.hostname or "").lower().rstrip(".")
+        if parts.scheme not in ("http", "https") or not host or parts.username or parts.password:
+            raise UnsafeTarget("not a plain http(s) URL")
+        if parts.port not in (None, 80, 443):
+            raise UnsafeTarget("non-standard port")
+        if "." not in host or host == "localhost" or host.endswith(_INTERNAL_SUFFIXES):
+            raise UnsafeTarget("internal host name")
+        try:
+            addresses = self.resolve(host, parts.port or (443 if parts.scheme == "https" else 80))
+        except (OSError, UnicodeError) as exc:
+            raise _Unavailable("host does not resolve") from exc
+        if not addresses or not all(_public_address(address) for address in addresses):
+            raise UnsafeTarget("host is not on the public internet")
+
+    @staticmethod
+    def _check_peer(response: httpx.Response) -> None:
+        # The name was resolved before connecting; refuse if it re-resolved to a private address.
+        stream = response.extensions.get("network_stream")
+        peer = stream.get_extra_info("server_addr") if stream is not None else None
+        if peer and not _public_address(str(peer[0])):
+            raise UnsafeTarget("connected to a non-public address")
+
+    def safe_get(self, url: str, *, max_bytes: int, robots: bool) -> tuple[httpx.Response, bytes, str]:
+        """GET a public URL, following redirects by hand; returns the response, body and final URL."""
+        deadline = time.monotonic() + self.deadline_seconds
+        for _ in range(MAX_REDIRECTS + 1):
+            self.check_target(url)
+            if robots:
+                verdict = self.allowed(url)
+                if verdict is None:
+                    raise _Unavailable("robots.txt unreachable")
+                if not verdict:
+                    raise _RobotsDisallow(url)
+            self._wait_for((urlsplit(url).hostname or "").lower())
+            with self.client.stream("GET", url, follow_redirects=False,
+                                    timeout=httpx.Timeout(READ_TIMEOUT_SECONDS)) as response:
+                self._check_peer(response)
+                if response.is_redirect and response.headers.get("location"):
+                    url = urljoin(url, response.headers["location"])
+                    continue
+                declared = response.headers.get("content-length", "")
+                if declared.isdigit() and int(declared) > max_bytes:
+                    raise _TooLarge(url)
+                body = bytearray()
+                for chunk in response.iter_bytes():
+                    body += chunk
+                    if len(body) > max_bytes:
+                        raise _TooLarge(url)
+                    if time.monotonic() > deadline:
+                        raise httpx.ReadTimeout("article download took too long")
+                return response, bytes(body), url
+        raise UnsafeTarget("too many redirects")
 
     # --- Google News -------------------------------------------------------------------------
 
@@ -145,40 +245,64 @@ class Fetcher:
 
     # --- robots.txt (RFC 9309) ---------------------------------------------------------------
 
-    def allowed(self, url: str) -> bool:
+    def allowed(self, url: str) -> bool | None:
+        """robots.txt verdict for ``url``; None while robots.txt cannot be read (RFC 9309 §2.3.1.4)."""
         parts = urlsplit(url)
         origin = f"{parts.scheme}://{parts.netloc}"
         cached = self.robots.get(origin)
         if cached is None or self.clock() - cached[0] > ROBOTS_TTL_SECONDS:
             parser = urllib.robotparser.RobotFileParser()
             try:
-                response = self.get(f"{origin}/robots.txt", timeout=10)
+                response, body, _ = self.safe_get(f"{origin}/robots.txt", max_bytes=ROBOTS_MAX_BYTES,
+                                                  robots=False)
                 if response.status_code >= 500:
                     parser = None  # unreachable: assume complete disallow for now
                 elif response.status_code >= 400:
                     parser.parse([])  # unavailable: no restrictions
                 else:
-                    parser.parse(response.text.splitlines())
-            except httpx.HTTPError:
+                    parser.parse(body.decode(response.encoding or "utf-8", "replace").splitlines())
+            except (httpx.HTTPError, UnsafeTarget, _TooLarge, _Unavailable):
                 parser = None
             cached = (self.clock(), parser)
             self.robots[origin] = cached
-        return cached[1] is not None and cached[1].can_fetch("*", url)
+        return None if cached[1] is None else cached[1].can_fetch("*", url)
 
     # --- one item ----------------------------------------------------------------------------
 
     def fetch(self, link: str) -> _Outcome:
+        """One item within the deadline; a server that drips bytes cannot hold the worker."""
+        result: list[_Outcome] = []
+
+        def run() -> None:
+            try:
+                result.append(self._fetch(link))
+            except Exception as exc:  # noqa: BLE001 - recorded as a failed attempt
+                result.append(_Outcome("failed", error=type(exc).__name__))
+        thread = threading.Thread(target=run, name="article-text-fetch", daemon=True)
+        thread.start()
+        thread.join(self.deadline_seconds)
+        if not result:
+            return _Outcome("failed", error="deadline")
+        return result[0]
+
+    def _fetch(self, link: str) -> _Outcome:
         try:
             url = self.google_article_url(link) if urlsplit(link).hostname == "news.google.com" else link
         except (httpx.HTTPError, ValueError, KeyError, IndexError, TypeError) as exc:
             return _Outcome("failed", error=f"resolve: {type(exc).__name__}")
         if host_paused_until(url) is not None:
             return _Outcome("failed", url, error="site asked us to wait")
-        if not self.allowed(url):
-            return _Outcome("blocked", url, error="robots.txt")
         try:
-            response = self.get(url, timeout=20)
-        except httpx.HTTPError as exc:
+            response, body, url = self.safe_get(url, max_bytes=MAX_BYTES, robots=True)
+        except UnsafeTarget as exc:
+            return _Outcome("blocked", url, error=f"unsafe target: {exc}")
+        except _RobotsDisallow as exc:
+            return _Outcome("blocked", str(exc), error="robots.txt")
+        except _TooLarge as exc:
+            return _Outcome("not_html", str(exc), error="too large")
+        except _Unavailable as exc:
+            return _Outcome("failed", url, error=str(exc))
+        except (httpx.HTTPError, httpx.InvalidURL, ValueError) as exc:
             return _Outcome("failed", url, error=type(exc).__name__)
         status = response.status_code
         if status in (401, 403, 451):
@@ -187,10 +311,10 @@ class Fetcher:
             return _Outcome("gone", url, status)
         if status != 200:
             return _Outcome("failed", url, status, error=f"HTTP {status}")
-        if "html" not in response.headers.get("content-type", "") or len(response.content) > MAX_BYTES:
+        if "html" not in response.headers.get("content-type", ""):
             return _Outcome("not_html", url, status)
         import trafilatura  # only the worker needs it, and only when the feature is on
-        text = (trafilatura.extract(response.text, url=str(response.url), favor_precision=True,
+        text = (trafilatura.extract(body, url=url, favor_precision=True,
                                     include_comments=False) or "").strip()
         if len(text) < MIN_CHARS:
             return _Outcome("no_text", url, status)
