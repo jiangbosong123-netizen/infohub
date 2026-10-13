@@ -5,7 +5,6 @@ from __future__ import annotations
 import json
 import logging
 import os
-import re
 import signal
 import socket
 import threading
@@ -25,6 +24,7 @@ from .jobs import (
     renew_lease,
     upsert_interval_schedule,
 )
+from .redaction import redact
 from .runtime_health import write_worker_heartbeat
 from .timeutil import format_utc, utc_now
 
@@ -278,20 +278,7 @@ def _result_reference(value: object) -> str:
 
 
 def _safe_text(value: str, maximum: int) -> str:
-    text = value.replace("\r", " ").replace("\n", " ")
-    if config.LLM_API_KEY:
-        text = text.replace(config.LLM_API_KEY, "[redacted]")
-    text = re.sub(
-        r"(?i)\bauthorization\s*[:=]\s*(?:bearer\s+)?[^\s,;]+",
-        "authorization=[redacted]",
-        text,
-    )
-    text = re.sub(
-        r"(?i)\b(token|password|api[_-]?key)\s*[:=]\s*[^\s,;]+",
-        r"\1=[redacted]",
-        text,
-    )
-    return text[:maximum]
+    return redact(value.replace("\r", " ").replace("\n", " "))[:maximum]
 
 
 def execute_claimed_job(

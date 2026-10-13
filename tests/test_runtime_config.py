@@ -222,7 +222,7 @@ class RuntimeConfigurationTests(unittest.TestCase):
     def test_public_origin_is_private_https_tailnet_name(self):
         for value in (
             "http://windows-server.example.ts.net",
-            "https://100.69.211.16",
+            "https://100.64.0.10",
             "https://windows-server.example.ts.net:8443",
             "https://windows-server.example.ts.net/path",
             "https://user@windows-server.example.ts.net",
@@ -241,6 +241,9 @@ class RuntimeConfigurationTests(unittest.TestCase):
                 self.assertTrue(service["init"])
                 self.assertEqual(service["logging"], {
                     "driver": "json-file", "options": {"max-size": "10m", "max-file": "5"}})
+        for name, service in compose["services"].items():
+            with self.subTest(service=name):
+                self.assertIn("no-new-privileges:true", service["security_opt"])
         self.assertEqual(compose["services"]["worker"]["stop_grace_period"], "3m")
         self.assertEqual(compose["services"]["migrate"]["healthcheck"], {"disable": True})
 

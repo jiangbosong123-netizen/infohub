@@ -9,6 +9,8 @@ __pycache__
 .env
 .env.*
 data
+data-*
+*.db
 tests
 docs
 evaluation

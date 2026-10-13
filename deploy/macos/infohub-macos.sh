@@ -27,6 +27,10 @@ WORKER_KEYS=(LLM_BASE_URL LLM_MODEL LLM_API_KEY SEC_USER_AGENT INFOHUB_EXTERNAL_
 
 say() { print -r -- "[infohub] $*"; }
 die() { print -r -- "[infohub] ERROR: $*" >&2; exit 1; }
+# These values are substituted into files that are later sourced; keep them to safe characters.
+[[ "$PREFIX" =~ ^/[A-Za-z0-9._/-]+$ ]] || die "INFOHUB_PREFIX must be an absolute path of letters, digits and . _ - /"
+[[ "$PORT" =~ ^[0-9]{2,5}$ ]] || die "INFOHUB_PORT must be a port number"
+[[ "$LABEL_PREFIX" =~ ^[A-Za-z0-9.-]+$ ]] || die "INFOHUB_LABEL_PREFIX may use letters, digits, . and - only"
 python312() { command -v python3.12 || ls "$HOME"/.local/bin/python3.12 2>/dev/null || true; }
 
 check() {
@@ -96,7 +100,9 @@ configure() {
       | "$PREFIX/code/.venv/bin/python" -c 'import json,sys; print("https://" + json.load(sys.stdin)["Self"]["DNSName"].rstrip("."))' \
       2>/dev/null || true)
   fi
-  [[ "$origin" == https://*.ts.net ]] || die "set INFOHUB_PUBLIC_ORIGIN=https://<machine>.<tailnet>.ts.net"
+  # A strict pattern, not a glob: the value is written into a file the shell later sources.
+  [[ "$origin" =~ ^https://[a-z0-9-]+(\.[a-z0-9-]+)*\.ts\.net$ ]] \
+    || die "set INFOHUB_PUBLIC_ORIGIN=https://<machine>.<tailnet>.ts.net"
   sed -e "s#@PREFIX@#$PREFIX#g" -e "s#@PORT@#$PORT#g" -e "s#@APP_VERSION@#$(<"$PREFIX/RELEASE")#g" \
     -e "s#@PUBLIC_ORIGIN@#$origin#g" "$SCRIPT_DIR/common.env.template" > "$PREFIX/config/common.env"
   : > "$PREFIX/config/worker.env"

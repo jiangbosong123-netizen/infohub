@@ -81,7 +81,7 @@ def smoke_restored_bundle(bundle: Path | str) -> dict:
             "INFOHUB_PROCESS_ROLE": "web",
             "INFOHUB_ALLOW_NETWORK_TASKS": "false",
             "INFOHUB_ENABLE_SCHEDULER": "false",
-            "OPENAI_API_KEY": "",
+            "LLM_API_KEY": "",
         })
         try:
             child = subprocess.run(

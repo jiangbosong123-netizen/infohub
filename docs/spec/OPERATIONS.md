@@ -4,7 +4,7 @@
 
 ## 1. 当前生产边界
 
-2026-09-14 UTC 的 HTTP 检查显示 Windows 的 `100.69.211.16:8000` 正运行 `88a2a1ef16e5`，约 1.1 万条记录、42 个启用源。主要页面返回 200，`/api/v1/items` 返回 404。Docker 容器、宿主机目录、任务计划和数据库实际文件内容没有在本轮远程读取。
+2026-09-14 UTC 的 HTTP 检查显示 Windows 的 `<Tailscale IP>:8000` 正运行 `88a2a1ef16e5`，约 1.1 万条记录、42 个启用源。主要页面返回 200，`/api/v1/items` 返回 404。Docker 容器、宿主机目录、任务计划和数据库实际文件内容没有在本轮远程读取。
 
 目前已知部署方式：Mac 开发 → GitHub main → 独立 windows-server-manager 每 300 秒检查 → Windows Docker Compose；宿主机 `data/` 挂入容器，`cli.py serve` 同时启动 web 与采集任务。用户之前提供的 Windows 路径是 `C:\Users\serveradmin\Server\infohub`，仍需在迁移前现场核对。
 

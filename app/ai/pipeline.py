@@ -14,6 +14,7 @@ from openai import OpenAI
 from .. import config
 from ..crawler.article_text import excerpts, waiting_for_text_clause
 from ..database import get_db
+from ..redaction import redact
 
 log = logging.getLogger(__name__)
 
@@ -113,7 +114,7 @@ def process_pending(limit: int = 20) -> int:
         results = _call_llm(payload)
     except Exception as exc:  # noqa: BLE001
         if not _is_content_filter(exc):
-            log.warning("AI 流水线失败: %s", exc)
+            log.warning("AI 流水线失败: %s", redact(str(exc)))
             return 0
         # 整批被内容过滤拦截：逐条处理，被过滤的单条标记 -1 跳过，避免永远卡住
         log.info("批次触发内容过滤，降级为逐条处理")
@@ -200,7 +201,7 @@ def backfill_tmt(days: int = 0, max_batches: int = 60) -> int:
                         db.execute("UPDATE items SET tmt=? WHERE id=?", (keep, item_id))
                         total += 1
             else:
-                log.warning("TMT 补判定失败: %s", exc)
+                log.warning("TMT 补判定失败: %s", redact(str(exc)))
                 break
         with get_db() as db:
             for r in _valid_results(results, rows):
@@ -275,7 +276,7 @@ def backfill_titles(days: int = 4, max_batches: int = 40) -> int:
                     for item_id in filtered:
                         db.execute("UPDATE items SET title_zh='-' WHERE id=?", (item_id,))
             else:
-                log.warning("标题补翻失败: %s", exc)
+                log.warning("标题补翻失败: %s", redact(str(exc)))
                 break
         with get_db() as db:
             for r in _valid_results(results, rows):

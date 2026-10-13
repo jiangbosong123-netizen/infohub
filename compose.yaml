@@ -11,6 +11,9 @@ x-infohub-common: &infohub-common
     - ./data:/app/data
   # tini as PID 1 forwards stop signals to Python and reaps child processes.
   init: true
+  # Nothing in the app needs to gain privileges (setuid binaries) after start.
+  security_opt:
+    - no-new-privileges:true
   # Docker keeps container logs forever by default; keep 5 x 10 MB per container.
   logging:
     driver: json-file
