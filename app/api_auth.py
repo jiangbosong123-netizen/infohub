@@ -117,6 +117,10 @@ def issue_api_key(db: sqlite3.Connection, consumer_id: str, scopes: set[str] | f
     return IssuedApiKey(key_id, consumer_id, tuple(sorted(selected)), _stamp(expiry), token)
 
 
+def well_formed_token(token: str) -> bool:
+    return bool(_TOKEN.fullmatch(token))
+
+
 def authenticate_api_key(db: sqlite3.Connection, token: str,
                          *, required_scope: str | None = None,
                          now: datetime | None = None) -> ApiPrincipal | None:

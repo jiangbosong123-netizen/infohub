@@ -10,7 +10,7 @@ from uuid import uuid4
 
 from fastapi import Request
 from .. import config
-from ..api_auth import authenticate_api_key
+from ..api_auth import authenticate_api_key, well_formed_token
 from ..api_rate_limit import release_api_request, reserve_api_request
 from ..api_request_audit import record_request_event
 from ..database import get_db
@@ -76,7 +76,8 @@ async def v1_auth_guard(request: Request, call_next):
         _LOG.warning("API v1 authentication rejected request_id=%s reason=invalid_header", request_id)
         return v1_error(401, "invalid_token", request_id)
     match = _BEARER.fullmatch(authorization)
-    if match is None:
+    # A malformed token is refused before the database's write lock is taken.
+    if match is None or not well_formed_token(match.group(1)):
         _LOG.warning("API v1 authentication rejected request_id=%s reason=invalid_header", request_id)
         return v1_error(401, "invalid_token", request_id)
     try:

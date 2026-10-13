@@ -1,9 +1,12 @@
 from __future__ import annotations
 
 """每日日报：汇总指定日期的高分条目与热点簇，LLM 生成（无 Key 时退化为结构化摘要）。"""
+import html
 import json
 import logging
+import re
 from datetime import datetime, timedelta, timezone
+from urllib.parse import urlsplit
 
 import markdown as md
 import nh3
@@ -66,6 +69,20 @@ def _collect(date_str: str) -> dict:
     return dict(items=out_items, clusters=clusters[:12])
 
 
+def _md(value: object) -> str:
+    """Feed text as literal Markdown: no links, images or emphasis smuggled in through a title."""
+    escaped = html.escape(str(value or ""), quote=False)
+    return re.sub(r"([\\`*_[\]{}()#+!|<>])", r"\\\1", escaped)
+
+
+def _md_link(text: object, url: object) -> str:
+    target = str(url or "")
+    parts = urlsplit(target)
+    if parts.scheme in ("http", "https") and parts.netloc and not re.search(r"[\s()<>]", target):
+        return f"[{_md(text)}]({target})"
+    return _md(text)
+
+
 def _digest_fallback(date_str: str, data: dict) -> str:
     """无 LLM 时的结构化摘要（纯聚合模式也能看）。"""
     lines = [f"# 行业日报 · {date_str}", ""]
@@ -73,7 +90,7 @@ def _digest_fallback(date_str: str, data: dict) -> str:
         lines += ["## 今日热点榜", ""]
         for i, c in enumerate(data["clusters"][:10], 1):
             ch = CHANNEL_NAMES.get(c["channel"], c["channel"])
-            lines.append(f"{i}. **[{ch}]** [{c['title']}]({c['url']})"
+            lines.append(f"{i}. **[{ch}]** {_md_link(c['title'], c['url'])}"
                          f" — {c['source_count']} 家信源 · 热度 {int(c['heat'] * 100)}")
         lines.append("")
     by_channel: dict[str, list] = {}
@@ -88,9 +105,9 @@ def _digest_fallback(date_str: str, data: dict) -> str:
             hm = datetime.fromisoformat(it["published_at"]).astimezone(config.APP_TZ).strftime("%H:%M")
             tag = f"（{EVENT_NAMES.get(it['event_type'], '')}）" if it["event_type"] else ""
             score = f" · 评分 {it['score']}" if it["score"] is not None else ""
-            lines.append(f"- **{hm}** [{it['title']}]({it['url']}) — {it['source_name']}{score}{tag}")
+            lines.append(f"- **{hm}** {_md_link(it['title'], it['url'])} — {_md(it['source_name'])}{score}{tag}")
             if it["summary"]:
-                lines.append(f"  {it['summary']}")
+                lines.append(f"  {_md(it['summary'])}")
         lines.append("")
     return "\n".join(lines)
 
@@ -156,5 +173,9 @@ def _llm_report(date_str: str, data: dict) -> str:
     return text.strip() or _digest_fallback(date_str, data)
 
 
+# Reports never need images; an image from a feed or a model would load from a stranger's server.
+_REPORT_TAGS = nh3.ALLOWED_TAGS - {"img"}
+
+
 def render_markdown(text: str) -> str:
-    return nh3.clean(md.markdown(text, extensions=["tables", "fenced_code"]))
+    return nh3.clean(md.markdown(text, extensions=["tables", "fenced_code"]), tags=_REPORT_TAGS)
