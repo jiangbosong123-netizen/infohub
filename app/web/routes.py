@@ -427,11 +427,13 @@ def _system_snapshot() -> dict:
     now = datetime.now(timezone.utc)
     now_utc = now.isoformat(timespec="microseconds").replace("+00:00", "Z")
     with get_db() as db:
-        item = db.execute("""SELECT COUNT(*) AS total,
-            COALESCE(SUM(CASE WHEN score IS NULL THEN 1 ELSE 0 END),0) AS pending_score,
-            COALESCE(SUM(CASE WHEN tmt IS NULL THEN 1 ELSE 0 END),0) AS pending_tmt,
-            COALESCE(SUM(CASE WHEN tmt=0 THEN 1 ELSE 0 END),0) AS hidden,
-            MAX(fetched_at) AS last_item_at FROM items""").fetchone()
+        # Separate counts so each reads a small index (the queues are partial indexes) instead of
+        # one aggregate scanning every item on every health request.
+        item = db.execute("""SELECT (SELECT COUNT(*) FROM items) AS total,
+            (SELECT COUNT(*) FROM items WHERE score IS NULL) AS pending_score,
+            (SELECT COUNT(*) FROM items WHERE tmt IS NULL) AS pending_tmt,
+            (SELECT COUNT(*) FROM items WHERE tmt=0) AS hidden,
+            (SELECT MAX(fetched_at) FROM items) AS last_item_at""").fetchone()
         derived_pending = db.execute("SELECT COUNT(*) FROM derived_dirty").fetchone()[0]
         reports = db.execute(
             "SELECT COUNT(*) AS total, MAX(date) AS latest FROM daily_reports").fetchone()
@@ -699,8 +701,9 @@ def _query_items(channel: str = "all", company: str = "", event: str = "", cat: 
         where += f" AND {category_expr}=?"
         params.append(cat)
     if company:
-        where += (" AND EXISTS (SELECT 1 FROM item_companies ic JOIN companies c "
-                "ON c.id=ic.company_id WHERE ic.item_id=i.id AND c.slug=?)")
+        # A set lookup: a correlated EXISTS ran once per candidate row (up to 0.5 s for a rare company).
+        where += (" AND i.id IN (SELECT ic.item_id FROM item_companies ic JOIN companies c "
+                  "ON c.id=ic.company_id WHERE c.slug=?)")
         params.append(company)
     if event:
         where += " AND i.event_type=?"
