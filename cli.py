@@ -64,6 +64,7 @@
   python cli.py event-release-review SAMPLE_EVALUATION_ID approved|rejected EXPECTED|none REASON
   python cli.py event-release-status
   python cli.py legacy-event-project   # 将旧 story 映射为 shadow candidate event（maintenance only）
+  python cli.py routine-filings-mark [--apply]  # 给旧数据里的例行申报补标记，不再进精选（maintenance only，可重复运行）
   python cli.py legacy-curation-enqueue [AFTER_ID] [LIMIT]  # 分页排入旧策展转换任务（maintenance only）
   python cli.py legacy-curation-process [N]  # 处理最多 N 个离线转换任务（maintenance only）
   python cli.py legacy-curation-run  # 一次排入并处理全部旧策展转换任务，可中断续跑（maintenance only）
@@ -886,6 +887,13 @@ def cmd_event_release_status() -> None:
     print(json.dumps(result, ensure_ascii=False, indent=2))
 
 
+def cmd_routine_filings_mark(apply: bool) -> None:
+    if config.PROCESS_ROLE != "maintenance":
+        raise config.RuntimeConfigurationError("routine-filings-mark requires INFOHUB_PROCESS_ROLE=maintenance")
+    from app.routine_filings import mark_routine_filings
+    print(json.dumps(mark_routine_filings(apply=apply), ensure_ascii=False, indent=2))
+
+
 def cmd_legacy_event_project() -> None:
     if config.PROCESS_ROLE != "maintenance":
         raise config.RuntimeConfigurationError(
@@ -1206,6 +1214,8 @@ def main() -> None:
         cmd_event_release_status()
     elif cmd == "legacy-event-project":
         cmd_legacy_event_project()
+    elif cmd == "routine-filings-mark" and len(sys.argv) <= 3 and sys.argv[2:] in ([], ["--apply"]):
+        cmd_routine_filings_mark(sys.argv[2:] == ["--apply"])
     elif cmd == "legacy-curation-enqueue":
         cmd_legacy_curation_enqueue(int(sys.argv[2]) if len(sys.argv) > 2 else 0,
                                     int(sys.argv[3]) if len(sys.argv) > 3 else 100)
