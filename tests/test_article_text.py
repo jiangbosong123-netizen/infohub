@@ -1,6 +1,7 @@
 import hashlib
 import json
 import tempfile
+import time
 import unittest
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -45,6 +46,17 @@ class FakeWeb:
             "https://blog.example/post": httpx.Response(403),
             "https://flaky.example/robots.txt": httpx.Response(404),
             "https://flaky.example/a": httpx.Response(503),
+            "https://down.example/robots.txt": httpx.Response(503),
+            "https://down.example/a": httpx.Response(200, html=ARTICLE),
+            "https://down.example/b": httpx.Response(200, html=ARTICLE),
+            # A public page that bounces the worker into the LAN, and one that moved legitimately.
+            "https://news.example/bounce": httpx.Response(302, headers={"Location": "http://192.168.1.1/admin"}),
+            "https://news.example/moved": httpx.Response(301, headers={"Location": "/story"}),
+            "https://news.example/sneak": httpx.Response(302, headers={"Location": "/private/x"}),
+            "https://news.example/huge": httpx.Response(200, html="<p>" + "x" * 5000 + "</p>"),
+            # No Content-Length: only counting the streamed bytes can stop it.
+            "https://news.example/endless": httpx.Response(
+                200, headers={"Content-Type": "text/html"}, content=(b"<p>" + b"x" * 500 for _ in range(20))),
         }
         self.decoded = {"GOOD": "https://news.example/story", "TWO": "https://news.example/second",
                         "BRIEF": "https://news.example/brief",
@@ -57,6 +69,9 @@ class FakeWeb:
             if "SOCS" not in request.headers.get("cookie", ""):
                 return httpx.Response(302, headers={"Location": "https://consent.google.com/m?continue=x"})
             return httpx.Response(200, html='<c-wiz data-n-a-sg="SIG" data-n-a-ts="1700000000"></c-wiz>')
+        if url == "https://news.example/slow":
+            time.sleep(1.0)
+            return httpx.Response(200, html=ARTICLE)
         if url.startswith("https://consent.google.com/m"):
             return httpx.Response(200, html=CONSENT)
         if url == "https://consent.google.com/save":
@@ -100,10 +115,25 @@ class ArticleTextTests(unittest.TestCase):
         self.slept.append(seconds)
         self.time += seconds
 
-    def fetcher(self):
+    # Split-horizon DNS could give internal names public answers; the name rule must still refuse them.
+    PUBLIC = {"news.example": "93.184.216.34", "blog.example": "93.184.216.35",
+              "flaky.example": "93.184.216.36", "down.example": "93.184.216.39",
+              "printer": "93.184.216.40", "nas.internal": "93.184.216.41",
+              "windows-server.tail29d4dd.ts.net": "93.184.216.42"}
+    PRIVATE = {"intranet.example": "10.0.0.5", "router.example": "192.168.1.1"}
+
+    def resolve(self, host, port):
+        if host in self.PUBLIC or host in self.PRIVATE:
+            return [{**self.PUBLIC, **self.PRIVATE}[host]]
+        try:
+            return [str(__import__("ipaddress").ip_address(host))]
+        except ValueError:
+            raise OSError("unknown host") from None
+
+    def fetcher(self, **options):
         client = httpx.Client(transport=httpx.MockTransport(self.web), follow_redirects=True)
         self.addCleanup(client.close)
-        return Fetcher(client, clock=self.clock, sleep=self.sleep)
+        return Fetcher(client, clock=self.clock, sleep=self.sleep, resolve=self.resolve, **options)
 
     def item(self, source, url, title="Nvidia chips ship next quarter", summary="", age=timedelta(hours=1)):
         self.assertTrue(insert_item(source, dict(title=title, url=url, summary=summary,
@@ -149,6 +179,77 @@ class ArticleTextTests(unittest.TestCase):
         fetch_article_texts(fetcher=self.fetcher())
         self.assertEqual((self.stored(hidden)["status"], self.stored(hidden)["error"]), ("blocked", "robots.txt"))
         self.assertNotIn("https://news.example/private/x", self.web.urls())
+
+    def test_links_never_reach_internal_addresses(self):
+        bounced = self.item("blog", "https://news.example/bounce")
+        direct = [self.item("blog", url) for url in (
+            "http://192.168.1.1/admin", "http://127.0.0.1/x", "http://169.254.169.254/latest/meta-data",
+            "https://intranet.example/doc", "https://news.example:8443/story", "http://printer/status",
+            "https://nas.internal/files", "https://windows-server.tail29d4dd.ts.net/")]
+        fetch_article_texts(fetcher=self.fetcher())
+        self.assertEqual((self.stored(bounced)["status"], self.stored(bounced)["error"]),
+                         ("blocked", "unsafe target: host is not on the public internet"))
+        for item_id in direct:
+            with self.subTest(item=item_id):
+                self.assertEqual(self.stored(item_id)["status"], "blocked")
+                self.assertTrue(self.stored(item_id)["error"].startswith("unsafe target"))
+        self.assertEqual([self.stored(item_id)["error"] for item_id in direct[-3:]],
+                         ["unsafe target: internal host name"] * 3)
+        self.assertTrue(article_text._public_address("::ffff:8.8.8.8"))
+        self.assertFalse(article_text._public_address("::ffff:10.0.0.1"))
+        reached = {request.url.host for request in self.web.requests}
+        self.assertEqual(reached, {"news.example"})  # only the public page that tried to bounce
+
+    def test_a_redirect_is_followed_and_its_target_recorded(self):
+        moved = self.item("blog", "https://news.example/moved")
+        fetch_article_texts(fetcher=self.fetcher())
+        self.assertEqual((self.stored(moved)["status"], self.stored(moved)["article_url"]),
+                         ("ok", "https://news.example/story"))
+
+    def test_robots_txt_is_checked_again_after_a_redirect(self):
+        sneak = self.item("blog", "https://news.example/sneak")
+        fetch_article_texts(fetcher=self.fetcher())
+        self.assertEqual((self.stored(sneak)["status"], self.stored(sneak)["error"]), ("blocked", "robots.txt"))
+        self.assertNotIn("https://news.example/private/x", self.web.urls())
+
+    def test_a_name_that_rebinds_to_a_private_address_is_refused(self):
+        class Stream:
+            def get_extra_info(self, name):
+                return ("10.0.0.7", 443) if name == "server_addr" else None
+        response = httpx.Response(200, extensions={"network_stream": Stream()})
+        with self.assertRaises(article_text.UnsafeTarget):
+            Fetcher._check_peer(response)
+        Fetcher._check_peer(httpx.Response(200))  # no stream information: nothing to compare
+
+    def test_temporary_problems_are_retried_not_blocked(self):
+        down = [self.item("blog", "https://down.example/a"), self.item("blog", "https://down.example/b")]
+        unknown = self.item("blog", "https://nowhere.example/x")  # does not resolve right now
+        broken = self.item("blog", "https://xn--zz.com/x")  # not a valid internationalised name
+        fetch_article_texts(fetcher=self.fetcher(), now=NOW)
+        self.assertEqual([(self.stored(i)["status"], self.stored(i)["error"]) for i in down],
+                         [("failed", "robots.txt unreachable")] * 2)
+        self.assertEqual((self.stored(unknown)["status"], self.stored(unknown)["error"]),
+                         ("failed", "host does not resolve"))
+        self.assertEqual(self.stored(broken)["status"], "failed")
+        self.web.pages["https://down.example/robots.txt"] = httpx.Response(404)
+        result = fetch_article_texts(fetcher=self.fetcher(), now=NOW + timedelta(minutes=61))
+        self.assertEqual(result["candidates"], 4)
+        self.assertEqual([self.stored(i)["status"] for i in down], ["ok", "ok"])
+
+    def test_oversized_pages_are_not_downloaded_whole(self):
+        huge = self.item("blog", "https://news.example/huge")
+        endless = self.item("blog", "https://news.example/endless")
+        with patch.object(article_text, "MAX_BYTES", 1000):
+            fetch_article_texts(fetcher=self.fetcher())
+        for item_id in (huge, endless):
+            self.assertEqual((self.stored(item_id)["status"], self.stored(item_id)["error"]), ("not_html", "too large"))
+
+    def test_a_slow_server_cannot_hold_the_worker(self):
+        slow = self.item("blog", "https://news.example/slow")
+        started = time.monotonic()
+        fetch_article_texts(fetcher=self.fetcher(deadline_seconds=0.2))
+        self.assertLess(time.monotonic() - started, 0.9)
+        self.assertEqual((self.stored(slow)["status"], self.stored(slow)["error"]), ("failed", "deadline"))
 
     def test_one_site_is_asked_at_most_every_ten_seconds(self):
         self.item("gnews", "https://news.google.com/rss/articles/GOOD")
