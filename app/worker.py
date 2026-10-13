@@ -16,13 +16,16 @@ from uuid import uuid4
 from . import config
 from .db_admin import verify_database
 from .jobs import (
+    InputVersionChangedError,
     JobRecord,
     LeaseLostError,
+    cancel_job,
     claim_job,
     complete_job,
     enqueue_due_schedules,
     fail_job,
     renew_lease,
+    schedule_changed,
     upsert_interval_schedule,
 )
 from .runtime_health import write_worker_heartbeat
@@ -308,6 +311,10 @@ def execute_claimed_job(
             job.id, job.lease_token or "", error_code="unknown_job_kind",
             error_detail=f"no handler for {job.kind}", now=now,
         )
+    if schedule_changed(job):
+        # Queued before a deploy or .env change; the reconfigured schedule queues its own job.
+        log.info("job %s (%s) cancelled: its schedule changed", job.id, job.kind)
+        return cancel_job(job.id, lease_token=job.lease_token, now=now)
     try:
         result = handler()
         return complete_job(
@@ -317,6 +324,9 @@ def execute_claimed_job(
             result_ref=_result_reference(result),
             now=now,
         )
+    except InputVersionChangedError:
+        log.info("job %s (%s) cancelled: its schedule changed while it ran", job.id, job.kind)
+        return cancel_job(job.id, lease_token=job.lease_token, now=now)
     except LeaseLostError:
         raise
     except Exception as exc:  # noqa: BLE001

@@ -45,7 +45,8 @@ worker 维护以下 schedule：
 - 例行任务清理：同一次清理删除 30 天前已成功的例行任务（抓取、AI、对账、日报、清理、夜间备份与三个构建器）及其尝试记录；
   被变更日志、分析运行或同步快照引用的任务一律保留（见“例行任务的保留期（schema 50）”）。
 
-schedule 的下一次时间保存在 SQLite。进程停机期间错过多个周期时只合并为一个到期 job。job
+schedule 的配置（间隔、时间、优先级等）改变后，按旧配置排入、尚未完成的 job 直接取消而不运行，由新配置排入的
+job 接替，不会反复失败、也不会触发 `jobs_failed` 告警。schedule 的下一次时间保存在 SQLite。进程停机期间错过多个周期时只合并为一个到期 job。job
 领取后有带 token 的租约，心跳线程持续续租；worker 被杀死后租约到期，新进程会把旧 attempt
 标为 `lease_expired` 并重试同一 job。失败按任务上限进入 retry_wait 或 dead_letter。
 

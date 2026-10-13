@@ -111,6 +111,40 @@ class BundlePromoteTests(unittest.TestCase):
         self.assertEqual(hashlib.sha256(self.live.read_bytes()).hexdigest(), digest)
         self.assertFalse((self.live.parent / "replaced").exists())
 
+    def test_a_failed_epoch_change_leaves_the_live_database_alone(self):
+        self.publish_change()  # consumers have seen past the bundle
+        digest = hashlib.sha256(self.live.read_bytes()).hexdigest()
+        with patch("app.publication.rotate_dataset_epoch", side_effect=RuntimeError("interrupted")):
+            with self.assertRaises(RuntimeError):
+                promote_backup_bundle(self.bundle)
+        self.assertEqual(hashlib.sha256(self.live.read_bytes()).hexdigest(), digest)
+        self.assertFalse((self.live.parent / "replaced").exists())
+        self.assertEqual([p.name for p in self.live.parent.iterdir() if ".promote.tmp" in p.name], [])
+        result = promote_backup_bundle(self.bundle)  # the retry still sees the rewind
+        self.assertTrue(result["epoch"]["rotated"])
+        self.assertEqual(get_dataset_identity().epoch, result["epoch"]["current"])
+
+    def test_a_bundle_taken_by_a_running_job_still_starts_a_new_epoch(self):
+        enqueue_job(kind="backup", idempotency_key="nightly", input_version="v1")
+        claim_job(worker_id="nightly", lease_seconds=300)  # the nightly bundle's own job is running
+        bundle = Path(create_backup_bundle(self.root / "backups" / "during-job.bundle")["path"])
+        self.publish_change()
+        result = promote_backup_bundle(bundle)
+        self.assertTrue(result["epoch"]["rotated"])
+        with closing(sqlite3.connect(self.live)) as db:
+            states = [row[0] for row in db.execute("SELECT state FROM jobs WHERE kind='backup'")]
+        self.assertEqual(states, ["cancelled"])  # its lease expired, then the new epoch cancelled it
+        self.assertFalse(Path(f"{self.live}-wal").exists() and Path(f"{self.live}-wal").stat().st_size)
+
+    def test_a_degraded_worker_counts_as_running(self):
+        write_worker_heartbeat(worker_id="w", started_at=utc_now(), state="degraded")
+        self.assert_refused("worker is running")
+
+    def test_a_worker_that_starts_during_the_copy_stops_the_swap(self):
+        from app import evidence_backup
+        with patch.object(evidence_backup, "_worker_running", side_effect=[False, True]):
+            self.assert_refused("worker is running")
+
     def test_refuses_while_the_worker_runs(self):
         write_worker_heartbeat(worker_id="w", started_at=utc_now(), state="running")
         self.assert_refused("worker is running")

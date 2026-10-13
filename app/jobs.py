@@ -592,6 +592,16 @@ def block_job(
         return _job_from_row(db.execute("SELECT * FROM jobs WHERE id=?", (job_id,)).fetchone())
 
 
+def schedule_changed(job: JobRecord) -> bool:
+    """True when the job came from a schedule whose configuration has changed since it was queued."""
+    schedule_id = job.payload.get("schedule_id") if isinstance(job.payload, dict) else None
+    if not schedule_id:
+        return False
+    with get_db() as db:
+        row = db.execute("SELECT config_hash FROM schedules WHERE id=?", (schedule_id,)).fetchone()
+    return row is None or row["config_hash"] != job.input_version
+
+
 def cancel_job(
     job_id: str,
     *,
