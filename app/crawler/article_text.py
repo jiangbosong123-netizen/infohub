@@ -346,7 +346,7 @@ def due_items(db, now: datetime, limit: int) -> list:
             LEFT JOIN article_texts a ON a.item_id=i.id
             WHERE {eligible_clause()} AND i.fetched_at >= ?
               AND (a.item_id IS NULL OR (a.status='failed' AND a.next_attempt_at <= ?))
-            ORDER BY i.id DESC LIMIT ?""",
+            ORDER BY +i.id DESC LIMIT ?""",  # "+": read the recent range by fetch time, then sort
         ((now - RECENT).isoformat(), format_utc(now), limit),
     ).fetchall()
 

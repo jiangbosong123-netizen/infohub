@@ -4005,6 +4005,23 @@ def _item_title_index(db: sqlite3.Connection) -> None:
     _execute_script(db, ITEM_TITLE_INDEX_SQL)
 
 
+# Queues the worker polls every tick and the health snapshot counts: without these each poll scanned
+# every item (0.1-0.4 s on 90k items, 1-2 s at a year's growth); with them they read only the queue.
+# The story indexes serve refresh_derived's anchor and redirect lookups.
+WORK_QUEUE_INDEX_SQL = """
+CREATE INDEX idx_items_unscored ON items(id) WHERE score IS NULL;
+CREATE INDEX idx_items_tmt_pending ON items(id) WHERE tmt IS NULL;
+CREATE INDEX idx_items_untitled ON items(id) WHERE title_zh='';
+CREATE INDEX idx_items_hidden ON items(id) WHERE tmt=0;
+CREATE INDEX idx_stories_anchor ON stories(anchor_item_id);
+CREATE INDEX idx_stories_redirected ON stories(redirect_to,id) WHERE redirect_to IS NOT NULL;
+"""
+
+
+def _work_queue_indexes(db: sqlite3.Connection) -> None:
+    _execute_script(db, WORK_QUEUE_INDEX_SQL)
+
+
 # Migration 1 freezes the exact legacy schema at main@88a2a1e. Future schema
 # changes must append a new Migration instead of editing this definition.
 MIGRATIONS = (
@@ -4199,6 +4216,7 @@ MIGRATIONS = (
               SOURCE_DISCOVERY_INDEX_SQL, _source_discovery_index),
     Migration(53, "article text for title-only items", ARTICLE_TEXTS_SQL, _article_texts),
     Migration(54, "index item titles for Google News re-posts", ITEM_TITLE_INDEX_SQL, _item_title_index),
+    Migration(55, "index the AI work queues and story anchors", WORK_QUEUE_INDEX_SQL, _work_queue_indexes),
 )
 CURRENT_SCHEMA_VERSION = MIGRATIONS[-1].version
 REQUIRED_MIGRATION_COLUMNS = {
