@@ -1,0 +1,61 @@
+{
+  "scope": "titles-v5 story matching: merging events whose articles match across (app/stories.py _nominate, _MemberEvidence, _member_support, merge rounds)",
+  "recorded_at": "2026-10-14T00:00:00Z",
+  "environment": "macOS isolated copy of the titles-v4 rehearsal index (perf6: 89,575 items, 57,924 story memberships), schema 55; no network, no model calls",
+  "production_changed": false,
+  "problem": "Each article only compares with event anchors, so one event worded several ways became several events: 'Gemini breaks into three companies' was 8 events, AMD buying World Labs and Amazon pausing 21 Air 5 or more each. The anchor-only merge (story-merge-20261007.json) cannot join them because the anchors do not match.",
+  "design": [
+    "After the per-item pass, each re-indexed article is compared with articles of other live events published within 72 h, the 60 sharing the most title trigrams first; candidates sharing under 30% of the shorter title's trigrams are skipped, and the length bound skips pairs that cannot reach 0.72.",
+    "A nominated pair of events merges when at least 2 of their article pairs score >= 0.72 (the later article compared with the earlier one), and the two anchors pass every hard rule of item matching (numbers, companies, filings, event types, stock-move trading day, 72 h).",
+    "The later event joins the earlier one and redirects there, as in the anchor merge. Merges repeat within one refresh on the merged memberships until none is left, so A~B and B~C join all three only when A's and C's anchors do not contradict each other.",
+    "A re-checked member that matches neither its anchor nor a former anchor stays when it matches at least 2 other members of its event; otherwise a former anchor of a merged event would leave and come back on every full reindex."
+  ],
+  "rejected_variants": [
+    {"variant": "one matching article pair is enough", "result": "2 of 15 sampled pairs joined different events (funds each buying Amazon shares; vendors each joining Microsoft 365 Copilot); 1,139 merges instead of 638 in a simulation"},
+    {"variant": "at least 2 pairs, no chaining through a merged event", "result": "first full reindex 584 merges, but a second reindex merged 192 more and moved items between 21 events: not stable"},
+    {"variant": "compare the 60 best candidates without the 30% trigram filter", "result": "same pairs but 90 s instead of 38 s for the comparison; the filter misses 7 of 443 qualifying event pairs"},
+    {"variant": "one identical-title pair is enough", "result": "dropped: copies of one headline already join the earliest copy's event during the per-item pass, and an identical copy in another event always brings a second matching pair"}
+  ],
+  "full_reindex": {
+    "method": "story_items.match_reason reset, refresh_derived() on a copy (starting from the titles-v4 result)",
+    "seconds": {"titles_v4": 217.0, "titles_v5": 256.7},
+    "merges_per_round": [575, 176, 58, 6, 5, 1, 0],
+    "live_stories": {"titles_v4": 42716, "titles_v5": 41907},
+    "stories_with_5_or_more_items": {"titles_v4": 662, "titles_v5": 644},
+    "articles_in_events_joining_several_titles_v4_events": 5180,
+    "titles_v4_events_split": 0,
+    "same_story_pairs": {"titles_v4": 49180, "titles_v5": 119184, "removed": 0}
+  },
+  "stability": {
+    "method": "second full reindex from the titles-v5 result",
+    "seconds": 261.3,
+    "merges": 43,
+    "items_changing_event": 27,
+    "same_story_pairs": {"added": 12, "removed": 493},
+    "titles_v4_for_comparison": {"items_moved": 442, "pairs_added": 3063, "pairs_removed": 76}
+  },
+  "incremental_refresh_seconds": {
+    "method": "mark the N latest items dirty and refresh, same machine",
+    "titles_v4": {"20": 0.49, "50": 0.62, "200": 0.86},
+    "titles_v5": {"20": 0.65, "50": 1.01, "200": 1.33}
+  },
+  "reviewed_samples": {
+    "reviewer": "Claude, by reading the titles of the joined events; not owner labels",
+    "random_merges": {"sampled": 40, "same_event": 38, "different_event": 1, "unclear": 1,
+                      "different_event_examples": ["MidFirst Bank / Argyle Capital Partners / Brightwater Advisory each buying Amazon shares (template titles)"],
+                      "unclear_examples": ["Meta-linked data centre junk bonds / CleanSpark bonds for Meta-linked AI infrastructure"]},
+    "large_merges": ["Gemini breaking into three companies: 144 articles from 5+ events", "Trump meeting Anthropic's CEO: 144 articles", "AMD buying World Labs: 108", "Amazon pausing 21 Air: 97"],
+    "storyline_merges": ["Trump attacking the Anthropic CEO's call joined the call itself (129 articles)"]
+  },
+  "query_plans": "the window query searches idx_items_pub; membership queries search idx_story_items_story",
+  "limits": [
+    "No owner-labelled story pairs exist yet; precision is a reading of sampled titles.",
+    "Template titles (13F fund purchases, quote pages, generic stock-move pieces) match one another and still merge.",
+    "Follow-ups of one storyline within 72 h can join one event when their anchors do not contradict each other.",
+    "The cutover starts from titles-v2 memberships, not titles-v4; its reindex time was measured for titles-v4 only (193-213 s) and is expected near +40 s."
+  ],
+  "tests": [
+    "tests/test_story_merge.py: events whose articles match across merge on the second matching pair (one is not enough), and a full reindex keeps them; anchors that contradict each other keep their events apart; an event joins through a third once the first merge is made (no direct pair between them); an article matching only one other article does not stay; earlier anchor-merge and no-chain tests unchanged",
+    "10 of 11 mutations of the new rules fail a test; the survivor reverses the comparison direction (earlier compared with later), an equally deterministic convention"
+  ]
+}

@@ -131,6 +131,68 @@ class StoryMergeTests(unittest.TestCase):
         self.assertEqual(refresh_derived()["merged"], 1)
         self.assertEqual({self.story(i) for i in copies}, {story})
 
+    # The anchors of A and B differ (0.51), so B forms its own event; A's second article matches
+    # both of B's (0.76, 0.89), as one event worded several ways does.
+    ACROSS = {"a0": "OpenAI launches coding agent for enterprises",
+              "a1": "OpenAI launches coding agent for enterprises with new security tools",
+              "b0": "Coding agent for enterprises with new security tools arrives from OpenAI",
+              "b1": "OpenAI coding agent for enterprises arrives with new security tools"}
+
+    def test_events_whose_articles_match_across_merge_on_the_second_matching_pair(self):
+        a = [self.item(self.ACROSS["a0"], 0), self.item(self.ACROSS["a1"], 1)]
+        b = [self.item(self.ACROSS["b0"], 2)]
+        self.assertEqual(refresh_derived()["merged"], 0)  # one article in common is not enough
+        earlier, later = self.story(a[0]), self.story(b[0])
+        self.assertNotEqual(earlier, later)
+        self.assertEqual(self.story(a[1]), earlier)
+        b.append(self.item(self.ACROSS["b1"], 3))
+        self.assertEqual(refresh_derived()["merged"], 1)
+        self.assertEqual({self.story(i) for i in a + b}, {earlier})
+        response = TestClient(app).get("/story/" + later, follow_redirects=False)
+        self.assertEqual(response.headers["location"], "/story/" + earlier)
+        # Stable: a full reindex keeps the merged event as it is.
+        with database.get_db() as db:
+            db.execute("UPDATE story_items SET match_reason='titles-v4'")
+        self.assertEqual(refresh_derived()["merged"], 0)
+        self.assertEqual({self.story(i) for i in a + b}, {earlier})
+
+    def test_events_whose_anchors_contradict_stay_apart_however_their_articles_match(self):
+        titles = dict(self.ACROSS, a0="OpenAI launches coding agent 2 for enterprises",
+                      b0="Coding agent 3 for enterprises with new security tools arrives from OpenAI")
+        ids = [self.item(titles[name], minutes) for minutes, name in enumerate(("a0", "a1", "b0", "b1"))]
+        self.assertEqual(refresh_derived()["merged"], 0)
+        self.assertEqual(len({self.story(i) for i in ids}), 2)
+
+    def test_an_event_joins_through_a_third_once_the_first_merge_is_made(self):
+        # A~B (2 pairs) and B~C (2 pairs), but no pair between A and C, whose anchors do not
+        # contradict each other: C joins in the second round, through the articles B brought.
+        titles = ["Nvidia unveils Rubin chip for data centers",
+                  "Nvidia unveils Rubin chip for data centers with liquid cooling",
+                  "Rubin chip for data centers with liquid cooling arrives from Nvidia",
+                  "Nvidia Rubin chip for data centers arrives with liquid cooling racks",
+                  "Nvidia Rubin chip arrives with liquid cooling racks for cloud providers",
+                  "Rubin chip arrives with liquid cooling racks for cloud providers from Nvidia"]
+        ids = [self.item(title, minutes) for minutes, title in enumerate(titles)]
+        self.assertEqual(refresh_derived()["merged"], 2)
+        self.assertEqual({self.story(i) for i in ids}, {self.story(ids[0])})
+        with database.get_db() as db:
+            db.execute("UPDATE story_items SET match_reason='titles-v4'")
+        self.assertEqual(refresh_derived()["merged"], 0)
+        self.assertEqual({self.story(i) for i in ids}, {self.story(ids[0])})
+
+    def test_an_article_matching_one_other_article_only_does_not_stay(self):
+        a = [self.item(self.ACROSS["a0"], 0), self.item(self.ACROSS["a1"], 1)]
+        refresh_derived()
+        story = self.story(a[0])
+        # Placed in A by hand, as no rule would: it matches A's second article (0.76), not A's
+        # anchor (0.51), and one article is not enough to keep it there.
+        loose = self.item(self.ACROSS["b0"], 2)
+        with database.get_db() as db:
+            db.execute("INSERT INTO story_items(item_id,story_id,match_reason,match_score) VALUES(?,?,?,0.76)",
+                       (loose, story, "titles-v5"))
+        refresh_derived()
+        self.assertNotEqual(self.story(loose), story)
+
     def test_unrelated_events_stay_apart(self):
         ids = [self.item("OpenAI releases a new coding platform for developers", 0),
                self.item("OpenAI releases a new coding platform for developers today", 1),
