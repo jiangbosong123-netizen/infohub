@@ -53,6 +53,12 @@ jobs:
           persist-credentials: false
       - run: cp .env.example .env
       - run: docker compose config --quiet
+      # Without APP_VERSION compose must refuse (an "unknown" image would split web and worker).
+      - run: |
+          if env -u APP_VERSION docker compose config --quiet > compose.err 2>&1; then
+            echo "compose ran without APP_VERSION"; exit 1
+          fi
+          grep -q "git rev-parse" compose.err
       - run: docker compose build
       # The tests again, on the image's Python, packages and compiled SQLite.
       - name: Tests inside the image

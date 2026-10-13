@@ -4,6 +4,9 @@
 
 ## 1. 当前生产边界
 
+> 本节是 2026-09-14 的快照，已过时：Mac 旧采集器 2026-10-04 起停用，Windows 尚未升级，目前没有机器在采集；
+> 新版本的 `serve` 只提供网页、从不抓取。现状以 [README](../../README.zh-CN.md) 与 [所有者手册](../OWNER_GUIDE.md) 为准。
+
 2026-09-14 UTC 的 HTTP 检查显示 Windows 的 `<Tailscale IP>:8000` 正运行 `88a2a1ef16e5`，约 1.1 万条记录、42 个启用源。主要页面返回 200，`/api/v1/items` 返回 404。Docker 容器、宿主机目录、任务计划和数据库实际文件内容没有在本轮远程读取。
 
 目前已知部署方式：Mac 开发 → GitHub main → 独立 windows-server-manager 每 300 秒检查 → Windows Docker Compose；宿主机 `data/` 挂入容器，`cli.py serve` 同时启动 web 与采集任务。用户之前提供的 Windows 路径是 `C:\Users\serveradmin\Server\infohub`，仍需在迁移前现场核对。
@@ -84,7 +87,8 @@ Dual-write 必须由同一进程同一数据库事务完成，不能让两个独
 2. 从**完成后的数据库副本**列出所有被引用 blob hashes，将这些不可变对象复制/校验到备份集。GC 在备份 pin 有效时不得删除对象。
 3. 保存 manifest：backup_id、dataset/epoch、schema、release digest、checkpoint、table counts、DB SHA256、blob manifest hash、生成时间、保留期、完整性状态。
 4. `.env` 不进入 Git 或普通数据导出；恢复所需配置用脱敏模板和单独加密的凭据备份记录。解密密钥与备份分开保管。
-5. 备份分为 nightly（7 份）、weekly（4 份）、monthly（3 份），另保留最近两次成功升级的迁移前备份。容量不足先告警，不能自动删唯一可恢复副本。
+5. 备份分为 nightly（7 份）、weekly（4 份）、monthly（3 份），另保留最近两次成功升级的迁移前备份。（现状：已实现每晚完整
+   备份包保留 3 份、迁移前副本保留 2 份，见 [运维手册](../RUNBOOK.md)；weekly/monthly 与异机副本尚未实现。）容量不足先告警，不能自动删唯一可恢复副本。
 6. 至少一份异机/离线或加密对象存储副本；存到同一 Windows 磁盘只能防逻辑误操作，不能防磁盘损坏。Mac 是候选异机目标，离线时任务延迟并告警，不能标已完成。
 7. 备份上传成功不等于可恢复。首轮迁移前、每月以及存储方案变更后执行隔离恢复演练。
 

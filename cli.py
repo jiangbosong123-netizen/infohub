@@ -72,9 +72,9 @@
   python cli.py curation-hot-advance [N]     # 建立/刷新至多 N 个热点统计（maintenance only，可续跑）
   python cli.py report-snapshot YYYY-MM-DD    # 冻结自然日日报素材，不生成报告（maintenance only）
   python cli.py report-publish SNAPSHOT_ID     # 从冻结素材发布带引用结构化日报（maintenance only）
-  python cli.py report-review-preview ATTEMPT_ID  # 查看模型草稿、冻结证据与复核摘要（maintenance only）
-  python cli.py report-review ATTEMPT_ID approved|rejected DIGEST REASON  # 记录人工决定（maintenance only）
-  python cli.py report-publish-reviewed REVIEW_ID  # 发布已人工批准的模型日报（maintenance only）
+  python cli.py report-review-preview ATTEMPT_ID  # 查看模型草稿、冻结证据与复核摘要（maintenance only；尚无命令生成模型草稿）
+  python cli.py report-review ATTEMPT_ID approved|rejected DIGEST REASON  # 记录人工决定（maintenance only；同上）
+  python cli.py report-publish-reviewed REVIEW_ID  # 发布已人工批准的模型日报（maintenance only；同上）
   python cli.py api-admin ACTION [ARGS]  # 本机管理 API 消费者和密钥（只在签发时输出明文）
 """
 from __future__ import annotations

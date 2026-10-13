@@ -100,6 +100,9 @@ the implementation PR series proceeded. It was restored on 2026-09-27 after `mai
   source runs and Google News reconciliation store candidates on reused connections too (a 50-item run of
   stored items: about 207 ms to 28 ms, identical rows); web connections are unchanged.
 
+- Schema 52 indexes item discoveries by source and first sighting; schema 53 adds `article_texts` for the D27
+  article-text job, which is off by default (`INFOHUB_ARTICLE_TEXT_ENABLED`). Since #209 it only fetches public
+  addresses, streams with a size cap and a per-item deadline, and honours robots.txt on every redirect.
 - First real owner labels (2026-10-11): the owner blind-labeled all 600 relevance cases. Their labels counted
   markets and macro news as relevant, so relevance-definition-v2 (D26) adds them. The curation prompt follows v2,
   and the owner dataset was re-declared as `relevance-owner-v2` with its labels unchanged. Against the owner's

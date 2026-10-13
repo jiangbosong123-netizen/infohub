@@ -42,7 +42,8 @@ INFOHUB_LEGACY_DATA_LAYOUT=true .venv/bin/python cli.py runtime-config
 所有者日常只需要看 [所有者手册](OWNER_GUIDE.md)；本节是给维护者的细节。
 
 在 Windows 的 Docker Desktop + WSL2 中常驻运行。首次部署复制 `.env.example` 为 `.env`，按需填写模型
-配置，然后执行 `docker compose up -d --build`：
+配置，然后执行 `$env:APP_VERSION = (git rev-parse --short=12 HEAD)` 和 `docker compose up -d --build`。每个 compose 命令都需要
+`APP_VERSION`（镜像标签和就绪检查都用它），没有时 compose 拒绝运行：
 
 - `migrate`：一次性运行 `cli.py prepare-release`，先做一致性备份再迁移，并清除旧版本 worker 心跳；
 - `infohub`：只读门户（web 角色），永远不抓取、不调度，端口只绑定 Windows 本机 `127.0.0.1:8000`；
@@ -72,6 +73,9 @@ Windows 逐条命令见 [Windows 生产升级手册](WINDOWS_CUTOVER.md)。
 - 网页 `/health`：即使 worker 停止也可读，并明确显示后台延迟。接口不暴露数据库路径。
 
 ## 3. 数据库、备份与证据
+
+下面的 `python cli.py …` 是在本机开发环境（`.venv/bin/python`，Python 3.11 或 3.12）里的写法；在 Windows 生产上同一条命令写成
+`docker compose run --rm migrate python cli.py …`。
 
 `init-db` 与 `prepare-release` 会先识别数据库版本。旧库需要变更时先用 SQLite backup API 在
 `INFOHUB_BACKUP_PATH` 创建带环境标签的一致性备份，再以显式事务迁移，失败完整回滚。未知的新版本、迁移

@@ -1,12 +1,13 @@
 x-infohub-common: &infohub-common
   # Each version is its own image, so the previous one is still there to roll back to. It is
-  # always built from this checkout, never pulled.
-  image: infohub:${APP_VERSION:-unknown}
+  # always built from this checkout, never pulled. Without APP_VERSION compose refuses to run:
+  # an image tagged "unknown" would leave web and worker on different versions (503 on ready).
+  image: infohub:${APP_VERSION:?run $$env:APP_VERSION = (git rev-parse --short=12 HEAD) in this window first}
   pull_policy: build
   build:
     context: .
     args:
-      APP_VERSION: ${APP_VERSION:-unknown}
+      APP_VERSION: ${APP_VERSION:?run $$env:APP_VERSION = (git rev-parse --short=12 HEAD) in this window first}
   volumes:
     - ./data:/app/data
   # tini as PID 1 forwards stop signals to Python and reaps child processes.

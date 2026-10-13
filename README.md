@@ -164,7 +164,7 @@ launchd alternative with the same roles lives in [`deploy/macos/`](deploy/macos/
 ```
 
 The suite uses temporary databases and mocked LLM responses — no network calls, no paid API
-usage — and runs in well under a minute. GitHub Actions runs it on Python 3.11 and 3.12 on
+usage — and runs in about a minute. GitHub Actions runs it on Python 3.11 and 3.12 on
 every push and pull request, builds the container image, runs the suite again inside it and starts it
 like production. A separate job runs `ruff check --select F` (undefined names, unused imports) and
 `pip-audit` on the locked dependencies; a test also keeps every relative Markdown link and the CLI usage

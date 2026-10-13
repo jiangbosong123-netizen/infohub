@@ -44,8 +44,10 @@ class LlmClientContractTests(unittest.TestCase):
         threading.Thread(target=server.serve_forever, daemon=True).start()
         self.addCleanup(server.server_close)
         self.addCleanup(server.shutdown)
-        with patch.multiple(config, LLM_BASE_URL=f"http://127.0.0.1:{server.server_port}/api/paas/v4",
-                            LLM_API_KEY="test-key", LLM_MODEL="glm-4.6"):
+        # A proxy configured on the machine must not swallow the request to the local server.
+        with patch.dict("os.environ", {"NO_PROXY": "127.0.0.1", "no_proxy": "127.0.0.1"}), \
+                patch.multiple(config, LLM_BASE_URL=f"http://127.0.0.1:{server.server_port}/api/paas/v4",
+                               LLM_API_KEY="test-key", LLM_MODEL="glm-4.6"):
             result = pipeline._call_llm([{"id": 1, "channel": "ai", "title": "OpenAI launches a model",
                                           "excerpt": ""}])
         self.assertEqual(result, REPLY)

@@ -9,6 +9,8 @@
 
 - 部署器的“自动部署”一旦开启，会在 `serveradmin` 登录时自启，**启动即检查一次**，之后每 5 分钟检查 `main`，
   有新提交就 `git pull --ff-only` 并 `docker compose up -d --build`。它不检查 CI，也没有暂停开关。
+- 升级到新版本后，每个新打开的 PowerShell 窗口在运行任何 `docker compose` 命令前都要先运行
+  `$env:APP_VERSION = (git rev-parse --short=12 HEAD)`；没有它 compose 会报错拒绝运行（防止建出版本为 unknown 的镜像）。
 - 新版本生产模式**必须**在 `.env` 中有 `INFOHUB_PUBLIC_ORIGIN`（私网 HTTPS 地址）。缺少时 `migrate` 容器报错，
   web 与 worker 都不会启动。
 - 新版本只在 `127.0.0.1:8000` 监听，旧地址 `http://<Windows 的 Tailscale IP>:8000/` 会失效，改用
@@ -148,7 +150,8 @@ foreach ($c in "db-verify","raw-verify","evidence-verify","db-curation-audit","d
 docker compose run --rm migrate python cli.py db-bundle-backup
 ```
 
-全部应为 `ok`。之后再按 [生产升级方案](CUTOVER_PLAN.md) 逐个开启新的读取开关（修改 `.env` 后
+逐条看输出：`db-verify` 的 `state` 应为 `current`、`integrity` 为 `ok`；各审计命令不应报错或列出问题；`db-coverage`
+只是统计数字，没有对错。任何一条报错就停下，把输出发给 Claude。之后再按 [生产升级方案](CUTOVER_PLAN.md) 逐个开启新的读取开关（修改 `.env` 后
 `docker compose up -d`）；主题读取需要先完成主题抽样复核与准入，否则会按设计返回 503。
 
 ## 9. 如果已经被自动升级过
@@ -159,7 +162,7 @@ docker compose logs --tail 60 migrate
 ```
 
 - `migrate` 报 `INFOHUB_PUBLIC_ORIGIN is required in production`：web/worker 没有启动。完成第 2、5 步后运行
-  `docker compose up -d`，再从第 6 步的检查继续。
+  `$env:APP_VERSION = (git rev-parse --short=12 HEAD)` 和 `docker compose up -d`，再从第 6 步的检查继续。
 - `migrate` 成功、服务 healthy：迁移已完成，应用在迁移前已自动备份到 `data\backups\pre-migration\`。完成第 2、5 步，再执行第 7、8 步。
 - 其他错误：不要反复重试，保留日志发给 Claude。
 
@@ -175,6 +178,7 @@ docker compose down
 Rename-Item data "data-failed-$(Get-Date -Format yyyyMMdd-HHmm)"
 Copy-Item -Recurse "data-before-upgrade-<时间>" data
 git checkout <升级前的提交号>
+$env:APP_VERSION = (git rev-parse --short=12 HEAD)
 docker compose up -d --build
 tailscale serve off      # 如果回到不支持私网 HTTPS 的旧版本
 ```
