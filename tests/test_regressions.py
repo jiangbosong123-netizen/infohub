@@ -107,6 +107,43 @@ class RegressionTests(unittest.TestCase):
             row = db.execute('SELECT * FROM items').fetchone()
         self.assertEqual((row['score'], row['tmt'], row['event_type']), (88,1,'earnings'))
 
+    def test_a_company_name_alone_no_longer_keeps_a_low_scored_out_of_scope_item(self):
+        cases = {  # (official, companies, model tmt, score) -> visible
+            "festival": (0, ["apple"], False, 5, 0),
+            "doubtful": (0, ["apple"], False, 45, 1),
+            "in scope": (0, ["apple"], True, 5, 1),
+            "filing": (1, ["apple"], False, 5, 1),
+            "unrelated": (0, [], False, 45, 0),
+        }
+        ids = {}
+        for name, (official, companies, _, _, _) in cases.items():
+            ids[name] = self.item(name.replace(" ", "-"), official=official, companies=companies)
+        results = [dict(id=ids[name], score=score, tmt=tmt, summary_zh="s", reason="r", title_zh="t")
+                   for name, (_, _, tmt, score, _) in cases.items()]
+        with patch.object(pipeline.config, 'llm_enabled', return_value=True), \
+                patch.object(pipeline, '_call_llm', return_value=results):
+            pipeline.process_pending()
+        with database.get_db() as db:
+            visible = {name: db.execute('SELECT tmt FROM items WHERE id=?', (ids[name],)).fetchone()[0]
+                       for name in cases}
+        self.assertEqual(visible, {name: case[4] for name, case in cases.items()})
+
+    def test_the_tmt_backfill_applies_the_same_rule(self):
+        low = self.item('low', companies=['apple'])
+        high = self.item('high', companies=['apple'])
+        unscored = self.item('unscored', companies=['apple'])
+        with database.get_db() as db:
+            db.execute('UPDATE items SET tmt=NULL')
+            db.execute('UPDATE items SET score=5 WHERE id=?', (low,))
+            db.execute('UPDATE items SET score=60 WHERE id=?', (high,))
+        verdicts = [dict(id=i, tmt=False, reason='') for i in (low, high, unscored)]
+        with patch.object(pipeline.config, 'llm_enabled', return_value=True), \
+                patch.object(pipeline, '_call_llm_tmt', return_value=verdicts):
+            pipeline.backfill_tmt(max_batches=1)
+        with database.get_db() as db:
+            self.assertEqual([db.execute('SELECT tmt FROM items WHERE id=?', (i,)).fetchone()[0]
+                              for i in (low, high, unscored)], [0, 1, 1])
+
     def test_ai_transient_failure_stays_pending(self):
         self.item()
         with patch.object(pipeline.config, 'llm_enabled', return_value=True), patch.object(
@@ -226,6 +263,32 @@ class RegressionTests(unittest.TestCase):
             db.execute('UPDATE items SET score=70 WHERE id=?', (single,))
         with patch.object(routes, 'CURATED_FEED_ENABLED', True):
             self.assertIn(single, {row['id'] for row in routes._query_items(mode='selected')})
+
+    def test_a_corroborated_story_does_not_select_its_weak_items(self):
+        from app.stories import refresh_derived
+        with database.get_db() as db:
+            db.execute("INSERT INTO sources(key,name,channel,type,tier) VALUES('other','Other','ai','rss','info')")
+        now = datetime.now(timezone.utc).isoformat()
+
+        def pair(title, scores):
+            ids = [self.item(title, published_at=now)]
+            self.assertTrue(runner.insert_item('other', dict(url='https://second.example/' + title,
+                                                             title=title + ' today', published_at=now)))
+            with database.get_db() as db:
+                ids.append(db.execute('SELECT max(id) FROM items').fetchone()[0])
+                for item_id, score in zip(ids, scores):
+                    db.execute('UPDATE items SET score=? WHERE id=?', (score, item_id))
+            return ids
+        weak = pair('Twin Oracle Point is a stunning new game level', (5, 5))
+        fresh = pair('OpenAI ships a brand new reasoning model family', (None, None))
+        refresh_derived()
+        with database.get_db() as db:
+            self.assertEqual(db.execute('SELECT COUNT(DISTINCT story_id) FROM story_items WHERE item_id IN (?,?)',
+                                        weak).fetchone()[0], 1)
+        with patch.object(routes, 'CURATED_FEED_ENABLED', True):
+            selected = {row['id'] for row in routes._query_items(mode='selected')}
+        self.assertFalse(selected & set(weak))
+        self.assertTrue(selected & set(fresh))  # a corroborated item not yet scored still qualifies
 
     def test_search_index_delete(self):
         one = self.item('searchable')

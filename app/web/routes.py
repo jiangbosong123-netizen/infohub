@@ -365,19 +365,26 @@ _ANALYSIS_DETAIL_OPENAPI = {
 }
 
 
+# A story several sources covered qualifies an item for the selected feed only if the item is not
+# weak itself: 32 copies of a game page once formed a two-publisher story of 5-point items.
+CORROBORATED_MIN_SCORE = 30
+
+
 def _selected_clause(alias: str = "i", score_expr: str | None = None) -> str:
     """High-signal entries: strong AI score, official source, or corroborated event.
 
     Routine official filings (``extra.routine``, e.g. HKEX next-day disclosure returns) do not
     qualify by being official; they stay in the full feed, company filters and search.
     """
-    return f"""(COALESCE({score_expr or f'{alias}.score'}, 0) >= 70
+    score = score_expr or f"{alias}.score"
+    return f"""(COALESCE({score}, 0) >= 70
         OR ({alias}.official=1 AND CASE WHEN json_valid({alias}.extra)
-                                        THEN json_extract({alias}.extra,'$.routine') END IS NULL) OR EXISTS (
+                                        THEN json_extract({alias}.extra,'$.routine') END IS NULL)
+        OR (COALESCE({score}, {CORROBORATED_MIN_SCORE}) >= {CORROBORATED_MIN_SCORE} AND EXISTS (
         SELECT 1 FROM story_items selected_si
         JOIN stories selected_st ON selected_st.id=selected_si.story_id
         WHERE selected_si.item_id={alias}.id AND selected_st.redirect_to IS NULL
-          AND selected_st.source_count>=2))"""
+          AND selected_st.source_count>=2)))"""
 
 
 def _fmt_dt(iso: str) -> datetime:
