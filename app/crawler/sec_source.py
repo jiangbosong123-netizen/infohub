@@ -6,8 +6,11 @@ from __future__ import annotations
 CIK 缺失时从 SEC 官方 ticker/exchange 关联文件解析并回填数据库。
 """
 import json
+import re
 import time
 from datetime import datetime, timezone
+
+import httpx
 
 from .. import config
 from ..database import get_db
@@ -15,6 +18,17 @@ from ..source_time import parse_source_time
 from . import http
 
 TICKERS_URL = "https://www.sec.gov/files/company_tickers_exchange.json"
+
+# The submissions API's acceptanceDateTime is not a reliable instant. Checked against EDGAR's
+# filing headers on 2026-10-13: Apple's ten latest filings read 4 h late, Microsoft's matched, and
+# NVIDIA's newest matched while its older ones read 4 h late; the old collector stored values 4 h
+# early for filings it caught within minutes (11 of 60 sampled). The header of each filing states
+# the acceptance time as Eastern wall-clock time, so a filing's time is read from there, once.
+HEADER_URL = "https://www.sec.gov/Archives/edgar/data/{cik}/{folder}/{accession}-index-headers.html"
+_HEADER_FIELDS = re.compile(r"^<(ACCEPTANCE-DATETIME|ACCESSION-NUMBER)>(\S+)", re.MULTILINE)
+# Header reads per run, newest filings first; the rest wait for a later run. A newly followed
+# company brings 40 filings at once, and an empty dataset of 13 companies fills in about 90 minutes.
+HEADER_READS_PER_RUN = 60
 
 _FORM_DESC = {
     "8-K": ("重大事件报告", ""),
@@ -99,12 +113,13 @@ def _at(values: dict, key: str, index: int):
     return items[index] if isinstance(items, list) and index < len(items) else None
 
 
-def _source_times(values: dict, index: int) -> list[dict]:
-    return [
+def _source_times(values: dict, index: int, header: dict | None = None) -> list[dict]:
+    times = [
         parse_source_time(
             _at(values, "acceptanceDateTime", index),
-            field_path="filings.recent.acceptanceDateTime", role="accepted",
-            interpretation="SEC submission acceptance time",
+            field_path="filings.recent.acceptanceDateTime", role="other",
+            interpretation="SEC submissions API acceptanceDateTime; not the acceptance time, "
+                           "it has read 4 h either side of the filing header",
         ).to_dict(),
         parse_source_time(
             _at(values, "filingDate", index), field_path="filings.recent.filingDate",
@@ -117,6 +132,37 @@ def _source_times(values: dict, index: int) -> list[dict]:
             calendar_date=True,
         ).to_dict(),
     ]
+    if header:
+        times.append(parse_source_time(
+            header.get("acceptance_datetime"), field_path="header.acceptance_datetime",
+            role="accepted", interpretation="SEC EDGAR filing header ACCEPTANCE-DATETIME",
+            timezone_name="America/New_York", pattern="%Y%m%d%H%M%S",
+            observed_at=header.get("read_at"), check_future=True,
+        ).to_dict())
+    return times
+
+
+def read_acceptance(cik: str, accession: str) -> dict | None:
+    """The filing's header, reduced to its acceptance time (Eastern, YYYYMMDDHHMMSS).
+
+    None when EDGAR has no header for the filing or the header names another one; other HTTP
+    and network errors propagate, so a caller can stop and try again later.
+    """
+    url = HEADER_URL.format(cik=int(cik), folder=accession.replace("-", ""), accession=accession)
+    try:
+        response = http.fetch(url, headers={"User-Agent": config.SEC_USER_AGENT})
+    except httpx.HTTPStatusError as exc:
+        if exc.response.status_code in (404, 410):
+            return None
+        raise
+    read_at = datetime.now(timezone.utc).isoformat()
+    fields: dict[str, str] = {}
+    for name, value in _HEADER_FIELDS.findall(response.text):
+        fields.setdefault(name, value)
+    value = fields.get("ACCEPTANCE-DATETIME", "")
+    if fields.get("ACCESSION-NUMBER") != accession or not re.fullmatch(r"\d{14}", value):
+        return None
+    return {"url": url, "acceptance_datetime": value, "read_at": read_at}
 
 
 def _parse_associations(payload: object) -> list[dict]:
@@ -200,6 +246,38 @@ def _classify(form: str, items: str) -> tuple[str, str]:
     return desc, etype
 
 
+def _known_headers(urls: list[str]) -> dict[str, dict | None]:
+    """Filings already stored, with the header read when each was first collected (if any)."""
+    if not urls:
+        return {}
+    with get_db() as db:
+        rows = db.execute(
+            f"""SELECT url, CASE WHEN json_valid(extra) THEN json_extract(extra,'$.sec_acceptance') END AS header
+                FROM items WHERE url IN ({",".join("?" * len(urls))})""",
+            urls,
+        ).fetchall()
+    return {row["url"]: json.loads(row["header"]) if row["header"] else None for row in rows}
+
+
+def _read_new_headers(filings: list[dict], known: dict[str, dict | None], out: list[dict]) -> dict:
+    """Headers for filings not stored yet, newest first and at most HEADER_READS_PER_RUN.
+
+    A filing left out waits for a later run instead of being stored without its time, so an old
+    filing never looks new. A filing without a header is stored anyway, at the time it was seen.
+    """
+    headers: dict[str, dict | None] = {}
+    new = sorted((f for f in filings if f["url"] not in known),
+                 key=lambda f: (str(f["filing_date"] or ""), str(f["api_accepted"] or "")), reverse=True)
+    for filing in new[:HEADER_READS_PER_RUN]:
+        try:
+            headers[filing["url"]] = read_acceptance(filing["cik"], filing["accession"])
+        except Exception as exc:  # noqa: BLE001 - 读不到就停，剩下的下一轮再读
+            out.append(dict(_error=f"SEC 文件头读取失败，{len(new) - len(headers)} 份新文件留到下一轮: {exc}"))
+            break
+        time.sleep(0.15)  # SEC 限速要求：≤10 req/s
+    return headers
+
+
 def fetch_sec(source: dict) -> list[dict]:
     with get_db() as db:
         rows = db.execute(
@@ -209,6 +287,7 @@ def fetch_sec(source: dict) -> list[dict]:
     associations_by_cik = resolve_missing_ciks(companies)
 
     out: list[dict] = []
+    filings: list[dict] = []
     for c in companies:
         if not c.get("cik"):
             out.append(dict(_error=f"{c['slug']}: 无法解析 SEC CIK"))
@@ -225,55 +304,74 @@ def fetch_sec(source: dict) -> list[dict]:
             continue
         recent = data.get("filings", {}).get("recent", {})
         forms = recent.get("form", [])
-        zh = c["name_zh"] or c["name"]
         for i in range(min(len(forms), 40)):
-            form = forms[i]
             accession = _at(recent, "accessionNumber", i)
             doc = _at(recent, "primaryDocument", i) or ""
-            items = _at(recent, "items", i) or ""
             if not accession:
                 continue
             if not doc:
                 continue
-            desc, etype = _classify(form, items)
-            url = (f"https://www.sec.gov/Archives/edgar/data/{int(c['cik'])}/"
-                   f"{accession.replace('-', '')}/{doc}")
-            filing_date = _at(recent, "filingDate", i)
-            report_date = _at(recent, "reportDate", i)
-            source_times = _source_times(recent, i)
-            source_record = {
-                key: _at(recent, key, i)
-                for key, values in recent.items()
-                if isinstance(values, list)
-            }
-            associations = associations_by_cik.get(c["cik"], [])
-            issuer_record = {
-                "cik": str(data.get("cik") or c["cik"]).zfill(10),
-                "name": data.get("name"),
-                "formerNames": data.get("formerNames"),
-                "tickers": data.get("tickers"),
-                "exchanges": data.get("exchanges"),
-                "tickerExchangeAssociations": associations,
-            }
-            out.append(dict(
-                url=url,
-                title=f"{zh} · SEC {desc}" + (f"（{items}）" if items and "·" in desc else ""),
-                summary=f"{c['name']}（{c['ticker']}）向 SEC 提交 {form}"
-                        + (f"，条目 {_items_text(items)}" if items else "") + "。",
-                # Acceptance is not verified public dissemination time.
-                published_at=None,
-                event_type=etype, official=1, companies=[c["slug"]],
-                extra=dict(
-                    form=form, cik=c["cik"], accession=accession,
-                    primary_document=doc, filing_date=filing_date,
-                    report_date=report_date, items=items,
-                    sec_associations=associations,
-                    **({"routine": True} if _routine(form) else {}),
-                ),
-                source_time_values=source_times,
-                observed_at=response_observed_at.isoformat(),
-                source_record={"filing": source_record, "issuer": issuer_record},
-                payload_kind="api_record",
+            filings.append(dict(
+                company=c, data=data, recent=recent, index=i, cik=c["cik"], accession=accession,
+                url=(f"https://www.sec.gov/Archives/edgar/data/{int(c['cik'])}/"
+                     f"{accession.replace('-', '')}/{doc}"),
+                filing_date=_at(recent, "filingDate", i),
+                api_accepted=_at(recent, "acceptanceDateTime", i),
+                observed_at=response_observed_at,
             ))
         time.sleep(0.2)  # SEC 限速要求：≤10 req/s，留足余量
+
+    known = _known_headers([f["url"] for f in filings])
+    headers = {**_read_new_headers(filings, known, out), **known}
+    for filing in filings:
+        if filing["url"] in headers:
+            out.append(_candidate(filing, headers[filing["url"]], associations_by_cik))
     return out
+
+
+def _candidate(filing: dict, header: dict | None, associations_by_cik: dict[str, list[dict]]) -> dict:
+    c, data, recent, i = filing["company"], filing["data"], filing["recent"], filing["index"]
+    form = _at(recent, "form", i)
+    doc = _at(recent, "primaryDocument", i) or ""
+    items = _at(recent, "items", i) or ""
+    desc, etype = _classify(form, items)
+    source_record = {
+        key: _at(recent, key, i)
+        for key, values in recent.items()
+        if isinstance(values, list)
+    }
+    associations = associations_by_cik.get(c["cik"], [])
+    issuer_record = {
+        "cik": str(data.get("cik") or c["cik"]).zfill(10),
+        "name": data.get("name"),
+        "formerNames": data.get("formerNames"),
+        "tickers": data.get("tickers"),
+        "exchanges": data.get("exchanges"),
+        "tickerExchangeAssociations": associations,
+    }
+    observed_at = filing["observed_at"]
+    if header:  # the stored record is complete once the header is read
+        observed_at = max(observed_at, datetime.fromisoformat(header["read_at"]))
+    zh = c["name_zh"] or c["name"]
+    return dict(
+        url=filing["url"],
+        title=f"{zh} · SEC {desc}" + (f"（{items}）" if items and "·" in desc else ""),
+        summary=f"{c['name']}（{c['ticker']}）向 SEC 提交 {form}"
+                + (f"，条目 {_items_text(items)}" if items else "") + "。",
+        # Acceptance is not verified public dissemination time; the portal sorts by it.
+        published_at=None,
+        event_type=etype, official=1, companies=[c["slug"]],
+        extra=dict(
+            form=form, cik=c["cik"], accession=filing["accession"],
+            primary_document=doc, filing_date=filing["filing_date"],
+            report_date=_at(recent, "reportDate", i), items=items,
+            sec_associations=associations,
+            **({"sec_acceptance": header} if header else {}),
+            **({"routine": True} if _routine(form) else {}),
+        ),
+        source_time_values=_source_times(recent, i, header),
+        observed_at=observed_at.isoformat(),
+        source_record={"filing": source_record, "issuer": issuer_record,
+                       **({"header": header} if header else {})},
+        payload_kind="api_record",
+    )

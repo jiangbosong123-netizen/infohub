@@ -12,7 +12,7 @@ P06b 保存来源声称的原值、语义和解析结果，不再用一个 `publ
 |---|---|---|
 | RSS | `entry.published`, `entry.updated` | 分别保存 published/updated；只有 updated 时 published 明确 missing，不提升为首次发布 |
 | Google News | `entry.published` | `other`，解释为聚合入口报告时间，不冒充发布者核实时间 |
-| SEC | `acceptanceDateTime`, `filingDate`, `reportDate` | accepted、filing_date、report_period 分离；naive acceptance 不猜 UTC/ET；日期保存日历精度且不造瞬间 |
+| SEC | `acceptanceDateTime`, 文件头 `ACCEPTANCE-DATETIME`, `filingDate`, `reportDate` | API 的 acceptanceDateTime 存为 other（实测与文件头相差 0 或 ±4 小时，见 [TIME_CONTRACT](spec/TIME_CONTRACT.md)）；文件头受理时间固定 `America/New_York`，存为 accepted；filing_date、report_period 分离，日期保存日历精度且不造瞬间 |
 | HKEX | `DATE_TIME` | 固定 `Asia/Hong_Kong` 和分钟精度，不读取门户 `APP_TZ` |
 | 财联社 / 华尔街见闻 | `ctime` / `display_time` | 来源规则明确为 Unix 秒，不按数值大小猜秒或毫秒 |
 | 新浪 7x24 | `create_time` | 固定 `Asia/Shanghai` |
@@ -29,9 +29,10 @@ DST 回拨重复小时标 `ambiguous_local_time`，春季不存在小时标 `non
 
 ## 兼容边界
 
-门户仍读取旧 `items.published_at NOT NULL`。缺失、不可信或仅 updated/accepted 的来源时间，在
-legacy 投影中仍暂用抓取时间维持页面排序；可信原值和解析状态只在新表中，绝不能把 legacy
+门户仍读取旧 `items.published_at NOT NULL`。缺失、不可信或仅 updated 的来源时间，在
+legacy 投影中仍暂用抓取时间维持页面排序；只有有效 accepted 时间的申报（SEC）按受理时间排序，
+免得旧文件首次被看到时排成最新。可信原值和解析状态只在新表中，绝不能把 legacy
 fallback 用于历史研究。新写入会在 `items.extra._legacy_time_basis` 标明
-`source_published`、`connector_observed` 或 `item_inserted`。P06c 的 nullable document version 只从
+`source_published`、`source_accepted`、`connector_observed` 或 `item_inserted`。P06c 的 nullable document version 只从
 同一 raw record 上有效的 published 证据生成正式投影；旧数据仍等待 P07 标记和回填。本阶段不重写
 历史 items，也不把 legacy fallback 提升为来源事实。
