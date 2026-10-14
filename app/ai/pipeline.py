@@ -84,6 +84,47 @@ def _keep_tmt(result, row, score=None) -> int:
     return 0
 
 
+# An identical title within REUSE_HOURS, on the same channel and with the same company links, is
+# the same article (a wire copy, one press release in several feeds): it takes the earlier item's
+# judgement instead of another model call. In the legacy data 9.2% of non-official items were such
+# repeats (some of them Google News copies, now stored once at ingestion); the model's own
+# judgements of them differed by a median 5 points and in 50 of 8,125 relevance verdicts.
+REUSE_HOURS = 72
+REUSE_MIN_TITLE_CHARS = 12
+
+
+def _reuse_judgements(db, rows) -> set[int]:
+    """Give pending items the judgement of an earlier identical item; return the ids done."""
+    reused = set()
+    for row in rows:
+        if row["official"] or len(row["title"].strip()) < REUSE_MIN_TITLE_CHARS:
+            continue
+        published = datetime.fromisoformat(str(row["published_at"]).replace("Z", "+00:00"))
+        window = timedelta(hours=REUSE_HOURS)
+        earlier = db.execute(
+            """SELECT id,score,summary,title_zh,event_type,tmt,reason,ai_cat FROM items
+               WHERE title=? AND id<>? AND official=0 AND channel=? AND companies=?
+                 AND score>=0 AND tmt IS NOT NULL AND published_at BETWEEN ? AND ?
+               ORDER BY id LIMIT 1""",
+            (row["title"], row["id"], row["channel"], row["companies"],
+             (published - window).isoformat(), (published + window).isoformat()),
+        ).fetchone()
+        if earlier is None:
+            continue
+        # Same channel, companies and official flag: _keep_tmt would give the same tmt.
+        db.execute(
+            """UPDATE items SET score=?, summary=?, title_zh=?, event_type=?, tmt=?, reason=?, ai_cat=?,
+                      extra=json_set(CASE WHEN json_valid(extra) THEN extra ELSE '{}' END,
+                                     '$.ai_reused_from', ?)
+               WHERE id=? AND score IS NULL""",
+            (earlier["score"], earlier["summary"] or row["summary"], earlier["title_zh"],
+             row["event_type"] or earlier["event_type"], earlier["tmt"], earlier["reason"],
+             earlier["ai_cat"], earlier["id"], row["id"]),
+        )
+        reused.add(row["id"])
+    return reused
+
+
 def _call_llm(payload: list[dict]) -> list:
     client = OpenAI(base_url=config.LLM_BASE_URL, api_key=config.LLM_API_KEY, timeout=180)
     resp = client.chat.completions.create(
@@ -107,16 +148,18 @@ def process_pending(limit: int = 20) -> int:
     # A title-only item waits a while for its article text (D27) so it is judged on more than its headline.
     waiting, params = waiting_for_text_clause(datetime.now(timezone.utc))
     with get_db() as db:
-        query = ("SELECT i.id,i.title,i.summary,i.raw_summary,i.channel,i.event_type,i.official,i.companies "
-                 "FROM items i WHERE i.score IS NULL" + waiting + " ORDER BY i.id {} LIMIT ?")
+        query = ("SELECT i.id,i.title,i.summary,i.raw_summary,i.channel,i.event_type,i.official,i.companies,"
+                 "i.published_at FROM items i WHERE i.score IS NULL" + waiting + " ORDER BY i.id {} LIMIT ?")
         # Reserve a quarter of each batch for the oldest backlog, while keeping
         # most capacity for fresh news. A busy feed cannot starve old items.
         oldest = db.execute(query.format('ASC'),(*params, max(1,limit//4))).fetchall()
         latest = db.execute(query.format('DESC'),(*params, limit)).fetchall()
         rows = list({r['id']:r for r in oldest+latest}.values())[:limit]
+        reused = _reuse_judgements(db, rows)
+        rows = [r for r in rows if r["id"] not in reused]
         texts = excerpts(db, (r["id"] for r in rows))
     if not rows:
-        return 0
+        return len(reused)
 
     payload = [dict(id=r["id"], channel=r["channel"], title=r["title"],
                     excerpt=texts.get(r["id"]) or (r["raw_summary"] if r["raw_summary"] is not None else r["summary"] or "")[:200])
@@ -126,7 +169,7 @@ def process_pending(limit: int = 20) -> int:
     except Exception as exc:  # noqa: BLE001
         if not _is_content_filter(exc):
             log.warning("AI 流水线失败: %s", redact(str(exc)))
-            return 0
+            return len(reused)
         # 整批被内容过滤拦截：逐条处理，被过滤的单条标记 -1 跳过，避免永远卡住
         log.info("批次触发内容过滤，降级为逐条处理")
         results = []
@@ -170,7 +213,7 @@ def process_pending(limit: int = 20) -> int:
                  _category(r, row),
                  item_id))
             updated += 1
-    return updated
+    return updated + len(reused)
 
 
 def backfill_tmt(days: int = 0, max_batches: int = 60) -> int:
