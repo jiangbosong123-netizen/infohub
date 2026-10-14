@@ -163,9 +163,33 @@ class StoryMergeTests(unittest.TestCase):
         # that chunk already indexed.
         with database.get_db() as db:
             db.execute("UPDATE story_items SET match_reason='titles-v4'")
-        result = refresh_derived(chunk=2)
+        with patch("app.stories.REFRESH_PAUSE_SECONDS", 0):
+            result = refresh_derived(chunk=2)
         self.assertEqual((result["processed"], result["chunks"], result["remaining"]), (4, 2, 0))
         self.assertEqual({self.story(i) for i in ids}, {self.story(ids[0])})
+
+    def test_an_anchor_edited_between_chunks_rechecks_the_members_already_indexed(self):
+        a = [self.item(self.ACROSS["a0"], 0), self.item(self.ACROSS["a1"], 1)]
+        for minutes in (30, 31):
+            self.item("Anthropic opens an office in Tokyo for enterprise customers" + " today" * (minutes - 30), minutes)
+        refresh_derived()
+        self.assertEqual(self.story(a[1]), self.story(a[0]))
+        with database.get_db() as db:
+            db.execute("UPDATE story_items SET match_reason='titles-v4'")
+        edited = []
+
+        def another_writer(seconds):  # edits A's anchor while the refresh pauses after A's chunk
+            if not edited:
+                self.edit(a[0], title="Paris weather turns cold this week")
+                edited.append(seconds)
+
+        with patch("app.stories.time.sleep", side_effect=another_writer):
+            refresh_derived(chunk=2)
+        refresh_derived()
+        self.assertTrue(edited)
+        self.assertNotEqual(self.story(a[1]), self.story(a[0]))  # A's other article no longer matches
+        with database.get_db() as db:
+            self.assertEqual(db.execute("SELECT COUNT(*) FROM derived_dirty").fetchone()[0], 0)
 
     def test_events_whose_anchors_contradict_stay_apart_however_their_articles_match(self):
         titles = dict(self.ACROSS, a0="OpenAI launches coding agent 2 for enterprises",

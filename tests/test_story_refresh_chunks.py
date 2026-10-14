@@ -15,6 +15,9 @@ class RefreshChunkTests(unittest.TestCase):
     def setUp(self):
         company_match.invalidate_cache()
         self.addCleanup(company_match.invalidate_cache)
+        pause = patch.object(stories, "REFRESH_PAUSE_SECONDS", 0)
+        pause.start()
+        self.addCleanup(pause.stop)
 
     def database(self):
         folder = tempfile.TemporaryDirectory()
@@ -78,6 +81,42 @@ class RefreshChunkTests(unittest.TestCase):
             result = refresh_derived(chunk=5)
         self.assertEqual((result["processed"], result["chunks"], result["remaining"]), (12, 12, 0))
         self.assertEqual(self.partition(ids), [[0], [1], [2], [3]])
+
+    def test_the_refresh_pauses_between_chunks_for_other_writers(self):
+        self.database()
+        self.insert()
+        with patch.object(stories, "REFRESH_PAUSE_SECONDS", 0.25), patch.object(stories.time, "sleep") as sleep:
+            result = refresh_derived(chunk=5)
+        self.assertEqual(result["chunks"], 3)
+        self.assertEqual([call.args for call in sleep.call_args_list], [(0.25,), (0.25,)])
+
+    def test_items_queued_during_the_last_chunk_wait_for_the_next_refresh(self):
+        self.database()
+        self.insert()
+        original = stories.assign_topics
+        added = []
+
+        def another_writer(db, row, definitions):  # a crawl inserting while the chunk runs
+            if not added:
+                db.execute("""INSERT INTO items(source_id,url,title,channel,published_at,fetched_at)
+                              SELECT id,'https://example.com/late','OpenAI ships a late item','ai',?,?
+                              FROM sources""", (T0.isoformat(), T0.isoformat()))
+                added.append(1)
+            return original(db, row, definitions)
+
+        with patch("app.stories.assign_topics", side_effect=another_writer):
+            result = refresh_derived(chunk=20)
+        self.assertEqual((result["processed"], result["chunks"], result["remaining"]), (12, 1, 1))
+        self.assertEqual(refresh_derived()["processed"], 1)
+
+    def test_the_crawl_refresh_leaves_a_backlog_to_the_ai_job(self):
+        from app import ranking
+        self.database()
+        self.insert()
+        with patch.object(stories, "REFRESH_CHUNK", 3):  # 12 queued: more than one chunk
+            ranking.rebuild_clusters()
+        with database.get_db() as db:
+            self.assertEqual(db.execute("SELECT COUNT(*) FROM derived_dirty").fetchone()[0], 12)
 
     def test_a_failed_chunk_keeps_the_chunks_before_it(self):
         self.database()

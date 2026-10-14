@@ -46,6 +46,11 @@ MERGE_ROUNDS = 10
 REFRESH_CHUNK = 1500
 REFRESH_CHUNK_SECONDS = 12
 TOPIC_CHUNK = 5000
+# Between chunks the refresh waits this long, so writers waiting for the lock get it: SQLite's busy
+# handler retries every 100 ms at most, and a chunk begun right after the last one commit won the
+# lock almost every time. With eight crawl-like writers during a full reindex of the rehearsal
+# data, back-to-back chunks let 107 inserts through in 366 s (44 gave up after 30 s).
+REFRESH_PAUSE_SECONDS = 0.5
 # The flash wires repeat one another's headline: in the 2026-09-11..10-03 rehearsal data
 # 1,615 of 1,704 cross-wire repeats came within 30 minutes and 1,694 within 6 hours, while
 # 125 of 174 repeats by the same wire (“美股盘前要闻速递”) were more than 12 hours apart.
@@ -472,14 +477,18 @@ def refresh_derived(chunk: int | None = REFRESH_CHUNK, max_chunks: int | None = 
     A matcher change queues every item; indexed in one transaction that held the write lock for
     over four minutes on the rehearsal data (57,924 items), longer than the 30 s other writers
     wait. A topic or watchlist change queues every item in ``topic_dirty`` instead, and each chunk
-    reassigns up to TOPIC_CHUNK of those items' topics without matching them to events again. Each chunk commits on its own, and the queue is worked off in the order a
-    single pass would take, so later chunks see earlier ones as already indexed. ``None``
-    indexes the whole queue in one transaction. With ``max_chunks`` the rest stays queued.
+    reassigns up to TOPIC_CHUNK of those items' topics without matching them to events again.
+    Each chunk commits on its own, and the queue is worked off in the order a single pass would
+    take, so later chunks see earlier ones as already indexed. The refresh ends with the first
+    chunk that takes everything queued when it began: items queued meanwhile wait for the next
+    refresh, so a steady stream of new items cannot keep one refresh going. ``None`` indexes the
+    whole queue in one transaction. With ``max_chunks`` the rest stays queued.
     """
     totals = dict(processed=0, matched=0, merged=0, topics=0, chunks=0)
-    done = set()
+    progress = dict(done=set(), queued=None)
+    done = progress['done']
     while True:
-        result = _refresh_chunk(chunk, done)
+        result = _refresh_chunk(chunk, progress)
         ids = set(result.pop('ids'))
         # Items queued again while this refresh ran (another writer edited them) are indexed
         # again; a chunk of nothing but such items stops the refresh, which leaves them queued
@@ -489,21 +498,23 @@ def refresh_derived(chunk: int | None = REFRESH_CHUNK, max_chunks: int | None = 
         for key in ('processed', 'matched', 'merged', 'topics'):
             totals[key] += result[key]
         totals['chunks'] += 1
-        if (not result['remaining'] or not (result['processed'] or result['topics']) or repeated
-                or totals['chunks'] == max_chunks):
+        if (result['drained'] or not result['remaining'] or not (result['processed'] or result['topics'])
+                or repeated or totals['chunks'] == max_chunks):
             return dict(totals, remaining=result['remaining'], stories=result['stories'])
+        time.sleep(REFRESH_PAUSE_SECONDS)
 
 
-def _refresh_chunk(limit: int | None, done: set) -> dict:
+def _refresh_chunk(limit: int | None, progress: dict) -> dict:
     """Index up to ``limit`` changed items atomically, with one writer across cron/CLI invocations.
 
     Derived work is local and deterministic. A failure rolls back assignments
-    and leaves the dirty queue intact for the next run. ``done`` holds the items indexed by
-    earlier chunks of this refresh; their events' anchors do not queue them again.
+    and leaves the dirty queue intact for the next run. ``progress`` holds the items indexed by
+    earlier chunks of this refresh (``done``) and those queued when it began (``queued``).
     """
-    deadline = None if limit is None else time.monotonic() + REFRESH_CHUNK_SECONDS
     with get_db() as db:
         db.execute('BEGIN IMMEDIATE')
+        # Time spent waiting for the lock does not count against the chunk.
+        deadline = None if limit is None else time.monotonic() + REFRESH_CHUNK_SECONDS
         definitions = sync_topics(db)
         # A matcher change must revisit existing memberships; match_reason acts
         # as a lightweight index version without another schema table.
@@ -513,15 +524,21 @@ def _refresh_chunk(limit: int | None, done: set) -> dict:
         # event rather than leaving stale assignments. The same holds for the anchor of an event
         # that was merged into another one. On a reindex in chunks every anchor is queued, and
         # members an earlier chunk indexed would otherwise be queued again by each later one
-        # (12,500 extra of 57,924 on the rehearsal data), unlike a single pass.
-        members = [item_id for item_id, in db.execute("""SELECT si.item_id FROM stories st JOIN story_items si ON si.story_id=st.id
+        # (12,500 extra of 57,924 on the rehearsal data), unlike a single pass. An anchor queued
+        # after the refresh began, or indexed and then edited again by another writer, still
+        # queues every member.
+        pairs = db.execute("""SELECT si.item_id,st.anchor_item_id FROM stories st JOIN story_items si ON si.story_id=st.id
             WHERE st.anchor_item_id IN (SELECT item_id FROM derived_dirty)
-            UNION SELECT member.item_id FROM stories st
+            UNION SELECT member.item_id,st.anchor_item_id FROM stories st
             JOIN story_items holder ON holder.item_id=st.anchor_item_id
             JOIN story_items member ON member.story_id=holder.story_id
-            WHERE st.redirect_to IS NOT NULL AND st.anchor_item_id IN (SELECT item_id FROM derived_dirty)""")]
+            WHERE st.redirect_to IS NOT NULL AND st.anchor_item_id IN (SELECT item_id FROM derived_dirty)""").fetchall()
+        if progress['queued'] is None:
+            progress['queued'] = {item_id for item_id, in db.execute('SELECT item_id FROM derived_dirty')}
+        done, queued = progress['done'], progress['queued']
         db.executemany('INSERT OR IGNORE INTO derived_dirty(item_id) VALUES(?)',
-                       [(item_id,) for item_id in members if item_id not in done])
+                       [(member,) for member, anchor in pairs
+                        if member not in done or anchor in done or anchor not in queued])
         rows = [dict(r) for r in db.execute('''SELECT i.*,s.name AS source_name,s.type AS source_type
                   FROM derived_dirty d JOIN items i ON i.id=d.item_id JOIN sources s ON s.id=i.source_id
                   ORDER BY i.published_at,i.id LIMIT ?''', (-1 if limit is None else limit,))]
@@ -701,6 +718,7 @@ def _refresh_chunk(limit: int | None, done: set) -> dict:
             db.execute('DELETE FROM derived_dirty WHERE item_id=?',(row['id'],))
             db.execute('DELETE FROM topic_dirty WHERE item_id=?',(row['id'],))
             processed.append(row['id'])
+        drained = limit is None or len(processed) == len(rows) < limit
         rows = rows[:len(processed)]
         # Merging two events can make a third qualify against their union, so merges repeat
         # until none is left; each round decides on the memberships it starts with.
@@ -726,6 +744,8 @@ def _refresh_chunk(limit: int | None, done: set) -> dict:
         for row in topic_rows:
             assign_topics(db, row, definitions)
         db.executemany('DELETE FROM topic_dirty WHERE item_id=?', [(row['id'],) for row in topic_rows])
+        drained = drained and (limit is None or len(topic_rows) < TOPIC_CHUNK)
         return dict(processed=len(rows),matched=matched,merged=merged,topics=len(topic_rows),ids=processed,
+                    drained=drained,
                     remaining=db.execute('SELECT (SELECT COUNT(*) FROM derived_dirty)+(SELECT COUNT(*) FROM topic_dirty)').fetchone()[0],
                     stories=db.execute('SELECT COUNT(*) FROM stories WHERE item_count>0 AND redirect_to IS NULL').fetchone()[0])

@@ -39,7 +39,13 @@ def rebuild_clusters(window_h: int = 48) -> int:
 
     window_h is retained for callers; presentation windows are applied on read.
     """
-    from .stories import refresh_derived
-    # Called after each crawl: one chunk indexes what the crawl brought, while a backlog (a
-    # matcher or topic change queues every item) is left to the AI job instead of delaying crawls.
-    return refresh_derived(max_chunks=1)['stories']
+    from .database import get_db
+    from . import stories
+    # Called after each crawl: one chunk indexes what the crawl brought. A backlog (a matcher
+    # change queues every item) is left to the AI job's refresh: one started here would not know
+    # what that refresh has indexed, queue those items again and keep it from moving on.
+    with get_db() as db:
+        backlog = db.execute('SELECT COUNT(*) FROM derived_dirty').fetchone()[0]
+        if backlog > stories.REFRESH_CHUNK:
+            return db.execute('SELECT COUNT(*) FROM stories WHERE item_count>0 AND redirect_to IS NULL').fetchone()[0]
+    return stories.refresh_derived(max_chunks=1)['stories']
