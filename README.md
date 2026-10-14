@@ -137,12 +137,13 @@ source means one entry in `app/crawler/sources.py`. Neither requires touching th
 
 ## Running it unattended
 
-Production is meant to be a Windows host running **Docker Compose** (not switched yet: the legacy Mac collector has
-been disabled since 2026-10-04 and the Windows host is not upgraded, so nothing is collecting; see
-[`docs/WINDOWS_CUTOVER.md`](docs/WINDOWS_CUTOVER.md)): a one-shot `migrate` container
+Production is a Windows host running **Docker Compose** (upgraded and collecting since 2026-10-14 on the legacy
+Mac database; the remaining steps are in [`docs/WINDOWS_CUTOVER.md`](docs/WINDOWS_CUTOVER.md)): a one-shot `migrate` container
 (`cli.py prepare-release`: verified backup, then migration), a read-only `infohub` web
 container that never crawls, and a single `worker` container that owns scheduling, crawling
-and model calls. SQLite, evidence blobs, backups and heartbeats persist under `./data`. The
+and model calls. SQLite, evidence blobs, backups and heartbeats persist in the external Docker
+volume `infohub-data` (create it once with `docker volume create infohub-data`; on Windows an
+NTFS folder mount made every startup check tens of times slower, decision D29). The
 web port is bound to `127.0.0.1` and reached privately through Tailscale Serve
 ([`docs/PRIVATE_HTTPS_INGRESS.md`](docs/PRIVATE_HTTPS_INGRESS.md)).
 

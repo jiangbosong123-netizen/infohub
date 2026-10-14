@@ -11,7 +11,6 @@ single slow item does not page anyone.
 
 import json
 import os
-import shutil
 from dataclasses import asdict, dataclass
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -19,6 +18,7 @@ from uuid import uuid4
 
 from . import config
 from .database import get_db
+from .disk_space import lowest_free
 from .timeutil import format_utc, parse_utc
 
 # More than this share of enabled sources failing on their latest attempt.
@@ -119,15 +119,9 @@ def _backup(db, now: datetime) -> list[Problem]:
 
 
 def _disk() -> list[Problem]:
-    free_by_device: dict[int, tuple[int, Path]] = {}
-    for path in (config.DB_PATH.parent, config.BLOB_PATH, config.BACKUP_PATH):
-        existing = Path(path)
-        while not existing.exists() and existing != existing.parent:
-            existing = existing.parent
-        free_by_device[os.stat(existing).st_dev] = (shutil.disk_usage(existing).free, existing)
-    free, where = min(free_by_device.values())
+    free, where = lowest_free((config.DB_PATH.parent, config.BLOB_PATH, config.BACKUP_PATH))
     if free < config.ALERT_DISK_FREE_MB * MB:
-        return [Problem("disk_low", f"{where} 所在磁盘只剩 {free // MB} MB（告警线 {config.ALERT_DISK_FREE_MB} MB）")]
+        return [Problem("disk_low", f"{where}只剩 {free // MB} MB（告警线 {config.ALERT_DISK_FREE_MB} MB）")]
     return []
 
 

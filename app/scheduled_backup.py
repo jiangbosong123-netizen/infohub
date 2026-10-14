@@ -11,6 +11,7 @@ from pathlib import Path
 
 from . import config, database
 from .db_admin import PRE_MIGRATION_DIRECTORY
+from .disk_space import lowest_free
 from .evidence_backup import create_backup_bundle
 
 
@@ -89,7 +90,7 @@ def run_nightly_backup() -> dict:
     stale = _remove_stale_stages(root, time.time())
     needed = (_database_bytes(source) + _tree_bytes(Path(config.BLOB_PATH))
               + config.BACKUP_RESERVE_MB * MB)
-    free = shutil.disk_usage(root).free
+    free, _ = lowest_free((root,))
     if free < needed:
         raise BackupSpaceError(
             f"backup needs {needed // MB} MB free including the {config.BACKUP_RESERVE_MB} MB "
@@ -116,5 +117,5 @@ def run_nightly_backup() -> dict:
         "kept": len(older) - len(removed) + 1, "removed": [entry.name for entry in removed],
         "pre_migration_removed": [entry.name for entry in expired],
         "stale_stages_removed": stale,
-        "free_mb_after": shutil.disk_usage(root).free // MB,
+        "free_mb_after": lowest_free((root,))[0] // MB,
     }

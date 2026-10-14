@@ -73,6 +73,19 @@ class ScheduledBackupTests(unittest.TestCase):
         with patch.object(shutil, "disk_usage", return_value=Usage(0, 0, needed)):
             self.assertEqual(len([run_nightly_backup()]), 1)
 
+    def test_the_host_disk_behind_a_docker_volume_must_have_the_space(self):
+        host = self.root / "host-disk"
+        host.mkdir()
+        needed = (self.root / "app.db").stat().st_size + config.BACKUP_RESERVE_MB * scheduled_backup.MB
+
+        def usage(path):
+            return Usage(0, 0, needed - 1 if Path(path) == host else 10 * needed)
+
+        with patch.object(config, "HOST_DISK_PATH", host), patch.object(shutil, "disk_usage", side_effect=usage):
+            with self.assertRaisesRegex(BackupSpaceError, "MB is available"):
+                run_nightly_backup()
+        self.assertEqual(list((self.backups / "nightly").iterdir()), [])
+
     def test_the_blob_store_counts_towards_the_space_needed(self):
         blob = config.BLOB_PATH / "sha256" / "ab" / ("ab" * 32)
         blob.parent.mkdir(parents=True)

@@ -399,6 +399,9 @@ BACKUP_KEEP = _integer(os.environ, "BACKUP_KEEP", 3, 1, 365)
 BACKUP_KEEP_PRE_MIGRATION = _integer(os.environ, "BACKUP_KEEP_PRE_MIGRATION", 2, 1, 100)
 BACKUP_RESERVE_MB = _integer(os.environ, "BACKUP_RESERVE_MB", 2048, 0, 1_048_576)
 ALERT_DISK_FREE_MB = _integer(os.environ, "ALERT_DISK_FREE_MB", 10_240, 0, 1_048_576)
+# A folder on the host's own disk (compose mounts one): a Docker volume only shows Docker's virtual
+# disk, so free-space checks also look here (app/disk_space.py).
+HOST_DISK_PATH = Path(os.environ["INFOHUB_HOST_DISK_PATH"]) if os.environ.get("INFOHUB_HOST_DISK_PATH") else None
 # D27: fetch article text for recent title-only items (worker only; off until the owner enables it).
 ARTICLE_TEXT_ENABLED = _boolean(os.environ, "INFOHUB_ARTICLE_TEXT_ENABLED", False)
 ARTICLE_TEXT_WAIT_MINUTES = _integer(os.environ, "ARTICLE_TEXT_WAIT_MINUTES", 30, 0, 1440)
