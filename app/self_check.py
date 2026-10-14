@@ -88,9 +88,12 @@ def _stuck_jobs(db, now: datetime) -> list[Problem]:
     rows = db.execute(
         """SELECT job.kind, MIN(attempt.started_at) AS since FROM jobs job
            JOIN job_attempts attempt ON attempt.job_id=job.id AND attempt.lease_token=job.lease_token
-           WHERE job.state='running' AND attempt.started_at<?
+           WHERE job.state='running' AND attempt.started_at<? AND job.lease_expires_at>?
            GROUP BY job.kind ORDER BY job.kind""",
-        (format_utc(now - JOB_STUCK_AFTER),),
+        # Only a lease still being renewed means a live process holds the job; after the host
+        # slept or the worker died, a job stays 'running' with a dead lease until the next claim
+        # expires it, and is not stuck.
+        (format_utc(now - JOB_STUCK_AFTER), format_utc(now)),
     ).fetchall()
     if rows:
         kinds = "、".join(
