@@ -16,6 +16,7 @@ from . import config, database
 from .db_admin import (
     VerificationReport, backup_database, same_bytes_as_verified, verify_database,
 )
+from .disk_space import lowest_free
 from .ingest import PayloadIntegrityError, audit_evidence_payloads, verify_payload
 
 
@@ -331,7 +332,7 @@ def promote_backup_bundle(bundle: Path | str) -> dict:
         if previous and previous[0] != restored[0]:
             raise EvidenceBackupError("bundle holds a different dataset than the live database")
     needed = sum(entry.stat().st_size for entry in source.rglob("*") if entry.is_file())
-    free = shutil.disk_usage(live.parent if live.parent.exists() else Path.cwd()).free
+    free, _ = lowest_free((live.parent,))
     if free < needed:
         raise EvidenceBackupError(f"promotion needs {needed} bytes free, {free} available")
 

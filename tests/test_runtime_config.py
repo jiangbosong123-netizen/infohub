@@ -247,6 +247,12 @@ class RuntimeConfigurationTests(unittest.TestCase):
         self.assertEqual(compose["services"]["worker"]["stop_grace_period"], "3m")
         self.assertEqual(compose["services"]["migrate"]["healthcheck"], {"disable": True})
 
+    def test_the_data_volume_is_external(self):
+        # `down -v` cannot delete it, and a missing volume stops compose rather than starting
+        # production on a new, empty database.
+        compose = yaml.safe_load((config.BASE_DIR / "compose.yaml").read_text(encoding="utf-8"))
+        self.assertEqual(compose["volumes"], {"infohub-data": {"external": True, "name": "infohub-data"}})
+
     def test_compose_production_environment_passes_runtime_validation(self):
         compose = yaml.safe_load((config.BASE_DIR / "compose.yaml").read_text(encoding="utf-8"))
         expected_roles = {"migrate": "maintenance", "infohub": "web", "worker": "worker"}
@@ -276,7 +282,8 @@ class RuntimeConfigurationTests(unittest.TestCase):
             self.assertEqual(settings.runtime_path, Path("/app/data/runtime"))
             self.assertEqual(settings.process_role, expected_role)
             self.assertTrue(settings.durable_jobs_enabled)
-            self.assertIn("./data:/app/data", service["volumes"])
+            self.assertEqual(service["volumes"], ["infohub-data:/app/data", "./host-disk:/app/host-disk:ro"])
+            self.assertEqual(service["environment"]["INFOHUB_HOST_DISK_PATH"], "/app/host-disk")
         web_values = {
             key: str(value)
             for key, value in compose["services"]["infohub"]["environment"].items()

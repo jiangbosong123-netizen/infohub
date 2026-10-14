@@ -141,6 +141,26 @@ class SelfCheckTests(unittest.TestCase):
                 patch.object(shutil, "disk_usage", return_value=Usage(0, 0, 10 * self_check.MB)):
             self.assertEqual(find_problems(NOW), [])
 
+    def test_low_disk_on_the_host_behind_a_docker_volume(self):
+        # Inside the container a Docker volume reports Docker's large virtual disk, not C:.
+        host = self.root / "host-disk"
+        host.mkdir()
+
+        def usage(path):
+            return Usage(0, 0, (9 if Path(path) == host else 500_000) * self_check.MB)
+
+        with patch.object(config, "ALERT_DISK_FREE_MB", 10), patch.object(config, "HOST_DISK_PATH", host), \
+                patch.object(shutil, "disk_usage", side_effect=usage):
+            self.assertEqual(find_problems(NOW), [Problem("disk_low", "Windows 主机磁盘只剩 9 MB（告警线 10 MB）")])
+        with patch.object(config, "ALERT_DISK_FREE_MB", 10), patch.object(config, "HOST_DISK_PATH", host), \
+                patch.object(shutil, "disk_usage", return_value=Usage(0, 0, 10 * self_check.MB)):
+            self.assertEqual(find_problems(NOW), [])
+        # Not mounted (a Mac or an older compose file): only the data's own filesystems count.
+        with patch.object(config, "ALERT_DISK_FREE_MB", 10), \
+                patch.object(config, "HOST_DISK_PATH", self.root / "missing"), \
+                patch.object(shutil, "disk_usage", side_effect=usage):
+            self.assertEqual(find_problems(NOW), [])
+
 
 class HeartbeatReportTests(unittest.TestCase):
     def setUp(self):

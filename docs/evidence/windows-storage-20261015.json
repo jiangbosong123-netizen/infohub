@@ -1,0 +1,52 @@
+{
+  "scope": "Why InfoHub's data moves from the Windows NTFS folder mount into the Docker named volume infohub-data (D29)",
+  "recorded_at": "2026-10-15T00:30:00Z",
+  "host": {
+    "machine": "windows-server (Windows 11, Docker Desktop with the WSL 2 backend)",
+    "c_drive_gb": {"used": 894.99, "free": 31.28},
+    "docker_vm_memory_gib": 7.568
+  },
+  "storage_probe_20261014": {
+    "tool": "deploy/windows/probe_storage.py in python:3.12-slim (SQLite 3.46.1), run by deploy/windows/inspect.ps1",
+    "windows_folder_mount": {
+      "small_file_fsync_ms": {"p50": 3.159, "p95": 4.511},
+      "sqlite_commits": {"p50_ms": 1.796, "p95_ms": 2.906, "per_second": 536.3},
+      "sequential_mb_per_s": {"write": 124.9, "read": 54.3},
+      "concurrent_wal_writers": {"processes": 2, "increments": 1000, "final_value": 1000, "integrity": "ok", "safe": true}
+    },
+    "docker_named_volume": {
+      "small_file_fsync_ms": {"p50": 0.962, "p95": 1.203},
+      "sqlite_commits": {"p50_ms": 0.858, "p95_ms": 1.177, "per_second": 1136.4},
+      "sequential_mb_per_s": {"write": 1095.0, "read": 1907.8},
+      "concurrent_wal_writers": {"processes": 2, "increments": 1000, "final_value": 1000, "integrity": "ok", "safe": true}
+    }
+  },
+  "prepare_release_same_database": {
+    "database": "Mac legacy app.db (89,575 items, SHA-256 d5fe3f18...6c8a88d5c2), migrated to schema 56",
+    "mac_seconds": {
+      "first_run": 311.7,
+      "second_run_right_after": 1.69,
+      "how": "main@8ea636f40506, Python 3.12 venv, development environment mac-second-run, offline"
+    },
+    "windows_folder_mount": {
+      "first_run_minutes": 35,
+      "first_run_how": "inferred: data\\backups (pre-migration copy) written 22:29 local, data\\blobs first written 23:04 local by the worker that starts only after migrate succeeds",
+      "second_run": {
+        "trigger": "docker compose up -d to load a corrected .env, after the worker had collected for about 40 minutes",
+        "still_running_after_minutes": 37,
+        "cpu_percent": 5.03,
+        "memory_mib": 609.9,
+        "database_bytes": 334692352,
+        "final_minutes": null,
+        "note": "final duration to be added once the host reports it"
+      }
+    }
+  },
+  "decision": "D29: move the data into the external Docker volume infohub-data with deploy/windows/move-to-volume.ps1; check free space on both the volume and the C: drive (host-disk mount)",
+  "pending": [
+    "the probe's new random 4 KiB read and disk-space figures for both locations (PR #239)",
+    "startup check time of the same database after the move",
+    "step 7 backfill time on the volume",
+    "isolated restore drill of the first bundle after the move"
+  ]
+}

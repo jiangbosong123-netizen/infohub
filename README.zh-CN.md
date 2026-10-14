@@ -117,10 +117,11 @@ evaluation/                数据集契约、合成样本、基线（私有数�
 
 ## 无人值守运行
 
-生产目标是 Windows 上的 **Docker Compose**（尚未切换：Mac 旧采集器 2026-10-04 起停用，Windows 尚未升级，目前没有机器在采集；
-切换步骤见 [Windows 升级指南](docs/WINDOWS_CUTOVER.md)）：一次性 `migrate` 容器（`cli.py prepare-release`，先备份再迁移）、
+生产目标是 Windows 上的 **Docker Compose**（2026-10-14 已升级并开始采集，数据用 Mac 旧库；剩余步骤见
+[Windows 升级指南](docs/WINDOWS_CUTOVER.md)）：一次性 `migrate` 容器（`cli.py prepare-release`，先备份再迁移）、
 永不抓取的只读 `infohub` 门户容器，以及唯一负责调度、抓取和模型调用的 `worker` 容器。SQLite、证据
-blob、备份和心跳持久化在 `./data`。门户端口只绑定 `127.0.0.1`，通过 Tailscale Serve 私网 HTTPS 访问
+blob、备份和心跳持久化在外部 Docker 卷 `infohub-data`（首次用 `docker volume create infohub-data` 创建；Windows 上
+NTFS 文件夹挂载让每次启动检查慢几十倍，见 D29）。门户端口只绑定 `127.0.0.1`，通过 Tailscale Serve 私网 HTTPS 访问
 （[私网 HTTPS 生产入口](docs/PRIVATE_HTTPS_INGRESS.md)）。
 
 配套部署管理器（独立仓库）轮询本仓库并以 fast-forward 方式应用 `main` 的更新，把提交 SHA 传入容器，

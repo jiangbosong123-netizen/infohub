@@ -8,8 +8,12 @@ x-infohub-common: &infohub-common
     context: .
     args:
       APP_VERSION: ${APP_VERSION:?run $$env:APP_VERSION = (git rev-parse --short=12 HEAD) in this window first}
+  # Database, evidence, backups and heartbeats live in the Docker named volume infohub-data: on
+  # Windows a folder mounted from NTFS made every full database check tens of times slower (D29).
   volumes:
-    - ./data:/app/data
+    - infohub-data:/app/data
+    # Read only, to see how full the Windows drive is: the volume shows Docker's virtual disk.
+    - ./host-disk:/app/host-disk:ro
   # tini as PID 1 forwards stop signals to Python and reaps child processes.
   init: true
   # Nothing in the app needs to gain privileges (setuid binaries) after start.
@@ -29,6 +33,7 @@ x-infohub-environment: &infohub-environment
   INFOHUB_BLOB_PATH: /app/data/blobs
   INFOHUB_BACKUP_PATH: /app/data/backups
   INFOHUB_RUNTIME_PATH: /app/data/runtime
+  INFOHUB_HOST_DISK_PATH: /app/host-disk
   INFOHUB_DURABLE_JOBS_ENABLED: "true"
   INFOHUB_CURATED_FEED_ENABLED: ${INFOHUB_CURATED_FEED_ENABLED:-true}
   INFOHUB_CURATION_READ_ENABLED: ${INFOHUB_CURATION_READ_ENABLED:-false}
@@ -112,3 +117,11 @@ services:
       # The worker also verifies the whole database before its first heartbeat.
       start_period: 600s
       retries: 3
+
+volumes:
+  infohub-data:
+    # Created once by hand or by deploy/windows/move-to-volume.ps1. External, so that
+    # `docker compose down -v` never deletes it and a missing volume stops compose instead of
+    # starting production on a new, empty database.
+    external: true
+    name: infohub-data

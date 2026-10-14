@@ -5,13 +5,14 @@
 
 ## 1. 现在的状态
 
-代码已经完成并用真实数据完整演练过，但**目前两台机器都没有在采集**：Mac 上的旧采集器 2026-10-04 起已停用，
-Windows 还没有开机升级。上线前需要你做三件事：
+2026-10-14 晚 Windows 已升级到新版本，用的是 Mac 的旧库（89,575 条，2026-09-11 至 10-03；Windows 原来的库整个保留在
+`data-windows-20261014`，两份不合并）。网站地址 `https://windows-server.<tailnet>.ts.net`（<tailnet> 以 Tailscale 管理页为准），只有登录了你的 Tailscale 的设备能打开。
+还剩：
 
-1. 打开 Windows，按 [Windows 升级指南](WINDOWS_CUTOVER.md) 第 1–3 步做只读检查，把输出发给 Claude，再决定用哪份数据；
-2. 注册 Healthchecks.io（免费），建一个推送检查（周期 5 分钟、宽限 20 分钟、通知选邮件），把推送地址填进 `.env` 的
-   `INFOHUB_EXTERNAL_HEARTBEAT_URL`（这个地址等同密码，不要发给别人）；
-3. 按升级指南第 4–8 步升级。
+1. 把数据搬进 Docker 命名卷（[Windows 升级指南](WINDOWS_CUTOVER.md) 第 6b 步）；
+2. 补历史数据、审计和备份包（第 7、8 步），以及一次隔离恢复演练；
+3. 注册 Healthchecks.io（免费），建一个推送检查（周期 5 分钟、宽限 20 分钟、通知选邮件），把推送地址填进 `.env` 的
+   `INFOHUB_EXTERNAL_HEARTBEAT_URL`（这个地址等同密码，不要发给别人）。
 
 ## 2. 系统由什么组成
 
@@ -20,12 +21,16 @@ Windows 还没有开机升级。上线前需要你做三件事：
 | `infohub` 容器 | 网站（只读），通过 Tailscale 私网 HTTPS 访问 |
 | `worker` 容器 | 唯一的后台：定时抓取、AI 评分翻译、日报、夜间备份、告警自检 |
 | `migrate` 容器 | 每次升级时运行一次：先备份再升级数据库，成功后退出 |
-| `data\app.db` | 数据库 |
-| `data\blobs\` | 原始证据文件（只增不删） |
-| `data\backups\nightly\` | 夜间自动备份，保留最新 3 份，每份约 5 GB |
-| `data\backups\pre-migration\` | 每次升级前的数据库副本，保留最新 2 份 |
-| `data\replaced\` | 从备份恢复时被换下来的旧库，确认无误后可手工删除 |
+| Docker 卷 `infohub-data` | 下面这些都在卷里（容器里的路径 `/app/data`），Windows 资源管理器里看不到 |
+| `app.db` | 数据库 |
+| `blobs/` | 原始证据文件（只增不删） |
+| `backups/nightly/` | 夜间自动备份，保留最新 `BACKUP_KEEP` 份（这台机器 `.env` 设为 2，因为 C 盘只剩约 30 GB），每份约 5 GB |
+| `backups/pre-migration/` | 每次升级前的数据库副本，保留最新 2 份 |
+| `replaced/` | 从备份恢复时被换下来的旧库，确认无误后可手工删除 |
+| `host-disk` 文件夹 | 项目下的空文件夹，只读挂进容器，用来看 C 盘还剩多少空间 |
 | `.env` | 模型密钥、心跳地址等私密配置，只有 worker 读取 |
+
+查看卷里的文件：`docker compose run --rm --no-deps migrate ls -la /app/data /app/data/backups/nightly`。
 
 ## 3. 每次打开 PowerShell，先运行这两行
 
@@ -60,8 +65,8 @@ docker compose exec worker python cli.py self-check
 | `ai_stalled` | 1–6 小时前的新闻大多还没评分 | 模型密钥失效、额度用完或服务故障：`docker compose logs --tail 200 worker` 看报错 |
 | `jobs_failed` | 24 小时内有后台任务重试用尽 | `docker compose logs --tail 200 worker`；偶发一次可以忽略，第二天还在就把日志发给 Claude |
 | `job_stuck` | 某个后台任务（如 AI、备份）运行超过 2 小时还没结束；采集在单独的通道里照常进行 | `docker compose restart worker`（会把手上的任务做完或在 3 分钟后强停，租约过期后任务自动重试）；之后仍反复出现就把 `docker compose logs --tail 200 worker` 发给 Claude |
-| `backup_stale` | 超过 36 小时没有成功的夜间备份 | `dir data\backups\nightly`；常见原因是磁盘空间不够（见下一行） |
-| `disk_low` | 磁盘剩余空间低于 10 GB | 删除确认无用的 `data\replaced\` 和 `data-before-upgrade-*`；不要删 `data\app.db`、`data\blobs\` |
+| `backup_stale` | 超过 36 小时没有成功的夜间备份 | `docker compose run --rm --no-deps migrate ls -la /app/data/backups/nightly`；常见原因是磁盘空间不够（见下一行） |
+| `disk_low` | C 盘（或 Docker 磁盘）剩余空间低于 10 GB | 先删项目下确认无用的 `data-before-*`、`data-windows-*` 文件夹，再 `docker image prune` 删旧版本镜像；仍不够就把输出发给 Claude。不要删卷里的 `app.db`、`blobs/` |
 | `self_check_error` | 自检本身出错 | 把 `docker compose logs --tail 200 worker` 发给 Claude |
 
 不确定时：不要删除任何东西，把 `docker compose ps` 和 `docker compose logs --tail 200 worker` 的输出发给 Claude。
@@ -71,7 +76,7 @@ docker compose exec worker python cli.py self-check
 - **升级**：[Windows 升级指南](WINDOWS_CUTOVER.md) 第 6 步（停机几分钟，升级前自动备份）。
 - **升级后有问题，回到上一版**：同一指南第 11 步。
 - **数据坏了或误操作，用夜间备份恢复**：[运维手册](RUNBOOK.md)“从备份恢复到线上”，照着那几条命令做；当前库会被移到
-  `data\replaced\`，不会被删除。
+  卷里的 `replaced/`，不会被删除。
 - **上线稳定后打开正文补全**：在 `.env` 加一行 `INFOHUB_ARTICLE_TEXT_ENABLED=true`，再运行
   `docker compose up -d worker`。之后只有标题的新闻（主要是 Google News）会自动补正文，约六成能补上；
   想关掉就改回 `false` 再运行同一条命令。
@@ -79,10 +84,12 @@ docker compose exec worker python cli.py self-check
 ## 7. 千万不要做的事
 
 - **不要让两台机器同时采集**，也**不要把两份数据库合并**（Mac 旧库和 Windows 库只能二选一）。
-- 不要运行 `docker compose down -v`（`-v` 会删数据卷），不要手工删除 `data\app.db`、`data\blobs\`。
+- **不要在 Docker Desktop 里点 “Reset to factory defaults” 或 “Clean / Purge data”，不要卸载 Docker Desktop**，不要运行
+  `docker volume rm infohub-data`、`docker volume prune`、`docker system prune --volumes`：数据都在 Docker 卷里，这些操作会把它
+  全部删掉。（`docker compose down -v` 删不掉它，因为它是外部卷，但也不要用。）
 - 不要开启 Tailscale Funnel，不要在防火墙或路由器上开放 8000 端口。
 - 不要把 `.env`、心跳地址或 API key 发到聊天、截图或公开仓库里。
-- 备份只在同一块硬盘上，防误操作，不防硬盘损坏；异地备份（放到 Mac）会在 Windows 检查后再做。
+- 备份只在同一块硬盘（而且在同一个 Docker 卷）里，防误操作，不防硬盘损坏或 Docker 被重置；异地备份（放到 Mac）是下一步要做的事。
 
 ## 8. 需要你保管的东西
 

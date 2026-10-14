@@ -77,7 +77,7 @@ Dual-write 必须由同一进程同一数据库事务完成，不能让两个独
 
 数据库与 WAL 必须位于同一台运行环境的本地磁盘，web/worker 通过同一挂载访问。不要放到 SMB、云盘同步目录或由两台电脑直接打开同一文件。WAL 适合并发读，但仍然只有一个 writer，网络文件系统不满足其共享内存假设。[SQLite WAL](https://sqlite.org/wal.html)
 
-当前 NTFS bind mount 继续作为迁移前基线；转为 Docker named volume/WSL Linux 文件系统要另开数据搬迁 PR，停写、快照、双向核对和恢复演练，不能跟领域迁移一次切完。Linux 文件系统通常更适合 WSL 中 Linux 容器的数据访问，但具体收益仍需本机测量（`deploy/windows/probe_storage.py`，用法见 `docs/WINDOWS_CUTOVER.md` 第 3b 步）。[Docker WSL 说明](https://docs.docker.com/desktop/features/wsl/)
+NTFS bind mount 是第一次升级（2026-10-14）时的存储；之后按 [D29](DECISIONS.md) 单独一步搬进 Docker named volume `infohub-data`（`deploy/windows/move-to-volume.ps1`：停写、复制、逐文件 SHA-256 双向核对、完整性检查，原文件夹保留），不和领域迁移一起切；搬完后用第一个备份包做隔离恢复演练（3.2 第 7 条）。实测见 `deploy/windows/probe_storage.py` 与 D29。卷在 Docker 的虚拟磁盘里，容器看到的剩余空间不是 C 盘，所以 compose 另外只读挂载项目下的 `host-disk` 文件夹，自检、夜间备份和恢复都按两者中较少的剩余空间判断。[Docker WSL 说明](https://docs.docker.com/desktop/features/wsl/)
 
 原始对象先写临时文件 → fsync/关闭 → hash 校验 → 原子 rename → 提交 DB 引用。引用不存在的对象不能发布。崩溃留下无引用对象可延后 GC；禁止先提交 DB 引用再希望稍后补文件。原始内容哈希不对外暴露内部路径。
 

@@ -80,6 +80,7 @@ jobs:
       # migrate then web, as production starts them (the worker would crawl the internet).
       - name: Start the image like production
         run: |
+          docker volume create infohub-data
           docker compose up -d infohub
           for attempt in $(seq 1 60); do
             curl -fsS http://127.0.0.1:8000/api/live > /dev/null && break

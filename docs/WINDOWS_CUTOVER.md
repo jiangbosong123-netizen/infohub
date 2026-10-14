@@ -11,6 +11,10 @@
   有新提交就 `git pull --ff-only` 并 `docker compose up -d --build`。它不检查 CI，也没有暂停开关。
 - 升级到新版本后，每个新打开的 PowerShell 窗口在运行任何 `docker compose` 命令前都要先运行
   `$env:APP_VERSION = (git rev-parse --short=12 HEAD)`；没有它 compose 会报错拒绝运行（防止建出版本为 unknown 的镜像）。
+- 2026-10-15 起数据（数据库、证据文件、备份、心跳）在 Docker 命名卷 `infohub-data` 里（[D29](spec/DECISIONS.md)，第 6b 步），
+  不再是项目下的 `data` 文件夹。**不要**在 Docker Desktop 里点 “Reset to factory defaults” 或 “Clean / Purge data”，不要运行
+  `docker volume rm infohub-data`、`docker volume prune` 或 `docker system prune --volumes`：这些会删掉卷里的全部数据。compose
+  把它声明为外部卷：卷不存在时直接报错，而不是用一个空数据库开始采集。
 - 新版本生产模式**必须**在 `.env` 中有 `INFOHUB_PUBLIC_ORIGIN`（私网 HTTPS 地址）。缺少时 `migrate` 容器报错，
   web 与 worker 都不会启动。
 - 新版本只在 `127.0.0.1:8000` 监听，旧地址 `http://<Windows 的 Tailscale IP>:8000/` 会失效，改用
@@ -69,7 +73,8 @@ Mac 旧库（89,575 条，2026-09-11 至 2026-10-03）决定：
 
 - **用 Windows 的数据**：直接进入第 4 步。
 - **用 Mac 的数据**：Mac 上生成一致性副本并通过 Tailscale 发送（Claude 可以准备），Windows 上接收后放入
-  `data\app.db`（第 4 步之后、第 6 步之前，把 Windows 原有 `data` 整个保留为归档）。两份数据不能合并。
+  `data\app.db`（第 4 步之后、第 6 步之前，把 Windows 原有 `data` 整个保留为归档；第 6b 步再把 `data` 整个搬进命名卷）。
+  两份数据不能合并。
 
 ### 3b. 存储实测（回答决策 U02，约 1 分钟，可与第 3 步一起做）
 
@@ -88,10 +93,12 @@ docker volume rm infohub-probe
 Remove-Item probe-tmp
 ```
 
-把两段输出一起发给 Claude。任一结果的 `verdict` 为 `UNSAFE` 时，该位置不能放运行库。是否把数据搬到命名卷仍按
-`docs/spec/OPERATIONS.md` 另开搬迁 PR，不在本次升级中顺手切换。
+把两段输出一起发给 Claude。任一结果的 `verdict` 为 `UNSAFE` 时，该位置不能放运行库。2026-10-14 的实测和升级当晚的启动
+耗时见 [D29](spec/DECISIONS.md)：数据在升级之后单独搬进命名卷（第 6b 步），不和数据库升级一起做。
 
 ## 4. 升级前完整备份
+
+第一次升级时数据还在 `data` 文件夹：
 
 ```powershell
 docker compose down
@@ -99,8 +106,16 @@ $stamp = Get-Date -Format yyyyMMdd-HHmm
 Copy-Item -Recurse data "data-before-upgrade-$stamp"
 ```
 
-`down` 不带 `-v`，不会删除数据。容器停止后复制整个 `data` 目录（数据库与证据文件）是一致的。迁移时应用还会
-再自动做一次一致性备份到 `data\backups\pre-migration\`。
+`down` 不带 `-v`，不会删除数据。容器停止后复制整个 `data` 目录（数据库与证据文件）是一致的。
+
+数据在命名卷之后（第 6b 步以后的每次升级），在线做一个完整备份包（约 5 GB，写在卷里的 `backups/`，夜间清理不会删它）：
+
+```powershell
+$env:APP_VERSION = (git rev-parse --short=12 HEAD)
+docker compose run --rm --no-deps migrate python cli.py db-bundle-backup
+```
+
+两种情况下，迁移时应用都还会再自动做一次一致性备份到 `backups/pre-migration/`。
 
 ## 5. 私网 HTTPS 与配置
 
@@ -120,6 +135,8 @@ INFOHUB_PUBLIC_ORIGIN=https://windows-server.<tailnet>.ts.net
 
 ## 6. 升级（停机约 4–5 分钟）
 
+第一次升级（2026-10-14）时数据还在 `data` 文件夹；之后的版本要求命名卷 `infohub-data`，数据还在文件夹里时先做第 6b 步。
+
 ```powershell
 git pull --ff-only origin main
 $env:APP_VERSION = (git rev-parse --short=12 HEAD)
@@ -136,6 +153,48 @@ curl.exe -s http://127.0.0.1:8000/api/health   # runtime.sqlite_version 应为 3
 数据库变大后，web 与 worker 每次启动都会先完整校验数据库才开始响应（4.9 GB 的库在 Mac 上约 0.5–1.5 分钟，视文件
 缓存冷热；Windows 的 Docker 挂载目录读写更慢，可能要几分钟）。健康检查为此留了 10 分钟启动宽限，期间 `docker compose ps`
 显示 `starting` 属正常。
+
+## 6b. 把数据搬进 Docker 命名卷（只做一次，[D29](spec/DECISIONS.md)）
+
+2026-10-14 升级后发现：数据在 Windows 文件夹挂载里时，每次启动前的完整数据库检查极慢（同一数据第二次启动，Mac 1.7 秒，
+Windows 37 分钟仍未结束，CPU 约 5%，都在等磁盘），补完历史数据后库还会长到约 5 GB。命名卷在 Docker 自己的 Linux 磁盘里，
+读写快几十倍。约 5–10 分钟，期间网站停止：
+
+```powershell
+cd ~\Server\infohub
+git fetch origin
+git show origin/main:deploy/windows/move-to-volume.ps1 > $env:TEMP\move-to-volume.ps1
+powershell -ExecutionPolicy Bypass -File $env:TEMP\move-to-volume.ps1
+```
+
+脚本依次：
+
+1. 检查：`data\app.db` 存在、卷还不存在、C 盘空间够；
+2. 停止 InfoHub（worker 最多等 3 分钟做完手上的任务）；
+3. 新建卷 `infohub-data`，把 `data` 整个复制进去，逐个文件比对 SHA-256，并对复制后的数据库做完整性检查
+   （`deploy/windows/copy_data.py`）；
+4. 拉取最新代码（compose 改用卷）；
+5. 把 `data` 改名为 `data-before-volume-<时间>` 保留；
+6. 启动。
+
+前四步任何一项不通过都会停下并说明原因，`data` 不变，旧方式仍可启动。如果第 3 步报 `not closed cleanly`，是被停下的任务（例如还在运行的 `prepare-release`）留下了未合并的 WAL：数据没有问题，把屏幕发给 Claude 处理后再运行。之后：
+
+- 新窗口先运行 `$env:APP_VERSION = (git rev-parse --short=12 HEAD)`，再看 `docker compose ps`，两个服务应在几分钟内变为
+  healthy。
+- `data-before-volume-<时间>` 留到第 8 步的备份包和隔离恢复都通过后再删（存储方式变更后必须做恢复演练，见
+  `docs/spec/OPERATIONS.md` 3.2）。
+- 查看卷里的文件：`docker compose run --rm --no-deps migrate ls -la /app/data /app/data/backups/nightly`。
+- 项目下会多一个空的 `host-disk` 文件夹：容器只读挂载它，用来看 C 盘还剩多少空间（卷在容器里只显示 Docker 的虚拟磁盘）。
+
+只在搬迁后出问题时回退到文件夹方式（搬迁之后新采集的内容只在卷里，回退会丢失这部分；卷本身不会被删除）：
+
+```powershell
+docker compose down
+git checkout <搬迁前的提交号>
+Rename-Item data-before-volume-<时间> data
+$env:APP_VERSION = (git rev-parse --short=12 HEAD)
+docker compose up -d --build
+```
 
 ## 7. 补历史数据（门户可用，Mac 同机实测约 33 分钟（2026-10-14）；演练时的旧版本为 3.5–4 小时，Windows 可能更慢）
 
@@ -177,7 +236,7 @@ docker compose logs --tail 60 migrate
 
 - `migrate` 报 `INFOHUB_PUBLIC_ORIGIN is required in production`：web/worker 没有启动。完成第 2、5 步后运行
   `$env:APP_VERSION = (git rev-parse --short=12 HEAD)` 和 `docker compose up -d`，再从第 6 步的检查继续。
-- `migrate` 成功、服务 healthy：迁移已完成，应用在迁移前已自动备份到 `data\backups\pre-migration\`。完成第 2、5 步，再执行第 7、8 步。
+- `migrate` 成功、服务 healthy：迁移已完成，应用在迁移前已自动备份到 `data\backups\pre-migration\`。完成第 2、5、6b 步，再执行第 7、8 步。
 - 其他错误：不要反复重试，保留日志发给 Claude。
 
 ## 10. 之后的自动部署
@@ -186,6 +245,19 @@ docker compose logs --tail 60 migrate
 由所有者确认后手动更新：`git pull --ff-only origin main` → 第 6 步。
 
 ## 11. 回退
+
+新版本改过数据库时，旧版本打不开新库，所以回到上一版要连同升级前的数据库一起换回。数据在命名卷里时：
+
+```powershell
+docker compose down
+docker compose run --rm --no-deps migrate ls -la /app/data/backups/pre-migration   # 挑升级前那一份
+docker compose run --rm --no-deps migrate sh -c "mkdir -p /app/data/replaced/<时间> && mv /app/data/app.db* /app/data/replaced/<时间>/ && cp -p /app/data/backups/pre-migration/<名称> /app/data/app.db"
+git checkout <升级前的提交号>
+$env:APP_VERSION = (git rev-parse --short=12 HEAD)
+docker compose up -d --build
+```
+
+换下来的库留在卷里的 `replaced/<时间>/`，确认无误后再删。数据还在 `data` 文件夹时（第一次升级），用第 4 步的副本：
 
 ```powershell
 docker compose down
