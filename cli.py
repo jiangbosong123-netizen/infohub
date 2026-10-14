@@ -312,18 +312,6 @@ def cmd_report(date: str | None) -> None:
     print(f"日报已生成：{d}" if d else "当天没有数据，未生成。")
 
 
-def prune_fetch_logs() -> int:
-    """每日清理：fetch_log 只留 14 天（items 长期保留）。"""
-    from datetime import datetime, timedelta, timezone
-    from app.database import get_db
-    cutoff = (datetime.now(timezone.utc) - timedelta(days=14)).isoformat()
-    with get_db() as db:
-        n = db.execute("DELETE FROM fetch_log WHERE ran_at < ?", (cutoff,)).rowcount
-    if n:
-        print(f"已清理 {n} 条过期抓取日志")
-    return n
-
-
 def cmd_serve() -> None:
     if config.PROCESS_ROLE != "web":
         raise config.RuntimeConfigurationError(

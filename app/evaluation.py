@@ -514,12 +514,3 @@ def validate_evaluation_dataset(path: Path | str) -> EvaluationReport:
         annotation_state_counts=states, target_gaps=gaps,
         publishable_gold=publishable, warnings=tuple(warnings),
     )
-
-
-def write_evaluation_report(dataset_path: Path | str, output: Path | str) -> EvaluationReport:
-    report = validate_evaluation_dataset(dataset_path)
-    Path(output).write_text(
-        json.dumps(report.to_dict(), ensure_ascii=False, indent=2, sort_keys=True) + "\n",
-        encoding="utf-8",
-    )
-    return report
