@@ -4022,6 +4022,20 @@ def _work_queue_indexes(db: sqlite3.Connection) -> None:
     _execute_script(db, WORK_QUEUE_INDEX_SQL)
 
 
+# A topic or watchlist change used to queue every item in derived_dirty, so every item was matched
+# to its event again (over four minutes on the rehearsal data, and some articles changed events)
+# although only topic assignments depend on those rules. They now queue here instead.
+TOPIC_QUEUE_SQL = """
+CREATE TABLE topic_dirty (
+    item_id INTEGER PRIMARY KEY REFERENCES items(id) ON DELETE CASCADE
+);
+"""
+
+
+def _topic_queue(db: sqlite3.Connection) -> None:
+    _execute_script(db, TOPIC_QUEUE_SQL)
+
+
 # Migration 1 freezes the exact legacy schema at main@88a2a1e. Future schema
 # changes must append a new Migration instead of editing this definition.
 MIGRATIONS = (
@@ -4217,6 +4231,7 @@ MIGRATIONS = (
     Migration(53, "article text for title-only items", ARTICLE_TEXTS_SQL, _article_texts),
     Migration(54, "index item titles for Google News re-posts", ITEM_TITLE_INDEX_SQL, _item_title_index),
     Migration(55, "index the AI work queues and story anchors", WORK_QUEUE_INDEX_SQL, _work_queue_indexes),
+    Migration(56, "queue topic reassignment apart from event matching", TOPIC_QUEUE_SQL, _topic_queue),
 )
 CURRENT_SCHEMA_VERSION = MIGRATIONS[-1].version
 REQUIRED_MIGRATION_COLUMNS = {
@@ -4225,7 +4240,7 @@ REQUIRED_MIGRATION_COLUMNS = {
 LEGACY_ANCHORS = {"companies", "sources", "items"}
 EXPECTED_TABLES = LEGACY_ANCHORS | {
     "clusters", "cluster_members", "daily_reports", "fetch_log", "item_companies", "item_discoveries",
-    "topics", "item_topics", "stories", "story_items", "derived_dirty",
+    "topics", "item_topics", "stories", "story_items", "derived_dirty", "topic_dirty",
     "indexed_items", "schema_migrations", "jobs", "job_attempts", "schedules",
     "dataset_epochs", "dataset_state", "change_log", "clock_checks",
     "knowledge_checkpoints",

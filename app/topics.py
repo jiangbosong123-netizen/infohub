@@ -37,7 +37,8 @@ def sync_topics(db):
                       rules=excluded.rules,position=excluded.position,enabled=1''',
                    (topic['slug'],topic['name'],topic['group'],topic['description'],rules,index))
     if changed:
-        db.execute('INSERT OR IGNORE INTO derived_dirty(item_id) SELECT id FROM items')
+        # Only topic assignments depend on these rules; events are not matched again.
+        db.execute('INSERT OR IGNORE INTO topic_dirty(item_id) SELECT id FROM items')
     result = []
     for row in db.execute('SELECT * FROM topics WHERE enabled=1 ORDER BY position'):
         rules = json.loads(row['rules'])

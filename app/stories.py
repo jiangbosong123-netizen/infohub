@@ -45,6 +45,7 @@ MERGE_ROUNDS = 10
 # items (the rest stays queued) and finishes the merges for what it took.
 REFRESH_CHUNK = 1500
 REFRESH_CHUNK_SECONDS = 12
+TOPIC_CHUNK = 5000
 # The flash wires repeat one another's headline: in the 2026-09-11..10-03 rehearsal data
 # 1,615 of 1,704 cross-wire repeats came within 30 minutes and 1,694 within 6 hours, while
 # 125 of 174 repeats by the same wire (“美股盘前要闻速递”) were more than 12 hours apart.
@@ -468,13 +469,14 @@ def _refresh_stats(db, affected):
 def refresh_derived(chunk: int | None = REFRESH_CHUNK, max_chunks: int | None = None) -> dict:
     """Index changed items, earliest first, ``chunk`` items per transaction.
 
-    A matcher or topic change queues every item; indexed in one transaction that held the write
-    lock for over four minutes on the rehearsal data (57,924 items), longer than the 30 s other
-    writers wait. Each chunk commits on its own, and the queue is worked off in the order a
+    A matcher change queues every item; indexed in one transaction that held the write lock for
+    over four minutes on the rehearsal data (57,924 items), longer than the 30 s other writers
+    wait. A topic or watchlist change queues every item in ``topic_dirty`` instead, and each chunk
+    reassigns up to TOPIC_CHUNK of those items' topics without matching them to events again. Each chunk commits on its own, and the queue is worked off in the order a
     single pass would take, so later chunks see earlier ones as already indexed. ``None``
     indexes the whole queue in one transaction. With ``max_chunks`` the rest stays queued.
     """
-    totals = dict(processed=0, matched=0, merged=0, chunks=0)
+    totals = dict(processed=0, matched=0, merged=0, topics=0, chunks=0)
     done = set()
     while True:
         result = _refresh_chunk(chunk, done)
@@ -482,12 +484,12 @@ def refresh_derived(chunk: int | None = REFRESH_CHUNK, max_chunks: int | None = 
         # Items queued again while this refresh ran (another writer edited them) are indexed
         # again; a chunk of nothing but such items stops the refresh, which leaves them queued
         # for the next one instead of chasing a queue that refills.
-        repeated = ids <= done
+        repeated = bool(ids) and ids <= done
         done |= ids
-        for key in ('processed', 'matched', 'merged'):
+        for key in ('processed', 'matched', 'merged', 'topics'):
             totals[key] += result[key]
         totals['chunks'] += 1
-        if (not result['remaining'] or not result['processed'] or repeated
+        if (not result['remaining'] or not (result['processed'] or result['topics']) or repeated
                 or totals['chunks'] == max_chunks):
             return dict(totals, remaining=result['remaining'], stories=result['stories'])
 
@@ -697,6 +699,7 @@ def _refresh_chunk(limit: int | None, done: set) -> dict:
                 matched += 1
             db.execute('INSERT OR IGNORE INTO indexed_items(item_id) VALUES(?)',(row['id'],))
             db.execute('DELETE FROM derived_dirty WHERE item_id=?',(row['id'],))
+            db.execute('DELETE FROM topic_dirty WHERE item_id=?',(row['id'],))
             processed.append(row['id'])
         rows = rows[:len(processed)]
         # Merging two events can make a third qualify against their union, so merges repeat
@@ -714,6 +717,15 @@ def _refresh_chunk(limit: int | None, done: set) -> dict:
             if not merges or not nominated:
                 break
         _refresh_stats(db,affected)
-        return dict(processed=len(rows),matched=matched,merged=merged,ids=processed,
-                    remaining=db.execute('SELECT COUNT(*) FROM derived_dirty').fetchone()[0],
+        topic_rows = [dict(r) for r in db.execute(
+            '''SELECT i.id,i.title,i.raw_summary,i.tmt,i.ai_cat,i.event_type FROM topic_dirty t
+               JOIN items i ON i.id=t.item_id
+               WHERE t.item_id NOT IN (SELECT item_id FROM derived_dirty)  -- placed later, topics included
+               ORDER BY t.item_id LIMIT ?''',
+            (-1 if limit is None else TOPIC_CHUNK,))]
+        for row in topic_rows:
+            assign_topics(db, row, definitions)
+        db.executemany('DELETE FROM topic_dirty WHERE item_id=?', [(row['id'],) for row in topic_rows])
+        return dict(processed=len(rows),matched=matched,merged=merged,topics=len(topic_rows),ids=processed,
+                    remaining=db.execute('SELECT (SELECT COUNT(*) FROM derived_dirty)+(SELECT COUNT(*) FROM topic_dirty)').fetchone()[0],
                     stories=db.execute('SELECT COUNT(*) FROM stories WHERE item_count>0 AND redirect_to IS NULL').fetchone()[0])
