@@ -142,11 +142,16 @@ def _source_times(values: dict, index: int, header: dict | None = None) -> list[
     return times
 
 
+class HeaderFormatError(RuntimeError):
+    """EDGAR answered, but not with this filing's header in the format read here."""
+
+
 def read_acceptance(cik: str, accession: str) -> dict | None:
     """The filing's header, reduced to its acceptance time (Eastern, YYYYMMDDHHMMSS).
 
-    None when EDGAR has no header for the filing or the header names another one; other HTTP
-    and network errors propagate, so a caller can stop and try again later.
+    None when EDGAR has no header for the filing (404/410). HeaderFormatError when the page names
+    another filing or has no acceptance time, as a format change would; other HTTP and network
+    errors propagate, so a caller can stop and try again later.
     """
     url = HEADER_URL.format(cik=int(cik), folder=accession.replace("-", ""), accession=accession)
     try:
@@ -161,7 +166,7 @@ def read_acceptance(cik: str, accession: str) -> dict | None:
         fields.setdefault(name, value)
     value = fields.get("ACCEPTANCE-DATETIME", "")
     if fields.get("ACCESSION-NUMBER") != accession or not re.fullmatch(r"\d{14}", value):
-        return None
+        raise HeaderFormatError(f"{accession}: header without a matching accession and acceptance time")
     return {"url": url, "acceptance_datetime": value, "read_at": read_at}
 
 
@@ -263,18 +268,31 @@ def _read_new_headers(filings: list[dict], known: dict[str, dict | None], out: l
     """Headers for filings not stored yet, newest first and at most HEADER_READS_PER_RUN.
 
     A filing left out waits for a later run instead of being stored without its time, so an old
-    filing never looks new. A filing without a header is stored anyway, at the time it was seen.
+    filing never looks new. A filing without a header (404) is stored anyway, at the time it was
+    seen. An HTTP error on one header defers only that filing; a network failure or a pause the
+    host asked for stops the reads. A header in an unknown format is stored without its time and
+    reported, so a format change shows on the source's health instead of passing unnoticed.
     """
     headers: dict[str, dict | None] = {}
     new = sorted((f for f in filings if f["url"] not in known),
                  key=lambda f: (str(f["filing_date"] or ""), str(f["api_accepted"] or "")), reverse=True)
+    deferred, unreadable = [], []
     for filing in new[:HEADER_READS_PER_RUN]:
         try:
             headers[filing["url"]] = read_acceptance(filing["cik"], filing["accession"])
-        except Exception as exc:  # noqa: BLE001 - 读不到就停，剩下的下一轮再读
+        except HeaderFormatError:
+            headers[filing["url"]] = None
+            unreadable.append(filing["accession"])
+        except httpx.HTTPStatusError as exc:  # 这一份的文件头出错，跳过它，其余照读
+            deferred.append(f"{filing['accession']} HTTP {exc.response.status_code}")
+        except Exception as exc:  # noqa: BLE001 - 断网或被要求暂停：停下，剩下的下一轮再读
             out.append(dict(_error=f"SEC 文件头读取失败，{len(new) - len(headers)} 份新文件留到下一轮: {exc}"))
             break
         time.sleep(0.15)  # SEC 限速要求：≤10 req/s
+    if deferred:
+        out.append(dict(_error=f"SEC 文件头读取失败，{len(deferred)} 份留到下一轮: {', '.join(deferred[:3])}"))
+    if unreadable:
+        out.append(dict(_error=f"SEC 文件头格式无法识别，{len(unreadable)} 份按首次看到的时间入库: {', '.join(unreadable[:3])}"))
     return headers
 
 

@@ -62,6 +62,8 @@ class FakeSec:
         if isinstance(failure, int):
             request = httpx.Request("GET", url)
             raise httpx.HTTPStatusError("status", request=request, response=httpx.Response(failure, request=request))
+        if failure == "garbled":  # a page in a format the reader does not know
+            return SimpleNamespace(text="<html>Filing index moved</html>")
         if failure is not None:
             raise failure
         return SimpleNamespace(text=header_page(filing["accessionNumber"], filing["header"]))
@@ -154,10 +156,27 @@ class SecAcceptanceTests(unittest.TestCase):
         # The filing without a header was stored; it is not read again on every run.
         self.assertEqual(fake.header_reads.count(fake.header_reads[0]), 1)
 
+    def test_an_http_error_on_one_header_defers_only_that_filing(self):
+        fake = FakeSec(failures={FILINGS[0]["accessionNumber"]: 500})
+        new, ok, note = self.run_sec(fake)
+        self.assertEqual((new, ok), (2, False))
+        self.assertIn("1 份留到下一轮", note)
+        items = self.items()
+        self.assertNotIn(url_of(FILINGS[0]), items)
+        self.assertEqual(items[url_of(FILINGS[2])][0], FILINGS[2]["utc"])  # older ones were not held back
+
+    def test_an_unknown_header_format_is_stored_at_first_sight_and_reported(self):
+        fake = FakeSec(failures={FILINGS[1]["accessionNumber"]: "garbled"})
+        new, ok, note = self.run_sec(fake)
+        self.assertEqual((new, ok), (3, False))
+        self.assertIn("格式无法识别", note)
+        self.assertEqual(self.items()[url_of(FILINGS[1])][1]["_legacy_time_basis"], "connector_observed")
+
     def test_a_header_for_another_filing_is_not_used(self):
         page = SimpleNamespace(text=header_page("0001652044-26-000009", "20261008160512"))
-        with patch.object(sec_source.http, "fetch", return_value=page):
-            self.assertIsNone(sec_source.read_acceptance(CIK, "0001652044-26-000003"))
+        with patch.object(sec_source.http, "fetch", return_value=page), \
+                self.assertRaises(sec_source.HeaderFormatError):
+            sec_source.read_acceptance(CIK, "0001652044-26-000003")
         request = httpx.Request("GET", "https://www.sec.gov/x")
         server_error = httpx.HTTPStatusError("status", request=request,
                                              response=httpx.Response(500, request=request))
@@ -196,6 +215,19 @@ class SecAcceptanceTests(unittest.TestCase):
         self.assertEqual(len(fake.header_reads), reads + 1)  # only the filing not stored yet
         carried = next(row for row in rows if row["url"] == url_of(FILINGS[0]))
         self.assertEqual(carried["source_record"]["header"]["acceptance_datetime"], FILINGS[0]["header"])
+
+    def test_the_legacy_command_counts_an_unknown_header_format_and_goes_on(self):
+        with database.get_db() as db:
+            source_id = db.execute("SELECT id FROM sources WHERE type='sec'").fetchone()[0]
+            for filing in FILINGS[:2]:
+                db.execute("""INSERT INTO items(source_id,url,title,channel,published_at,fetched_at,extra)
+                              VALUES(?,?,?,'stock',?,?,'{}')""",
+                           (source_id, url_of(filing), filing["form"], filing["utc"], filing["utc"]))
+        fake = FakeSec(failures={FILINGS[0]["accessionNumber"]: "garbled"})
+        with patch.object(sec_source.http, "fetch", fake.fetch):
+            report = correct_acceptance_times(apply=True, pause=0)
+        self.assertEqual((report["checked"], report["no_header"], report["matches"], report["stopped"]),
+                         (2, 1, 1, None))
 
     def test_a_stop_leaves_the_rest_for_the_next_run(self):
         with database.get_db() as db:

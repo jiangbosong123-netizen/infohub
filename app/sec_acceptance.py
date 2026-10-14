@@ -14,7 +14,7 @@ import time
 from collections import Counter
 from datetime import datetime, timezone
 
-from .crawler.sec_source import read_acceptance
+from .crawler.sec_source import HeaderFormatError, read_acceptance
 from .database import get_db
 from .source_time import parse_source_time
 
@@ -50,6 +50,8 @@ def correct_acceptance_times(*, apply: bool, pause: float = 0.15) -> dict:
             cik, accession = match.group(1), "-".join(match.group(2, 3, 4))
             try:
                 header = read_acceptance(cik, accession)
+            except HeaderFormatError:
+                header = None  # counted under no_header
             except Exception as exc:  # noqa: BLE001 - stop; a later run resumes here
                 report["stopped"] = f"item {row['id']}: {exc}"[:300]
                 break
