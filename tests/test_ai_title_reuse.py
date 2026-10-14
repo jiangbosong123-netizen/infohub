@@ -67,7 +67,7 @@ class TitleReuseTests(unittest.TestCase):
         cases = {
             "another channel": self.item(source="stocks"),
             "other companies": self.item(companies=["anthropic"]),
-            "four days later": self.item(hour=12 + 96),
+            "ten hours later": self.item(hour=20),
             "official": self.item(official=1),
             "short title": self.item(title="OpenAI news"),
             "another title": self.item(title=TITLE + " today"),
@@ -75,6 +75,15 @@ class TitleReuseTests(unittest.TestCase):
         with patch.object(pipeline, "_call_llm", return_value=[]) as call:
             self.assertEqual(pipeline.process_pending(limit=20), 0)
         self.assertEqual(sorted(row["id"] for row in call.call_args.args[0]), sorted(cases.values()))
+
+    def test_a_daily_stock_move_title_is_judged_again(self):
+        # The same template two hours apart can already be another day's move in another market.
+        title = "Why Is Arm Holdings Stock Sliding Today?"
+        self.judged(title=title)
+        repeat = self.item(title=title)
+        with patch.object(pipeline, "_call_llm", return_value=[]) as call:
+            pipeline.process_pending()
+        self.assertEqual([row["id"] for row in call.call_args.args[0]], [repeat])
 
     def test_a_short_title_is_judged_again(self):
         self.judged(title="OpenAI news")  # too generic to say it is the same article
