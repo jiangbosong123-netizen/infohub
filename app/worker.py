@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-"""Single durable scheduler/worker process for production background tasks."""
+"""Single durable scheduler/worker process for production background tasks (two lanes)."""
 
 import json
 import logging
@@ -356,27 +356,40 @@ def process_one_job(
 
 
 class HeartbeatPump:
+    """Publishes the worker heartbeat and renews the lease of the job each lane is running."""
+
     def __init__(self, worker_id: str, started_at: str):
         self.worker_id = worker_id
         self.started_at = started_at
         self.stop_event = threading.Event()
         self.lock = threading.Lock()
-        self.active_job: JobRecord | None = None
+        self.active_jobs: dict[str, JobRecord] = {}
+        self.lane_states: dict[str, str] = {}
         self.state = "running"
         self.thread = threading.Thread(target=self._run, name="worker-heartbeat", daemon=True)
+
+    @property
+    def active_job(self) -> JobRecord | None:
+        with self.lock:
+            return self.active_jobs.get("main") or next(iter(self.active_jobs.values()), None)
 
     def start(self) -> None:
         self._write("running")
         self.thread.start()
 
-    def set_active(self, job: JobRecord | None) -> None:
+    def set_active(self, job: JobRecord | None, lane: str = "main") -> None:
         with self.lock:
-            self.active_job = job
+            if job is None:
+                self.active_jobs.pop(lane, None)
+            else:
+                self.active_jobs[lane] = job
         self._write()
 
-    def set_state(self, state: str) -> None:
+    def set_state(self, state: str, lane: str = "main") -> None:
+        """A lane reports running or degraded; the worker is degraded while any lane is."""
         with self.lock:
-            self.state = state
+            self.lane_states[lane] = state
+            self.state = "degraded" if "degraded" in self.lane_states.values() else state
         self._write()
 
     def close(self) -> None:
@@ -384,25 +397,28 @@ class HeartbeatPump:
         self.thread.join(timeout=config.WORKER_HEARTBEAT_SECONDS + 2)
         self._write("stopped")
 
-    def _snapshot(self) -> JobRecord | None:
+    def _snapshot(self) -> dict[str, JobRecord]:
         with self.lock:
-            return self.active_job
+            return dict(self.active_jobs)
 
     def _write(self, state: str | None = None) -> None:
         active = self._snapshot()
         with self.lock:
             current_state = state or self.state
+        main = active.get("main") or next(iter(active.values()), None)
         write_worker_heartbeat(
             worker_id=self.worker_id,
             started_at=self.started_at,
             state=current_state,
-            active_job_id=active.id if active else None,
+            active_job_id=main.id if main else None,
+            active_job_ids={lane: job.id for lane, job in sorted(active.items())},
         )
 
     def _run(self) -> None:
         while not self.stop_event.wait(config.WORKER_HEARTBEAT_SECONDS):
-            active = self._snapshot()
-            if active and active.lease_token:
+            for lane, active in self._snapshot().items():
+                if not active.lease_token:
+                    continue
                 try:
                     renewed = renew_lease(
                         active.id,
@@ -410,8 +426,9 @@ class HeartbeatPump:
                         lease_seconds=config.WORKER_LEASE_SECONDS,
                     )
                     with self.lock:
-                        if self.active_job and self.active_job.id == active.id:
-                            self.active_job = renewed
+                        current = self.active_jobs.get(lane)
+                        if current and current.id == active.id:
+                            self.active_jobs[lane] = renewed
                 except LeaseLostError:
                     log.error("worker lost lease for job %s", active.id)
                 except Exception:  # noqa: BLE001
@@ -420,6 +437,77 @@ class HeartbeatPump:
                 self._write()
             except Exception:  # noqa: BLE001
                 log.exception("could not publish worker heartbeat")
+
+
+# Crawls run in a lane of their own, so a long job in the main lane (an AI tick calling the
+# model, the nightly backup, a reindex after a topic change) no longer holds them back: flash
+# feeds list only their latest items, and a crawl held back long enough misses some. The crawl
+# code already runs sources on eight threads; the lane adds one more thread with its own
+# database connections. Each lane claims only its own kinds of job.
+CRAWL_LANE_KINDS = ("crawl",)
+MAIN_LANE_KINDS = tuple(kind for kind in JOB_KINDS if kind not in CRAWL_LANE_KINDS)
+
+
+def run_lane(
+    *,
+    lane: str,
+    kinds: tuple[str, ...],
+    worker_id: str,
+    pump: HeartbeatPump,
+    stopping: threading.Event,
+    enqueue: bool = False,
+    handlers: Mapping[str, Callable[[], object]] | None = None,
+) -> None:
+    """Claim and run jobs of ``kinds`` until ``stopping`` is set, finishing the job in hand."""
+    while not stopping.is_set():
+        try:
+            if enqueue:
+                enqueue_due_schedules()
+            job = claim_job(
+                worker_id=worker_id,
+                kinds=kinds,
+                lease_seconds=config.WORKER_LEASE_SECONDS,
+            )
+            pump.set_state("running", lane)
+            if job is None:
+                stopping.wait(config.WORKER_POLL_SECONDS)
+                continue
+            pump.set_active(job, lane)
+            try:
+                execute_claimed_job(job, handlers=handlers)
+            except LeaseLostError:
+                log.exception("job %s lost its lease", job.id)
+            finally:
+                pump.set_active(None, lane)
+        except Exception:  # noqa: BLE001
+            log.exception("worker %s lane failed; retrying", lane)
+            try:
+                pump.set_state("degraded", lane)
+            except Exception:  # noqa: BLE001
+                log.exception("could not publish degraded worker state")
+            stopping.wait(config.WORKER_POLL_SECONDS)
+
+
+def run_lanes(
+    *,
+    worker_id: str,
+    pump: HeartbeatPump,
+    stopping: threading.Event,
+    handlers: Mapping[str, Callable[[], object]] | None = None,
+) -> None:
+    """Run the crawl lane on a thread and the main lane here until ``stopping`` is set."""
+    crawl = threading.Thread(
+        target=run_lane, name="worker-crawl", daemon=True,
+        kwargs=dict(lane="crawl", kinds=CRAWL_LANE_KINDS, worker_id=f"{worker_id}:crawl",
+                    pump=pump, stopping=stopping, handlers=handlers),
+    )
+    crawl.start()
+    try:
+        run_lane(lane="main", kinds=MAIN_LANE_KINDS, worker_id=worker_id, pump=pump,
+                 stopping=stopping, enqueue=True, handlers=handlers)
+    finally:
+        stopping.set()
+        crawl.join()  # a crawl in hand finishes, as the main lane's job does
 
 
 def run_worker() -> None:
@@ -448,31 +536,6 @@ def run_worker() -> None:
     if config.SEC_USER_AGENT.endswith("@example.com"):
         log.warning("SEC_USER_AGENT still uses the example contact; SEC asks for a real name and email")
     try:
-        while not stopping.is_set():
-            try:
-                enqueue_due_schedules()
-                job = claim_job(
-                    worker_id=worker_id,
-                    kinds=JOB_KINDS,
-                    lease_seconds=config.WORKER_LEASE_SECONDS,
-                )
-                pump.set_state("running")
-                if job is None:
-                    stopping.wait(config.WORKER_POLL_SECONDS)
-                    continue
-                pump.set_active(job)
-                try:
-                    execute_claimed_job(job)
-                except LeaseLostError:
-                    log.exception("job %s lost its lease", job.id)
-                finally:
-                    pump.set_active(None)
-            except Exception:  # noqa: BLE001
-                log.exception("worker loop failed; retrying")
-                try:
-                    pump.set_state("degraded")
-                except Exception:  # noqa: BLE001
-                    log.exception("could not publish degraded worker state")
-                stopping.wait(config.WORKER_POLL_SECONDS)
+        run_lanes(worker_id=worker_id, pump=pump, stopping=stopping)
     finally:
         pump.close()
