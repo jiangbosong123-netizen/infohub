@@ -417,14 +417,3 @@ def validate_tone_evaluation_dataset(path: Path | str) -> ToneEvaluationReport:
         publishable_tone_gold=publishable,
         warnings=tuple(warnings),
     )
-
-
-def write_tone_evaluation_report(
-    dataset_path: Path | str, output_path: Path | str
-) -> ToneEvaluationReport:
-    report = validate_tone_evaluation_dataset(dataset_path)
-    Path(output_path).write_text(
-        json.dumps(report.to_dict(), ensure_ascii=False, indent=2, sort_keys=True) + "\n",
-        encoding="utf-8",
-    )
-    return report

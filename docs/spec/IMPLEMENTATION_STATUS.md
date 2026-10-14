@@ -116,6 +116,12 @@ the implementation PR series proceeded. It was restored on 2026-09-27 after `mai
   logs and gives the worker 3 minutes to finish a job on stop. `db-bundle-promote` replaces the live database with
   a verified bundle, keeping the old one under `replaced/` and rotating the epoch when history could rewind.
   The owner's guide is `docs/OWNER_GUIDE.md`. None of this has run on the Windows host yet.
+- Library modules without an entry point (2026-10-14 scan of imports outside `tests/`): `event_matching`,
+  `event_transitions`, `report_generation`, `tone_shadow_evaluation` and `tone_shadow_rollout` are implemented
+  and tested but no command, worker job or route calls them yet; they are kept for their phases, not run in
+  production. Eleven other modules are reached only as `python -m app.<module>` commands. Four unused helpers
+  were removed (`cli.prune_fetch_logs`, superseded by the worker's daily prune job, and three
+  `write_*_report` wrappers that nothing called).
 
 ## Status rule
 
