@@ -59,6 +59,7 @@ docker compose exec worker python cli.py self-check
 | `ai_off` | worker 没有模型配置 | 检查 `.env` 里 `LLM_BASE_URL`、`LLM_MODEL`、`LLM_API_KEY`，改完 `docker compose up -d worker` |
 | `ai_stalled` | 1–6 小时前的新闻大多还没评分 | 模型密钥失效、额度用完或服务故障：`docker compose logs --tail 200 worker` 看报错 |
 | `jobs_failed` | 24 小时内有后台任务重试用尽 | `docker compose logs --tail 200 worker`；偶发一次可以忽略，第二天还在就把日志发给 Claude |
+| `job_stuck` | 某个后台任务（如 AI、备份）运行超过 2 小时还没结束；采集在单独的通道里照常进行 | `docker compose restart worker`（会把手上的任务做完或在 3 分钟后强停，租约过期后任务自动重试）；之后仍反复出现就把 `docker compose logs --tail 200 worker` 发给 Claude |
 | `backup_stale` | 超过 36 小时没有成功的夜间备份 | `dir data\backups\nightly`；常见原因是磁盘空间不够（见下一行） |
 | `disk_low` | 磁盘剩余空间低于 10 GB | 删除确认无用的 `data\replaced\` 和 `data-before-upgrade-*`；不要删 `data\app.db`、`data\blobs\` |
 | `self_check_error` | 自检本身出错 | 把 `docker compose logs --tail 200 worker` 发给 Claude |
