@@ -74,8 +74,9 @@ Mac 旧库（89,575 条，2026-09-11 至 2026-10-03）决定：
 ### 3b. 存储实测（回答决策 U02，约 1 分钟，可与第 3 步一起做）
 
 数据库现在放在 Windows 目录挂载进容器（`.\data`），web 与 worker 两个容器同时读写。下面分别在同类挂载目录和
-Docker 命名卷上测：小文件 fsync、SQLite 逐笔提交、顺序读写，以及两个进程同时写同一个 WAL 库是否丢失更新。
-脚本只在新建的临时子目录里写入、结束即删除，不碰 `data`，不联网：
+Docker 命名卷上测：小文件 fsync、SQLite 逐笔提交、顺序读写、随机 4 KB 读取（SQLite 读取未缓存页面的方式），
+两个进程同时写同一个 WAL 库是否丢失更新，以及容器在该位置看到的磁盘总量与剩余空间（命名卷看到的是 Docker 的虚拟磁盘，
+不是 C 盘）。脚本只在新建的临时子目录里写入、结束即删除，不碰 `data`，不联网：
 
 ```powershell
 cmd /c "git show origin/main:deploy/windows/probe_storage.py > %TEMP%\probe_storage.py"

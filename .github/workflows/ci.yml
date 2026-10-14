@@ -25,6 +25,20 @@ jobs:
       - run: ruff check --select F app cli.py tests
       # Known vulnerabilities in the locked dependency set.
       - run: pip-audit --requirement requirements.txt --require-hashes --disable-pip --progress-spinner off
+      # Nothing outside Windows runs the host scripts, so at least make sure PowerShell parses them.
+      - name: Windows scripts parse
+        shell: pwsh
+        run: |
+          $failed = $false
+          foreach ($file in Get-ChildItem deploy/windows -Filter *.ps1) {
+            $errors = $null
+            [System.Management.Automation.Language.Parser]::ParseFile($file.FullName, [ref]$null, [ref]$errors) | Out-Null
+            foreach ($problem in $errors) {
+              Write-Host "$($file.Name):$($problem.Extent.StartLineNumber): $($problem.Message)"
+              $failed = $true
+            }
+          }
+          if ($failed) { exit 1 }
   regression:
     runs-on: ubuntu-latest
     strategy:
