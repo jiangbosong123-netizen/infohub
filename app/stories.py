@@ -195,6 +195,11 @@ def _same_headline(item, other):
     return abs((item.published - other.published).total_seconds()) <= HEADLINE_HOURS * 3600
 
 
+def is_stock_move_title(title: str) -> bool:
+    """A daily stock-move piece ("Why is Arm stock sliding today?"): one template, new news each day."""
+    return bool(_STOCK_MOVE_EN.search(title) or _STOCK_MOVE_ZH.search(title))
+
+
 def _moves_of_different_days(item, other):
     return item.stock_move and other.stock_move and item.trading_day != other.trading_day
 

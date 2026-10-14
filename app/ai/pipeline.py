@@ -15,6 +15,7 @@ from .. import config
 from ..crawler.article_text import excerpts, waiting_for_text_clause
 from ..database import get_db
 from ..redaction import redact
+from ..stories import is_stock_move_title
 
 log = logging.getLogger(__name__)
 
@@ -88,8 +89,11 @@ def _keep_tmt(result, row, score=None) -> int:
 # the same article (a wire copy, one press release in several feeds): it takes the earlier item's
 # judgement instead of another model call. In the legacy data 9.2% of non-official items were such
 # repeats (some of them Google News copies, now stored once at ingestion); the model's own
-# judgements of them differed by a median 5 points and in 50 of 8,125 relevance verdicts.
-REUSE_HOURS = 72
+# judgements of them differed by a median 5 points and in 50 of 8,125 relevance verdicts. 6,324
+# of the 6,923 other repeats came within 6 hours. A longer window reached templates that repeat
+# daily with new news ("Why is Arm stock sliding today?" on Monday and on Wednesday), whose
+# summaries must not be shared; daily stock-move titles are never reused.
+REUSE_HOURS = 6
 REUSE_MIN_TITLE_CHARS = 12
 
 
@@ -97,7 +101,8 @@ def _reuse_judgements(db, rows) -> set[int]:
     """Give pending items the judgement of an earlier identical item; return the ids done."""
     reused = set()
     for row in rows:
-        if row["official"] or len(row["title"].strip()) < REUSE_MIN_TITLE_CHARS:
+        if (row["official"] or len(row["title"].strip()) < REUSE_MIN_TITLE_CHARS
+                or is_stock_move_title(row["title"])):
             continue
         published = datetime.fromisoformat(str(row["published_at"]).replace("Z", "+00:00"))
         window = timedelta(hours=REUSE_HOURS)
