@@ -165,6 +165,18 @@ class SecAcceptanceTests(unittest.TestCase):
         self.assertNotIn(url_of(FILINGS[0]), items)
         self.assertEqual(items[url_of(FILINGS[2])][0], FILINGS[2]["utc"])  # older ones were not held back
 
+    def test_a_throttled_host_stops_the_reads_after_the_second_error(self):
+        # EDGAR answers every header the same way when it throttles or fails as a whole.
+        fake = FakeSec(failures={f["accessionNumber"]: 429 for f in FILINGS})
+        with patch.object(sec_source.http, "fetch", side_effect=fake.fetch) as fetch, \
+                patch("app.stories.refresh_derived", lambda: None):
+            new, ok, note = runner.run_source(self.source)
+        header_calls = [call for call in fetch.call_args_list if "index-headers" in call.args[0]]
+        self.assertEqual(len(header_calls), 2)  # not 2 requests and 30 s for each new filing
+        self.assertTrue(all(call.kwargs.get("retries") == 0 for call in header_calls))
+        self.assertEqual((new, ok), (0, False))
+        self.assertIn("留到下一轮", note)
+
     def test_an_unknown_header_format_is_stored_at_first_sight_and_reported(self):
         fake = FakeSec(failures={FILINGS[1]["accessionNumber"]: "garbled"})
         new, ok, note = self.run_sec(fake)
