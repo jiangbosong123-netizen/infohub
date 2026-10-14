@@ -40,4 +40,6 @@ def rebuild_clusters(window_h: int = 48) -> int:
     window_h is retained for callers; presentation windows are applied on read.
     """
     from .stories import refresh_derived
-    return refresh_derived()['stories']
+    # Called after each crawl: one chunk indexes what the crawl brought, while a backlog (a
+    # matcher or topic change queues every item) is left to the AI job instead of delaying crawls.
+    return refresh_derived(max_chunks=1)['stories']
