@@ -79,6 +79,7 @@ class RoutineFilingTests(unittest.TestCase):
                 patch.object(sec_source.http, "fetch", return_value=submissions), \
                 patch.object(sec_source.time, "sleep"):
             rows = sec_source.fetch_sec({})
+        rows = [row for row in rows if "_error" not in row]  # header pages get this JSON too
         self.assertEqual({row["extra"]["form"]: row["extra"].get("routine") for row in rows}, {
             "4": True, "144/A": True, "3": True, "5": True, "8-K": None, "SCHEDULE 13D": None, "10-Q": None})
 
