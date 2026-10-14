@@ -177,7 +177,7 @@ powershell -ExecutionPolicy Bypass -File $env:TEMP\move-to-volume.ps1
 5. 把 `data` 改名为 `data-before-volume-<时间>` 保留；
 6. 启动。
 
-前四步任何一项不通过都会停下并说明原因，`data` 不变，旧方式仍可启动。之后：
+前四步任何一项不通过都会停下并说明原因，`data` 不变，旧方式仍可启动。如果第 3 步报 `not closed cleanly`，是被停下的任务（例如还在运行的 `prepare-release`）留下了未合并的 WAL：数据没有问题，把屏幕发给 Claude 处理后再运行。之后：
 
 - 新窗口先运行 `$env:APP_VERSION = (git rev-parse --short=12 HEAD)`，再看 `docker compose ps`，两个服务应在几分钟内变为
   healthy。

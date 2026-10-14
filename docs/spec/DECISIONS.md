@@ -143,7 +143,7 @@ silver 层规则：标注器必须版本化（代码/提示词/模型 ID 的 has
 **生效 PR。** 本记录所在 PR 只确立协议；状态、导入、自复核、指标与标注工具在后续 PR 中逐项实现，
 实施进度见 [`IMPLEMENTATION_STATUS.md`](IMPLEMENTATION_STATUS.md)。
 
-### D29 Windows 上的数据放进 Docker 命名卷（2026-10-15，待所有者确认）
+### D29 Windows 上的数据放进 Docker 命名卷（2026-10-15，所有者确认）
 
 **问题。** 2026-10-14 升级时数据放在 Windows 文件夹挂载（`.\data` → `/app/data`）。实测（`deploy/windows/probe_storage.py`）：
 文件夹挂载顺序读 54 MB/s、SQLite 逐笔提交 536 次/秒；命名卷 1,908 MB/s、1,136 次/秒；两处的并发写入检查都通过。升级当晚，
@@ -154,7 +154,7 @@ silver 层规则：标注器必须版本化（代码/提示词/模型 ID 的 has
 **候选。** (1) 保留文件夹挂载、加大 SQLite 缓存：每次读写仍要经过一次 Windows 文件共享，5 GB 的完整检查仍然很慢。
 (2) 放进 WSL 发行版的 Linux 文件系统：要另装发行版，效果与 (3) 相同。(3) Docker 命名卷（选定）。
 
-**选择。** 方案 3，外部卷 `infohub-data`：`docker compose down -v` 删不掉它，卷不存在时 compose 拒绝启动，不会用空库开始采集。
+**选择。** 所有者 2026-10-15 凌晨看到第二次启动迟迟不结束后决定立即搬迁。方案 3，外部卷 `infohub-data`：`docker compose down -v` 删不掉它，卷不存在时 compose 拒绝启动，不会用空库开始采集。
 搬迁是单独一步（`deploy/windows/move-to-volume.ps1`，`docs/WINDOWS_CUTOVER.md` 第 6b 步），不和数据库升级一起做：停写、复制、
 逐文件 SHA-256 核对和完整性检查，原文件夹改名保留；任何检查不通过就停下，原文件夹不动。
 
