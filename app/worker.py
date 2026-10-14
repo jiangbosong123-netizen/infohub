@@ -498,8 +498,10 @@ def run_lanes(
     """Run the crawl lane on a thread and the main lane here until ``stopping`` is set."""
     crawl = threading.Thread(
         target=run_lane, name="worker-crawl", daemon=True,
+        # Both lanes enqueue due schedules: a crawl that falls due while the main lane runs a long
+        # job must not wait for that job to be queued. Enqueueing is idempotent per schedule tick.
         kwargs=dict(lane="crawl", kinds=CRAWL_LANE_KINDS, worker_id=f"{worker_id}:crawl",
-                    pump=pump, stopping=stopping, handlers=handlers),
+                    pump=pump, stopping=stopping, enqueue=True, handlers=handlers),
     )
     crawl.start()
     try:

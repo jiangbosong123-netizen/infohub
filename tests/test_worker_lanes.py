@@ -91,6 +91,26 @@ class WorkerLaneTests(unittest.TestCase):
                   handlers={"ai": ai, "crawl": crawl})
         self.assertEqual(order, ["ai", "crawl"])  # returned only after the crawl finished
 
+    def test_a_crawl_that_falls_due_while_the_main_lane_is_busy_runs_beside_it(self):
+        from datetime import datetime, timedelta, timezone
+        from app.jobs import upsert_interval_schedule
+        now = datetime.now(timezone.utc)
+        upsert_interval_schedule(schedule_id="ai:test", kind="ai", next_due_at=now - timedelta(seconds=1),
+                                 interval_seconds=3600, priority=30, max_attempts=1)
+        # Not due yet when the AI job starts: only a lane that enqueues meanwhile can start it.
+        upsert_interval_schedule(schedule_id="crawl:test", kind="crawl", next_due_at=now + timedelta(seconds=1),
+                                 interval_seconds=3600, priority=50, max_attempts=1)
+        stopping, crawled, seen = threading.Event(), threading.Event(), {}
+
+        def ai():
+            seen["crawl_ran_meanwhile"] = crawled.wait(10)
+            stopping.set()
+            return {}
+
+        run_lanes(worker_id="worker-1", pump=self.pump, stopping=stopping,
+                  handlers={"ai": ai, "crawl": lambda: crawled.set() or {}})
+        self.assertTrue(seen["crawl_ran_meanwhile"])
+
     def test_the_worker_is_degraded_while_any_lane_is(self):
         self.pump.set_state("degraded", "crawl")
         self.pump.set_state("running", "main")
