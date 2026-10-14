@@ -19,6 +19,9 @@ class TopicQueueTests(unittest.TestCase):
         patcher.start()
         self.addCleanup(patcher.stop)
         database.init_schema()
+        pause = patch.object(stories, "REFRESH_PAUSE_SECONDS", 0)
+        pause.start()
+        self.addCleanup(pause.stop)
         company_match.invalidate_cache()
         self.addCleanup(company_match.invalidate_cache)
         with database.get_db() as db:

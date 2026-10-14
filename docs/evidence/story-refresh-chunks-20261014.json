@@ -11,17 +11,89 @@
     "The refresh after each crawl indexes one chunk; a backlog is worked off by the AI job's refresh. prepare-release uses chunks too, so the cutover result is the one later refreshes keep."
   ],
   "measurements": {
-    "single_transaction_full_reindex": {"seconds": 256.7, "merges": 821, "live_stories": 41907, "second_reindex_items_changing_event": 27},
-    "chunks_of_2000_no_time_limit": {"seconds": [260.2, 254.1], "longest_chunk_seconds": [11.4, 10.3], "note": "idle machine; up to 20 s per chunk while other jobs ran", "second_reindex_items_changing_event": 44},
-    "chunks_with_a_6_s_time_limit": {"seconds": 276.8, "longest_chunk_seconds": 11.0, "second_reindex_items_changing_event": 358, "rejected": "boundaries depend on machine speed, so results differ between runs"},
-    "chunks_of_1000": {"seconds": 592.9, "longest_chunk_seconds": 20.5, "rejected": "measured under load; each chunk reloads its window, so total time doubled without a shorter longest chunk"},
-    "chosen_chunks_of_1500": {"seconds": [271.6, 264.2], "chunks": 39, "longest_chunk_seconds": [8.8, 8.2], "merges": 840, "live_stories": 41914, "second_reindex_items_changing_event": 178, "titles_v4_events_split": {"events": 17, "items": 40}},
-    "before_the_requeue_fix": {"processed": 70424, "of": 57924, "seconds": 392.8},
+    "single_transaction_full_reindex": {
+      "seconds": 256.7,
+      "merges": 821,
+      "live_stories": 41907,
+      "second_reindex_items_changing_event": 27
+    },
+    "chunks_of_2000_no_time_limit": {
+      "seconds": [
+        260.2,
+        254.1
+      ],
+      "longest_chunk_seconds": [
+        11.4,
+        10.3
+      ],
+      "note": "idle machine; up to 20 s per chunk while other jobs ran",
+      "second_reindex_items_changing_event": 44
+    },
+    "chunks_with_a_6_s_time_limit": {
+      "seconds": 276.8,
+      "longest_chunk_seconds": 11.0,
+      "second_reindex_items_changing_event": 358,
+      "rejected": "boundaries depend on machine speed, so results differ between runs"
+    },
+    "chunks_of_1000": {
+      "seconds": 592.9,
+      "longest_chunk_seconds": 20.5,
+      "rejected": "measured under load; each chunk reloads its window, so total time doubled without a shorter longest chunk"
+    },
+    "chosen_chunks_of_1500": {
+      "seconds": [
+        271.6,
+        264.2
+      ],
+      "chunks": 39,
+      "longest_chunk_seconds": [
+        8.8,
+        8.2
+      ],
+      "merges": 840,
+      "live_stories": 41914,
+      "second_reindex_items_changing_event": 178,
+      "titles_v4_events_split": {
+        "events": 17,
+        "items": 40
+      }
+    },
+    "before_the_requeue_fix": {
+      "processed": 70424,
+      "of": 57924,
+      "seconds": 392.8
+    },
     "single_vs_chunked_partition": "about 2% of items are grouped differently (1,486 from the titles-v4 state); each method is stable on its own output"
   },
   "tests": [
     "tests/test_story_refresh_chunks.py: chunks reach the same events as one transaction; the crawl refresh indexes one chunk and leaves a backlog; a chunk past its time commits what it placed; a failed chunk keeps the chunks before it",
     "tests/test_story_merge.py: a reindex in chunks indexes each article once (queue empty, 4 items, 2 chunks); a member 120 h after the root anchor stays when rechecked",
     "8 of 8 mutations are caught: 7 fail a test; removing the bookkeeping of indexed items makes the chunked tests never finish"
-  ]
+  ],
+  "concurrency_followup_2026_10_14": {
+    "method": "8 threads inserting items (one every 0.2 s each) while refresh_derived() reindexes the rehearsal copy in chunks",
+    "back_to_back_chunks": {
+      "reindex_seconds": 366.3,
+      "inserts": 107,
+      "insert_wait_p50_s": 14.3,
+      "p99_s": 28.7,
+      "max_s": 30.2,
+      "database_is_locked": 44
+    },
+    "with_0_5_s_pause_between_chunks": {
+      "reindex_seconds": 469.6,
+      "inserts": 812,
+      "insert_wait_p50_s": 0.033,
+      "p99_s": 17.0,
+      "max_s": 22.2,
+      "database_is_locked": 0
+    },
+    "other_changes": [
+      "a refresh ends with the first chunk that takes everything queued when it began, so steady inserts cannot keep it running",
+      "the chunk time limit starts once the write lock is held",
+      "members indexed earlier in a refresh are queued again when their anchor was queued after the refresh began, or indexed and edited again",
+      "the refresh after a crawl skips when more than one chunk is queued and leaves the backlog to the AI job's refresh"
+    ],
+    "found_by": "a stress test (back-to-back chunks) and an independent review of #221/#222 (requeue, crawl refresh, deadline)"
+  }
 }
