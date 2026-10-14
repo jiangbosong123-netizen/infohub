@@ -1,0 +1,27 @@
+{
+  "scope": "Indexing the derived queue in chunks (app/stories.py refresh_derived, _refresh_chunk; app/ranking.py rebuild_clusters)",
+  "recorded_at": "2026-10-14T00:00:00Z",
+  "environment": "macOS isolated copies of the titles-v4 rehearsal index (perf6: 89,575 items, 57,924 story memberships), schema 55, titles-v5 matcher; no network, no model calls",
+  "production_changed": false,
+  "problem": "A matcher, topic or watchlist change queues every item, and one refresh indexed the whole queue in one write transaction: 257 s on the rehearsal data, while other writers give up after a 30 s busy timeout.",
+  "design": [
+    "refresh_derived() takes the queue earliest first, 1,500 items per transaction (REFRESH_CHUNK); each chunk commits on its own and later chunks see earlier ones as indexed. A chunk stops taking items after 12 s (REFRESH_CHUNK_SECONDS), a guard for very slow hosts only.",
+    "Items indexed by an earlier chunk of the same refresh are not queued again because their event's anchor or former anchor is still queued; a chunk made only of such items (edited again by another writer) ends the refresh and leaves them queued.",
+    "Each chunk's window also spans every member of the events its items belong to, so a rechecked member of a merged event reaching past 72 h still finds its anchor and former anchors (this also affected incremental refreshes).",
+    "The refresh after each crawl indexes one chunk; a backlog is worked off by the AI job's refresh. prepare-release uses chunks too, so the cutover result is the one later refreshes keep."
+  ],
+  "measurements": {
+    "single_transaction_full_reindex": {"seconds": 256.7, "merges": 821, "live_stories": 41907, "second_reindex_items_changing_event": 27},
+    "chunks_of_2000_no_time_limit": {"seconds": [260.2, 254.1], "longest_chunk_seconds": [11.4, 10.3], "note": "idle machine; up to 20 s per chunk while other jobs ran", "second_reindex_items_changing_event": 44},
+    "chunks_with_a_6_s_time_limit": {"seconds": 276.8, "longest_chunk_seconds": 11.0, "second_reindex_items_changing_event": 358, "rejected": "boundaries depend on machine speed, so results differ between runs"},
+    "chunks_of_1000": {"seconds": 592.9, "longest_chunk_seconds": 20.5, "rejected": "measured under load; each chunk reloads its window, so total time doubled without a shorter longest chunk"},
+    "chosen_chunks_of_1500": {"seconds": [271.6, 264.2], "chunks": 39, "longest_chunk_seconds": [8.8, 8.2], "merges": 840, "live_stories": 41914, "second_reindex_items_changing_event": 178, "titles_v4_events_split": {"events": 17, "items": 40}},
+    "before_the_requeue_fix": {"processed": 70424, "of": 57924, "seconds": 392.8},
+    "single_vs_chunked_partition": "about 2% of items are grouped differently (1,486 from the titles-v4 state); each method is stable on its own output"
+  },
+  "tests": [
+    "tests/test_story_refresh_chunks.py: chunks reach the same events as one transaction; the crawl refresh indexes one chunk and leaves a backlog; a chunk past its time commits what it placed; a failed chunk keeps the chunks before it",
+    "tests/test_story_merge.py: a reindex in chunks indexes each article once (queue empty, 4 items, 2 chunks); a member 120 h after the root anchor stays when rechecked",
+    "8 of 8 mutations are caught: 7 fail a test; removing the bookkeeping of indexed items makes the chunked tests never finish"
+  ]
+}

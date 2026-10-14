@@ -10,6 +10,7 @@ and every membership records its match evidence.
 import heapq
 import json
 import re
+import time
 import unicodedata
 import uuid
 from collections import Counter, defaultdict
@@ -37,6 +38,13 @@ MERGE_MIN_PAIRS = 2
 MEMBER_CANDIDATES = 60
 MEMBER_MIN_SHARED = 0.3
 MERGE_ROUNDS = 10
+# A chunk takes REFRESH_CHUNK items, so it holds the write lock well under the 30 s other writers
+# wait. Chunks end at fixed counts so a reindex gives the same result each time: when a time limit
+# set the boundaries, a second reindex moved 358 articles between events, against a few dozen with
+# fixed chunks. REFRESH_CHUNK_SECONDS only guards a very slow host: past it, a chunk stops taking
+# items (the rest stays queued) and finishes the merges for what it took.
+REFRESH_CHUNK = 1500
+REFRESH_CHUNK_SECONDS = 12
 # The flash wires repeat one another's headline: in the 2026-09-11..10-03 rehearsal data
 # 1,615 of 1,704 cross-wire repeats came within 30 minutes and 1,694 within 6 hours, while
 # 125 of 174 repeats by the same wire (“美股盘前要闻速递”) were more than 12 hours apart.
@@ -457,12 +465,41 @@ def _refresh_stats(db, affected):
                     json.dumps(slugs,ensure_ascii=False),sid))
 
 
-def refresh_derived() -> dict:
-    """Index changed items atomically, with one writer across cron/CLI invocations.
+def refresh_derived(chunk: int | None = REFRESH_CHUNK, max_chunks: int | None = None) -> dict:
+    """Index changed items, earliest first, ``chunk`` items per transaction.
+
+    A matcher or topic change queues every item; indexed in one transaction that held the write
+    lock for over four minutes on the rehearsal data (57,924 items), longer than the 30 s other
+    writers wait. Each chunk commits on its own, and the queue is worked off in the order a
+    single pass would take, so later chunks see earlier ones as already indexed. ``None``
+    indexes the whole queue in one transaction. With ``max_chunks`` the rest stays queued.
+    """
+    totals = dict(processed=0, matched=0, merged=0, chunks=0)
+    done = set()
+    while True:
+        result = _refresh_chunk(chunk, done)
+        ids = set(result.pop('ids'))
+        # Items queued again while this refresh ran (another writer edited them) are indexed
+        # again; a chunk of nothing but such items stops the refresh, which leaves them queued
+        # for the next one instead of chasing a queue that refills.
+        repeated = ids <= done
+        done |= ids
+        for key in ('processed', 'matched', 'merged'):
+            totals[key] += result[key]
+        totals['chunks'] += 1
+        if (not result['remaining'] or not result['processed'] or repeated
+                or totals['chunks'] == max_chunks):
+            return dict(totals, remaining=result['remaining'], stories=result['stories'])
+
+
+def _refresh_chunk(limit: int | None, done: set) -> dict:
+    """Index up to ``limit`` changed items atomically, with one writer across cron/CLI invocations.
 
     Derived work is local and deterministic. A failure rolls back assignments
-    and leaves the dirty queue intact for the next run.
+    and leaves the dirty queue intact for the next run. ``done`` holds the items indexed by
+    earlier chunks of this refresh; their events' anchors do not queue them again.
     """
+    deadline = None if limit is None else time.monotonic() + REFRESH_CHUNK_SECONDS
     with get_db() as db:
         db.execute('BEGIN IMMEDIATE')
         definitions = sync_topics(db)
@@ -471,24 +508,41 @@ def refresh_derived() -> dict:
         db.execute("""INSERT OR IGNORE INTO derived_dirty(item_id)
             SELECT item_id FROM story_items WHERE match_reason!=?""", (MATCH_VERSION,))
         # Editing an anchor can invalidate its other members; recheck the whole
-        # event in the same transaction rather than leaving stale assignments.
-        db.execute("""INSERT OR IGNORE INTO derived_dirty(item_id)
-            SELECT si.item_id FROM stories st JOIN story_items si ON si.story_id=st.id
-            WHERE st.anchor_item_id IN (SELECT item_id FROM derived_dirty)""")
-        # The same holds for the anchor of an event that was merged into another one.
-        db.execute("""INSERT OR IGNORE INTO derived_dirty(item_id)
-            SELECT member.item_id FROM stories st
+        # event rather than leaving stale assignments. The same holds for the anchor of an event
+        # that was merged into another one. On a reindex in chunks every anchor is queued, and
+        # members an earlier chunk indexed would otherwise be queued again by each later one
+        # (12,500 extra of 57,924 on the rehearsal data), unlike a single pass.
+        members = [item_id for item_id, in db.execute("""SELECT si.item_id FROM stories st JOIN story_items si ON si.story_id=st.id
+            WHERE st.anchor_item_id IN (SELECT item_id FROM derived_dirty)
+            UNION SELECT member.item_id FROM stories st
             JOIN story_items holder ON holder.item_id=st.anchor_item_id
             JOIN story_items member ON member.story_id=holder.story_id
-            WHERE st.redirect_to IS NOT NULL AND st.anchor_item_id IN (SELECT item_id FROM derived_dirty)""")
+            WHERE st.redirect_to IS NOT NULL AND st.anchor_item_id IN (SELECT item_id FROM derived_dirty)""")]
+        db.executemany('INSERT OR IGNORE INTO derived_dirty(item_id) VALUES(?)',
+                       [(item_id,) for item_id in members if item_id not in done])
         rows = [dict(r) for r in db.execute('''SELECT i.*,s.name AS source_name,s.type AS source_type
                   FROM derived_dirty d JOIN items i ON i.id=d.item_id JOIN sources s ON s.id=i.source_id
-                  ORDER BY i.published_at,i.id''')]
+                  ORDER BY i.published_at,i.id LIMIT ?''', (-1 if limit is None else limit,))]
         affected = set()
+        processed = []
         anchors = {}
         by_token = defaultdict(set)
         lower = (_dt(rows[0]['published_at'])-timedelta(hours=MAX_EVENT_HOURS)).isoformat() if rows else '9999'
         upper = (_dt(rows[-1]['published_at'])+timedelta(hours=MAX_EVENT_HOURS)).isoformat() if rows else '9999'
+        if rows:
+            # A merged event can reach past the window (each merged event's articles lie within
+            # MAX_EVENT_HOURS of its own anchor), so the window also spans every article of the
+            # events the rows belong to: a rechecked article must find its event's anchor and
+            # former anchors, or it leaves the event.
+            db.execute('CREATE TEMP TABLE IF NOT EXISTS refresh_rows(item_id INTEGER PRIMARY KEY)')
+            db.execute('DELETE FROM refresh_rows')
+            db.executemany('INSERT INTO refresh_rows(item_id) VALUES(?)', [(row['id'],) for row in rows])
+            span = db.execute('''SELECT MIN(i.published_at),MAX(i.published_at) FROM refresh_rows r
+                                 JOIN story_items si ON si.item_id=r.item_id
+                                 JOIN story_items m ON m.story_id=si.story_id JOIN items i ON i.id=m.item_id''').fetchone()
+            if span[0]:
+                lower = min(_dt(lower), _dt(span[0])).isoformat()
+                upper = max(_dt(upper), _dt(span[1])).isoformat()
         for row in db.execute('''SELECT st.id AS story_id,i.*,s.type AS source_type FROM stories st
                                   JOIN items i ON i.id=st.anchor_item_id JOIN sources s ON s.id=i.source_id
                                   WHERE st.redirect_to IS NULL AND COALESCE(i.tmt,1)!=0 AND i.published_at BETWEEN ? AND ?''',(lower,upper)):
@@ -552,6 +606,8 @@ def refresh_derived() -> dict:
                 remember_headline(member, member['story_id'])
 
         for row in rows:
+            if deadline is not None and processed and time.monotonic() > deadline:
+                break
             assign_topics(db,row,definitions)
             old = db.execute('SELECT story_id FROM story_items WHERE item_id=?',(row['id'],)).fetchone()
             old_id = old['story_id'] if old else None
@@ -641,6 +697,8 @@ def refresh_derived() -> dict:
                 matched += 1
             db.execute('INSERT OR IGNORE INTO indexed_items(item_id) VALUES(?)',(row['id'],))
             db.execute('DELETE FROM derived_dirty WHERE item_id=?',(row['id'],))
+            processed.append(row['id'])
+        rows = rows[:len(processed)]
         # Merging two events can make a third qualify against their union, so merges repeat
         # until none is left; each round decides on the memberships it starts with.
         member_facts = {}
@@ -656,5 +714,6 @@ def refresh_derived() -> dict:
             if not merges or not nominated:
                 break
         _refresh_stats(db,affected)
-        return dict(processed=len(rows),matched=matched,merged=merged,
+        return dict(processed=len(rows),matched=matched,merged=merged,ids=processed,
+                    remaining=db.execute('SELECT COUNT(*) FROM derived_dirty').fetchone()[0],
                     stories=db.execute('SELECT COUNT(*) FROM stories WHERE item_count>0 AND redirect_to IS NULL').fetchone()[0])

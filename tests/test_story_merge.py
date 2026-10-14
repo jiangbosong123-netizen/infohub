@@ -156,6 +156,17 @@ class StoryMergeTests(unittest.TestCase):
         self.assertEqual(refresh_derived()["merged"], 0)
         self.assertEqual({self.story(i) for i in a + b}, {earlier})
 
+    def test_a_reindex_in_chunks_indexes_each_article_once(self):
+        ids = [self.item(self.ACROSS[name], minutes) for minutes, name in enumerate(("a0", "a1", "b0", "b1"))]
+        self.assertEqual(refresh_derived()["merged"], 1)
+        # B's former anchor is still queued after the first chunk; it must not queue A's articles
+        # that chunk already indexed.
+        with database.get_db() as db:
+            db.execute("UPDATE story_items SET match_reason='titles-v4'")
+        result = refresh_derived(chunk=2)
+        self.assertEqual((result["processed"], result["chunks"], result["remaining"]), (4, 2, 0))
+        self.assertEqual({self.story(i) for i in ids}, {self.story(ids[0])})
+
     def test_events_whose_anchors_contradict_stay_apart_however_their_articles_match(self):
         titles = dict(self.ACROSS, a0="OpenAI launches coding agent 2 for enterprises",
                       b0="Coding agent 3 for enterprises with new security tools arrives from OpenAI")
@@ -192,6 +203,20 @@ class StoryMergeTests(unittest.TestCase):
                        (loose, story, "titles-v5"))
         refresh_derived()
         self.assertNotEqual(self.story(loose), story)
+
+    def test_a_member_far_from_the_root_anchor_stays_when_rechecked(self):
+        # B (anchored 60 h after A) merges into A; B's last article is 120 h after A's anchor,
+        # beyond the window around it, and still matches B's former anchor when rechecked.
+        hour, start = 60, -125 * 60  # in the past: future times are replaced by the time seen
+        a = [self.item(self.ACROSS["a0"], start), self.item(self.ACROSS["a1"], start + hour)]
+        b = [self.item(self.ACROSS["b0"], start + 60 * hour), self.item(self.ACROSS["b1"], start + 61 * hour),
+             self.item(self.ACROSS["b0"] + " today", start + 120 * hour)]
+        self.assertEqual(refresh_derived()["merged"], 1)
+        self.assertEqual({self.story(i) for i in a + b}, {self.story(a[0])})
+        with database.get_db() as db:
+            db.execute("INSERT INTO derived_dirty(item_id) VALUES(?)", (b[2],))
+        refresh_derived()
+        self.assertEqual(self.story(b[2]), self.story(a[0]))
 
     def test_unrelated_events_stay_apart(self):
         ids = [self.item("OpenAI releases a new coding platform for developers", 0),
