@@ -155,7 +155,9 @@ def read_acceptance(cik: str, accession: str) -> dict | None:
     """
     url = HEADER_URL.format(cik=int(cik), folder=accession.replace("-", ""), accession=accession)
     try:
-        response = http.fetch(url, headers={"User-Agent": config.SEC_USER_AGENT})
+        # No inline retry: a throttled host would otherwise cost each header two requests and up to
+        # 30 s; the caller decides when to stop.
+        response = http.fetch(url, headers={"User-Agent": config.SEC_USER_AGENT}, retries=0)
     except httpx.HTTPStatusError as exc:
         if exc.response.status_code in (404, 410):
             return None
@@ -269,8 +271,9 @@ def _read_new_headers(filings: list[dict], known: dict[str, dict | None], out: l
 
     A filing left out waits for a later run instead of being stored without its time, so an old
     filing never looks new. A filing without a header (404) is stored anyway, at the time it was
-    seen. An HTTP error on one header defers only that filing; a network failure or a pause the
-    host asked for stops the reads. A header in an unknown format is stored without its time and
+    seen. The first HTTP error in a run defers only that filing, so one header that always fails
+    does not hold back the others; a second one, a network failure or a pause the host asked for
+    stops the reads, as a throttled or failing host answers every request the same way. A header in an unknown format is stored without its time and
     reported, so a format change shows on the source's health instead of passing unnoticed.
     """
     headers: dict[str, dict | None] = {}
@@ -283,8 +286,13 @@ def _read_new_headers(filings: list[dict], known: dict[str, dict | None], out: l
         except HeaderFormatError:
             headers[filing["url"]] = None
             unreadable.append(filing["accession"])
-        except httpx.HTTPStatusError as exc:  # 这一份的文件头出错，跳过它，其余照读
+        except httpx.HTTPStatusError as exc:  # 第一次出错只跳过这一份；再出错就是主机的问题，停下
             deferred.append(f"{filing['accession']} HTTP {exc.response.status_code}")
+            if len(deferred) > 1:
+                out.append(dict(_error=f"SEC 文件头读取失败，{len(new) - len(headers)} 份新文件留到下一轮: "
+                                       f"{', '.join(deferred)}"))
+                deferred = []
+                break
         except Exception as exc:  # noqa: BLE001 - 断网或被要求暂停：停下，剩下的下一轮再读
             out.append(dict(_error=f"SEC 文件头读取失败，{len(new) - len(headers)} 份新文件留到下一轮: {exc}"))
             break
