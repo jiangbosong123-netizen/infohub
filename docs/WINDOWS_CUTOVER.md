@@ -1,7 +1,7 @@
 # Windows 生产升级手册
 
 生产主机：Windows 常开笔记本 `windows-server`（Tailscale：`windows-server.<tailnet>.ts.net`，以 Tailscale 管理页显示为准），项目目录
-`C:\Users\serveradmin\Server\infohub`，部署器 `C:\Users\serveradmin\Server\manager`
+`C:\Users\serveradmin\Server\infohub`，部署器 `C:\Users\serveradmin\Server\manger`（文件夹名就是 `manger`，少一个 a）
 （[windows-server-manager](https://github.com/jiangbosong123-netizen/windows-server-manager)）。步骤与耗时来自
 [生产升级方案](CUTOVER_PLAN.md) 的完整演练；以下命令都在 Windows 的 PowerShell 中、`infohub` 目录下执行。
 
@@ -27,7 +27,7 @@
    ```
 3. 看自动部署是否已经做过什么：
    ```powershell
-   Get-Content ..\manager\logs\auto-deploy.log -Tail 30
+   Get-Content ..\manger\logs\auto-deploy.log -Tail 30
    ```
    出现 `[infohub] deployed <版本>` 说明已经自动升级过，先跳到第 9 节；只有 `fetch failed`、`skipped` 或没有
    infohub 记录，说明还没升级。
@@ -45,6 +45,17 @@ powercfg /setactive SCHEME_CURRENT
 保持插电。用电池时仍会按原设置睡眠，睡眠期间不采集；每天早上的对账只能补回部分遗漏。
 
 ## 3. 只读检查，决定用哪份数据
+
+最省事的做法是一次跑完第 3 步和 3b（结果同时存到桌面的 `infohub-inspect.txt`）：
+
+```powershell
+cd ~\Server\infohub
+git fetch origin
+git show origin/main:deploy/windows/inspect.ps1 > $env:TEMP\inspect.ps1
+powershell -ExecutionPolicy Bypass -File $env:TEMP\inspect.ps1
+```
+
+也可以按下面的命令逐条执行：
 
 ```powershell
 git fetch origin
