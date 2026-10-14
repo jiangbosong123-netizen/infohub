@@ -1,0 +1,47 @@
+{
+  "scope": "Full cutover drill on a copy of the Mac legacy database, following docs/WINDOWS_CUTOVER.md sections 6-8 command by command",
+  "recorded_at": "2026-10-14T15:10:00Z",
+  "environment": "macOS, Python 3.12 venv (not the container image), development environment id mac-cutover-drill-1014; the legacy database copied read-only with the SQLite backup API",
+  "code": "main@376cd947093d (#219 SEC header times, #220 titles-v5, #221 chunked indexing, #222 crawl lane, #223 judgement reuse)",
+  "production_changed": false,
+  "source": {"database": "Mac legacy app.db (281 MB, written 2026-10-03 17:02, never modified by the drill)", "items": 89575},
+  "steps_seconds": {
+    "prepare_release": 290,
+    "legacy_backfill": 180,
+    "legacy_topic_backfill": 15,
+    "legacy_event_project": 15,
+    "routine_filings_mark": 1,
+    "sec_acceptance_times": 208,
+    "legacy_curation_run": 1426,
+    "projection_builders_run": 155,
+    "section_7_total": 2000,
+    "audits_total": 109,
+    "db_bundle_backup": 483
+  },
+  "results": {
+    "schema_version": 55,
+    "story_index": "titles-v5 for all 57,924 memberships; 41,884 live events",
+    "routine_filings_marked": {"sec_insider_forms": 507, "hkex_next_day_returns": 51},
+    "sec_acceptance_times": {"checked": 641, "matches": 522, "corrected_minus_4_h": 119, "no_header": 0},
+    "legacy_curation": {"jobs": 358300, "needs_review": 358174, "refused": 64, "insufficient_evidence": 62, "remaining": 0},
+    "builders": "search, hot and topic statistics ready, no dirty rows left",
+    "audits": {"db_verify": "current / integrity ok", "raw_verify": "ok, 0 missing", "evidence_verify": "ok, 0 missing",
+               "db_curation_audit": "ok", "db_projection_audit": "ok", "db_event_audit": "ok",
+               "db_coverage": "gaps_found only for no_versioned_report_publications, as on 2026-10-04 (versioned report writes are off)"},
+    "bundle": {"database_bytes": 4991389696, "unique_blobs": 89575, "verified": true}
+  },
+  "portal_smoke": {
+    "method": "FastAPI TestClient as the web role on the drill database",
+    "pages_200": ["/", "/?mode=all", "/?mode=all&page=200", "/hot", "/topics/openai", "/story/<largest>", "/search?q=英伟达", "/daily", "/health", "/api/pipeline", "/api/ready", "/api/health"],
+    "slowest_ms": {"/health": 521, "/?mode=all&page=200": 177, "/topics/openai": 159},
+    "merged_story_urls": "283 of 300 sampled redirect (302); 17 end at an event whose articles are all hidden and return 404 by design. The same 239 of the redirects end there in the titles-v4 index, so the new matcher adds none."
+  },
+  "differences_from_the_2026-10-04_rehearsal": [
+    "Section 7 now takes 33 min instead of 24 min: the SEC header step is new (3.5 min) and legacy-curation-run took 24 min instead of about 20.",
+    "prepare-release took 290 s (285-294 s on 2026-10-04) although indexing now merges events and commits in chunks."
+  ],
+  "limits": [
+    "Run with the macOS venv, not the Docker image; Windows bind-mount I/O is slower and unmeasured (U02).",
+    "The sec-acceptance-times step reads 641 SEC headers over the network; the rest ran offline."
+  ]
+}
