@@ -30,6 +30,9 @@ class ProbeStorageTests(unittest.TestCase):
         self.assertTrue(report["concurrent_wal_writers"]["safe"])
         self.assertEqual(report["concurrent_wal_writers"]["final_value"], 100)
         self.assertEqual(report["verdict"], "concurrency check passed")
+        self.assertEqual(report["random_page_reads"]["reads"], 200)
+        self.assertGreater(report["random_page_reads"]["per_second"], 0)
+        self.assertGreater(report["disk"]["total_mb"], report["disk"]["free_mb"])
         self.assertTrue(output.getvalue().isascii())
 
     def test_lost_updates_corruption_or_crashes_are_unsafe(self):

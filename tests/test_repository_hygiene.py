@@ -30,6 +30,12 @@ class RepositoryHygieneTests(unittest.TestCase):
                 self.assertEqual([u for u in uses if not re.fullmatch(r"[\w.-]+/[\w.-]+@[0-9a-f]{40}", u)], [])
                 self.assertEqual(text.count("actions/checkout@"), text.count("persist-credentials: false"))
 
+    def test_windows_scripts_are_ascii(self):
+        # Windows PowerShell 5.1 reads a script without a BOM in the local code page.
+        for script in (ROOT / "deploy" / "windows").glob("*.ps1"):
+            with self.subTest(script=script.name):
+                self.assertTrue(script.read_bytes().isascii())
+
     def test_data_copies_and_env_files_are_never_committed(self):
         ignored = (ROOT / ".gitignore").read_text(encoding="utf-8").splitlines()
         for pattern in (".env", ".env.*", "!.env.example", "data/", "/data-*/", "*.db"):

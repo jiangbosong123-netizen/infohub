@@ -19,6 +19,7 @@ import hashlib
 import json
 import multiprocessing
 import os
+import random
 import shutil
 import sqlite3
 import statistics
@@ -83,6 +84,30 @@ def sequential_read(root: Path, megabytes: int) -> dict:
             "read_mb_per_s": round(megabytes / read, 1)}
 
 
+def random_page_reads(root: Path, count: int) -> dict:
+    """4 KiB reads at random offsets of the sequential file, like SQLite reading pages it has
+    not cached: a folder shared from Windows pays a round trip to the host for each one."""
+    path = root / "sequential.bin"
+    pages = path.stat().st_size // 4096
+    offsets = [random.randrange(pages) * 4096 for _ in range(count)]
+    timings = []
+    descriptor = os.open(path, os.O_RDONLY)
+    try:
+        for offset in offsets:
+            started = time.perf_counter()
+            os.pread(descriptor, 4096, offset)
+            timings.append(time.perf_counter() - started)
+    finally:
+        os.close(descriptor)
+    return {"reads": count, **_percentiles(timings), "per_second": round(count / sum(timings), 1)}
+
+
+def disk_space(base: Path) -> dict:
+    """What the container sees: for a Docker volume, the virtual disk, not the Windows drive."""
+    usage = shutil.disk_usage(base)
+    return {"total_mb": usage.total // 2**20, "free_mb": usage.free // 2**20}
+
+
 def _increment(path: str, count: int) -> None:
     db = sqlite3.connect(path, timeout=30, isolation_level=None)
     db.execute("PRAGMA busy_timeout=30000")
@@ -136,10 +161,12 @@ def main(argv: list[str]) -> int:
     try:
         report = {
             "directory": str(base),
+            "disk": disk_space(base),
             "sqlite_version": sqlite3.sqlite_version,
             "small_file_fsync": small_file_fsync(root, 20 if quick else 300),
             "sqlite_commits": sqlite_commits(root, 50 if quick else 1000),
             "sequential": sequential_read(root, 8 if quick else 256),
+            "random_page_reads": random_page_reads(root, 200 if quick else 5000),
             "concurrent_wal_writers": concurrent_wal_writers(root, 2, 50 if quick else 500),
         }
     finally:

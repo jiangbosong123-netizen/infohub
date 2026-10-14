@@ -1,9 +1,10 @@
 # infohub read-only host check: docs/WINDOWS_CUTOVER.md steps 3 and 3b in one run.
 #
-# Reads data\ and .env (key names only) through read-only mounts, then measures the disk in a
-# temporary folder and a temporary Docker volume and deletes both. Changes nothing else and does
-# not touch the running containers. Everything printed is also saved to infohub-inspect.txt on
-# the Desktop. Run from any folder:
+# Reads the data (the infohub-data volume, or the .\data folder before the move) and .env (key
+# names only) through read-only mounts, then measures the disk in a temporary folder and a
+# temporary Docker volume and deletes both. Changes nothing else and does not touch the running
+# containers. Everything printed is also saved to infohub-inspect.txt on the Desktop. Run from
+# any folder:
 #   powershell -ExecutionPolicy Bypass -File $env:TEMP\inspect.ps1
 $ErrorActionPreference = "Continue"
 Set-Location (Join-Path $env:USERPROFILE "Server\infohub")
@@ -22,11 +23,16 @@ cmd /c "git show origin/main:deploy/windows/probe_storage.py > `"$probe`""
     git rev-parse HEAD
     git status --short
     "== docker compose ps"
+    # compose.yaml refuses to run without the version of the checked-out code.
+    $env:APP_VERSION = (git rev-parse --short=12 HEAD)
     docker compose ps
     "== inspect_host (read-only)"
     # Mount only what exists: Docker would create a missing source as an empty folder.
     $mounts = @("-v", "${inspect}:/inspect_host.py:ro")
-    if (Test-Path -PathType Container data) { $mounts += @("-v", "$(Get-Location)\data:/data:ro") } else { "no data folder" }
+    docker volume inspect infohub-data *> $null
+    if ($LASTEXITCODE -eq 0) { $mounts += @("-v", "infohub-data:/data:ro"); "data: Docker volume infohub-data" }
+    elseif (Test-Path -PathType Container data) { $mounts += @("-v", "$(Get-Location)\data:/data:ro"); "data: .\data folder" }
+    else { "no data volume or folder" }
     if (Test-Path -PathType Leaf .env) { $mounts += @("-v", "$(Get-Location)\.env:/env/.env:ro") } else { "no .env file" }
     docker run --rm --network none @mounts $image python /inspect_host.py
     "== storage probe: Windows folder mounted into a container"
