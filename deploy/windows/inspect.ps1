@@ -24,7 +24,11 @@ cmd /c "git show origin/main:deploy/windows/probe_storage.py > `"$probe`""
     "== docker compose ps"
     docker compose ps
     "== inspect_host (read-only)"
-    docker run --rm --network none -v "$(Get-Location)\data:/data:ro" -v "$(Get-Location)\.env:/env/.env:ro" -v "${inspect}:/inspect_host.py:ro" $image python /inspect_host.py
+    # Mount only what exists: Docker would create a missing source as an empty folder.
+    $mounts = @("-v", "${inspect}:/inspect_host.py:ro")
+    if (Test-Path -PathType Container data) { $mounts += @("-v", "$(Get-Location)\data:/data:ro") } else { "no data folder" }
+    if (Test-Path -PathType Leaf .env) { $mounts += @("-v", "$(Get-Location)\.env:/env/.env:ro") } else { "no .env file" }
+    docker run --rm --network none @mounts $image python /inspect_host.py
     "== storage probe: Windows folder mounted into a container"
     New-Item -ItemType Directory -Force $folder | Out-Null
     docker run --rm -v "${folder}:/probe" -v "${probe}:/probe_storage.py:ro" $image python /probe_storage.py /probe
