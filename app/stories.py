@@ -509,6 +509,16 @@ def refresh_derived(chunk: int | None = REFRESH_CHUNK, max_chunks: int | None = 
         time.sleep(REFRESH_PAUSE_SECONDS)
 
 
+# The item columns event matching reads (titles, companies, channel, type, filing form in extra,
+# time, visibility): a change to any of them since a refresh began means re-checking.
+FINGERPRINT_COLUMNS = ('title', 'title_zh', 'title_en', 'companies', 'channel', 'event_type',
+                       'official', 'url', 'published_at', 'tmt', 'extra')
+
+
+def _fingerprint(values) -> int:
+    return hash(tuple(values))
+
+
 def _refresh_chunk(limit: int | None, progress: dict) -> dict:
     """Index up to ``limit`` changed items atomically, with one writer across cron/CLI invocations.
 
@@ -538,12 +548,16 @@ def _refresh_chunk(limit: int | None, progress: dict) -> dict:
             JOIN story_items holder ON holder.item_id=st.anchor_item_id
             JOIN story_items member ON member.story_id=holder.story_id
             WHERE st.redirect_to IS NOT NULL AND st.anchor_item_id IN (SELECT item_id FROM derived_dirty)""").fetchall()
-        if progress['queued'] is None:
-            progress['queued'] = {item_id for item_id, in db.execute('SELECT item_id FROM derived_dirty')}
-        done, queued = progress['done'], progress['queued']
+        done, queued = progress['done'], progress['queued'] or {}
         db.executemany('INSERT OR IGNORE INTO derived_dirty(item_id) VALUES(?)',
                        [(member,) for member, anchor in pairs
                         if member not in done or anchor in done or anchor not in queued])
+        if progress['queued'] is None:
+            # What this refresh set out to do, its own re-queued members included, with the
+            # wording each item had then: an anchor edited later is caught when it is placed.
+            progress['queued'] = {row[0]: _fingerprint(row[1:]) for row in db.execute(
+                f'SELECT i.id,{",".join("i." + c for c in FINGERPRINT_COLUMNS)} FROM derived_dirty d '
+                'JOIN items i ON i.id=d.item_id')}
         rows = [dict(r) for r in db.execute('''SELECT i.*,s.name AS source_name,s.type AS source_type
                   FROM derived_dirty d JOIN items i ON i.id=d.item_id JOIN sources s ON s.id=i.source_id
                   ORDER BY i.published_at,i.id LIMIT ?''', (-1 if limit is None else limit,))]
@@ -667,6 +681,14 @@ def _refresh_chunk(limit: int | None, progress: dict) -> dict:
                 old_anchor = anchors.get(old_id)
                 old_count = db.execute('SELECT COUNT(*) FROM story_items WHERE story_id=?',(old_id,)).fetchone()[0] if old_id else 0
                 if old_anchor and old_anchor['id'] == row['id']:
+                    # Edited by another writer since this refresh began: the members an earlier
+                    # chunk placed were checked against its old wording, so they are checked again.
+                    before = (progress['queued'] or {}).get(row['id'])
+                    if before is not None and before != _fingerprint(row[c] for c in FINGERPRINT_COLUMNS):
+                        db.executemany('INSERT OR IGNORE INTO derived_dirty(item_id) VALUES(?)', [
+                            (member,) for member, in db.execute(
+                                'SELECT item_id FROM story_items WHERE story_id=? AND item_id<>?', (old_id, row['id']))
+                            if member in progress['done']])
                     # A published multi-article event retains its anchor and URL; if the anchor
                     # now matches another event, _merge_stories joins the two after this loop.
                     if old_count > 1:

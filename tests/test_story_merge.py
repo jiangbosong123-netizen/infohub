@@ -6,7 +6,7 @@ from unittest.mock import patch
 
 from fastapi.testclient import TestClient
 
-from app import company_match, database
+from app import company_match, database, stories
 from app.crawler.runner import insert_item
 from app.stories import refresh_derived
 from app.web.routes import app
@@ -190,6 +190,50 @@ class StoryMergeTests(unittest.TestCase):
         self.assertNotEqual(self.story(a[1]), self.story(a[0]))  # A's other article no longer matches
         with database.get_db() as db:
             self.assertEqual(db.execute("SELECT COUNT(*) FROM derived_dirty").fetchone()[0], 0)
+
+    def test_an_anchor_edited_before_its_turn_rechecks_members_placed_earlier(self):
+        anchor = self.item("Anthropic opens an office in Tokyo for enterprise customers", 60)
+        refresh_derived()
+        member = self.item("Anthropic opens an office in Tokyo for enterprise customers today", 0)
+        refresh_derived()  # an older article fetched later joins the event; the anchor is later
+        self.assertEqual(self.story(member), self.story(anchor))
+        with database.get_db() as db:
+            db.execute("UPDATE story_items SET match_reason='titles-v4'")
+        edited = []
+
+        def another_writer(seconds):  # edits the anchor after the member's chunk, before its own
+            if not edited:
+                self.edit(anchor, title="Paris weather turns cold this week")
+                edited.append(seconds)
+
+        with patch("app.stories.time.sleep", side_effect=another_writer):
+            refresh_derived(chunk=1)
+        refresh_derived()
+        self.assertTrue(edited)
+        self.assertNotEqual(self.story(member), self.story(anchor))
+
+    def test_a_refresh_does_not_place_an_item_twice_for_its_own_requeued_members(self):
+        english = [self.item("OpenAI releases a new coding platform for developers", 0),
+                   self.item("OpenAI releases a new coding platform for developers today", 1)]
+        chinese = [self.item("OpenAI 发布全新开发者编程平台", 2), self.item("OpenAI 发布全新开发者编程平台 今日", 3)]
+        refresh_derived()
+        self.edit(english[0], title_zh="OpenAI 发布全新开发者编程平台")
+        self.assertEqual(refresh_derived()["merged"], 1)
+        self.assertEqual(len({self.story(i) for i in english + chinese}), 1)
+        self.edit(english[0], summary="corrected")  # queues the event, a former anchor included
+        placed = []
+        original = stories._refresh_chunk
+
+        def spy(limit, progress):
+            result = original(limit, progress)
+            placed.extend(result["ids"])
+            return result
+
+        with patch.object(stories, "_refresh_chunk", side_effect=spy), \
+                patch.object(stories, "REFRESH_PAUSE_SECONDS", 0):
+            result = refresh_derived(chunk=1)
+        self.assertEqual(len(placed), len(set(placed)))
+        self.assertEqual(result["remaining"], 0)
 
     def test_events_whose_anchors_contradict_stay_apart_however_their_articles_match(self):
         titles = dict(self.ACROSS, a0="OpenAI launches coding agent 2 for enterprises",
