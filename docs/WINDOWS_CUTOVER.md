@@ -112,7 +112,7 @@ INFOHUB_PUBLIC_ORIGIN=https://windows-server.<tailnet>.ts.net
 git pull --ff-only origin main
 $env:APP_VERSION = (git rev-parse --short=12 HEAD)
 docker compose up -d --build
-docker compose logs -f migrate      # 首次需要把旧聚类全部重算，演练约 5 分钟（现在预计约 4 分钟）；看到“发布准备完成”后 Ctrl-C
+docker compose logs -f migrate      # 首次需要把旧聚类全部重算，Mac 演练 290 秒（2026-10-14）；看到“发布准备完成”后 Ctrl-C
 docker compose ps                   # infohub 与 infohub-worker 应为 healthy
 curl.exe -s http://127.0.0.1:8000/api/ready
 curl.exe -s http://127.0.0.1:8000/api/health   # runtime.sqlite_version 应为 3.53.4，sqlite_wal_reset_safe 为 true
@@ -125,7 +125,7 @@ curl.exe -s http://127.0.0.1:8000/api/health   # runtime.sqlite_version 应为 3
 缓存冷热；Windows 的 Docker 挂载目录读写更慢，可能要几分钟）。健康检查为此留了 10 分钟启动宽限，期间 `docker compose ps`
 显示 `starting` 属正常。
 
-## 7. 补历史数据（门户可用，Mac 同机实测约 25 分钟；演练时的旧版本为 3.5–4 小时，Windows 可能更慢）
+## 7. 补历史数据（门户可用，Mac 同机实测约 33 分钟（2026-10-14）；演练时的旧版本为 3.5–4 小时，Windows 可能更慢）
 
 回填期间建议暂停采集，避免与 worker 争用数据库写锁；如果更在意采集连续，也可以不停（会变慢但不会出错）。
 
@@ -135,8 +135,8 @@ docker compose run --rm migrate python cli.py legacy-backfill 1000      # 约 3 
 docker compose run --rm migrate python cli.py legacy-topic-backfill 1000
 docker compose run --rm migrate python cli.py legacy-event-project
 docker compose run --rm migrate python cli.py routine-filings-mark --apply   # 几秒；旧库的 SEC 内部人申报与港交所翌日披露報表不再进精选
-docker compose run --rm migrate python cli.py sec-acceptance-times --apply   # 约 5 分钟，需联网；按 SEC 文件头改正旧 SEC 卡片时间（演练数据 641 份中 119 份早了 4 小时），中断后重新运行即可续跑
-docker compose run --rm migrate python cli.py legacy-curation-run       # 约 20 分钟（含排队）；中断后重新运行即可续跑
+docker compose run --rm migrate python cli.py sec-acceptance-times --apply   # 约 4 分钟，需联网；按 SEC 文件头改正旧 SEC 卡片时间（演练数据 641 份中 119 份早了 4 小时），中断后重新运行即可续跑
+docker compose run --rm migrate python cli.py legacy-curation-run       # 约 24 分钟（含排队）；中断后重新运行即可续跑
 docker compose run --rm migrate python cli.py projection-builders-run   # 约 3 分钟
 docker compose start worker
 ```
@@ -149,7 +149,7 @@ docker compose start worker
 foreach ($c in "db-verify","raw-verify","evidence-verify","db-curation-audit","db-projection-audit","db-event-audit","db-coverage") {
   docker compose run --rm migrate python cli.py $c
 }
-docker compose run --rm migrate python cli.py db-bundle-backup
+docker compose run --rm migrate python cli.py db-bundle-backup     # Mac 演练约 8 分钟（4.9 GB）
 ```
 
 逐条看输出：`db-verify` 的 `state` 应为 `current`、`integrity` 为 `ok`；各审计命令不应报错或列出问题；`db-coverage`
