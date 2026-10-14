@@ -53,6 +53,7 @@ def write_worker_heartbeat(
     started_at: str,
     state: str = "running",
     active_job_id: str | None = None,
+    active_job_ids: dict[str, str] | None = None,
     heartbeat_at: datetime | str | None = None,
     runtime_path: Path | None = None,
 ) -> dict:
@@ -74,6 +75,8 @@ def write_worker_heartbeat(
         "heartbeat_at": observed,
         "state": state,
         "active_job_id": active_job_id,
+        # The job each worker lane is running ({"main": ..., "crawl": ...}).
+        "active_job_ids": dict(active_job_ids or {}),
     }
     temporary = target.with_name(f".{target.name}.{os.getpid()}.{uuid4().hex}.tmp")
     try:
