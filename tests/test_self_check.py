@@ -94,6 +94,15 @@ class SelfCheckTests(unittest.TestCase):
         self.add_job("blocked", timedelta(hours=3))
         self.assertEqual(find_problems(NOW), [Problem("jobs_failed", "24 小时内重试用尽的后台任务：report ×2")])
 
+    def test_a_job_running_for_hours(self):
+        from app.jobs import claim_job, enqueue_job
+        # The heartbeat thread keeps renewing a hung job's lease; claiming the later job first keeps
+        # the earlier one's lease from being expired by the second claim.
+        for kind, started in (("crawl", timedelta(hours=1)), ("ai", timedelta(hours=3))):
+            enqueue_job(kind=kind, idempotency_key=f"{kind}-1", scheduled_for=NOW - timedelta(hours=4))
+            self.assertIsNotNone(claim_job(worker_id="w", kinds=(kind,), lease_seconds=3600, now=NOW - started))
+        self.assertEqual(find_problems(NOW), [Problem("job_stuck", "后台任务运行过久未结束：ai（3 小时）")])
+
     def test_backup_age(self):
         from app.worker import register_default_schedules
         register_default_schedules(NOW)

@@ -30,6 +30,10 @@ AI_UNSCORED_SHARE = 0.5
 MIN_AI_ITEMS = 5
 BACKUP_MAX_AGE = timedelta(hours=36)
 FAILED_JOB_WINDOW = timedelta(hours=24)
+# Crawls run in their own lane, so a job hung in the main lane (a model call, the backup) no
+# longer stops the crawl cycles the outside monitor watches; its lease is renewed as long as the
+# process lives. The longest normal job, the nightly backup, took 8 minutes at 4.9 GB.
+JOB_STUCK_AFTER = timedelta(hours=2)
 MB = 1024 * 1024
 # The worker records its latest result here; the web role has no model credentials to check itself.
 RESULT_FILE = "self-check.json"
@@ -80,6 +84,21 @@ def _failed_jobs(db, now: datetime) -> list[Problem]:
     return []
 
 
+def _stuck_jobs(db, now: datetime) -> list[Problem]:
+    rows = db.execute(
+        """SELECT job.kind, MIN(attempt.started_at) AS since FROM jobs job
+           JOIN job_attempts attempt ON attempt.job_id=job.id AND attempt.lease_token=job.lease_token
+           WHERE job.state='running' AND attempt.started_at<?
+           GROUP BY job.kind ORDER BY job.kind""",
+        (format_utc(now - JOB_STUCK_AFTER),),
+    ).fetchall()
+    if rows:
+        kinds = "、".join(
+            f"{row['kind']}（{int((now - parse_utc(row['since'])).total_seconds() // 3600)} 小时）" for row in rows)
+        return [Problem("job_stuck", f"后台任务运行过久未结束：{kinds}")]
+    return []
+
+
 def _backup(db, now: datetime) -> list[Problem]:
     from .scheduled_backup import nightly_bundles
     bundles = nightly_bundles()
@@ -113,7 +132,7 @@ def find_problems(now: datetime | None = None) -> list[Problem]:
     current = (now or datetime.now(timezone.utc)).astimezone(timezone.utc)
     with get_db() as db:
         problems = (_sources(db) + _ai(db, current) + _failed_jobs(db, current)
-                    + _backup(db, current))
+                    + _stuck_jobs(db, current) + _backup(db, current))
     return problems + _disk()
 
 
