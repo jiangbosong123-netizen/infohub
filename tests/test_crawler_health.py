@@ -161,6 +161,20 @@ class CrawlerHealthTests(unittest.TestCase):
         self.assertEqual(response.json()['ingest']['observations'], 0)
         self.assertEqual(response.json()['ingest']['source_time_states'], {})
 
+    def test_a_job_waiting_behind_its_own_kind_is_not_a_stale_backlog(self):
+        from datetime import datetime, timedelta, timezone
+        from app.jobs import claim_job, enqueue_job
+
+        old = datetime.now(timezone.utc) - timedelta(seconds=config.PIPELINE_JOB_STALE_SECONDS + 60)
+        for key in ('ai-running', 'ai-next'):
+            enqueue_job(kind='ai', idempotency_key=key, priority=30, scheduled_for=old)
+        claim_job(worker_id='health-test', kinds=('ai',))
+        body = TestClient(app).get('/api/pipeline').json()
+        self.assertNotIn('durable_job_backlog_stale', body['issues'])
+        self.assertIsNotNone(body['jobs']['oldest_ready_at'])  # still reported
+        enqueue_job(kind='report', idempotency_key='report-late', priority=38, scheduled_for=old)
+        self.assertIn('durable_job_backlog_stale', TestClient(app).get('/api/pipeline').json()['issues'])
+
     def test_health_names_the_running_and_waiting_job_kinds(self):
         from datetime import datetime, timedelta, timezone
         from app.jobs import claim_job, enqueue_job

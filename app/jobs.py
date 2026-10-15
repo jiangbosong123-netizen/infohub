@@ -719,14 +719,24 @@ def enqueue_due_schedules(
                ORDER BY next_due_at,id LIMIT ?""",
             (current, limit),
         ).fetchall()
+        epoch = _idempotency_scope(db, "")[0] if rows else None
         for row in rows:
             due = row["next_due_at"]
+            # One waiting job per schedule: a tick that falls due while the last one has not even
+            # started adds nothing (10-15: AI ticks every 15 minutes piled up behind 20-minute runs).
+            # A job queued under an older configuration does not count; it is cancelled when claimed.
+            waiting = db.execute(
+                """SELECT 1 FROM jobs WHERE kind=? AND state IN ('pending','retry_wait')
+                     AND dataset_epoch IS ? AND input_version IS ?
+                     AND json_extract(payload_json,'$.schedule_id')=? LIMIT 1""",
+                (row["kind"], epoch, row["config_hash"], row["id"]),
+            ).fetchone()
             payload = {
                 "schedule_id": row["id"],
                 "scheduled_for": due,
                 "input": json.loads(row["payload_json"]),
             }
-            job = _enqueue(
+            job = None if waiting else _enqueue(
                 db,
                 kind=row["kind"],
                 idempotency_key=f"schedule:{row['id']}:{due}",
@@ -745,11 +755,12 @@ def enqueue_due_schedules(
                 due_dt + timedelta(seconds=periods * row["interval_seconds"])
             )
             db.execute(
-                """UPDATE schedules SET next_due_at=?,last_enqueued_at=?,updated_at=?
-                   WHERE id=? AND next_due_at=?""",
-                (next_due, current, current, row["id"], due),
+                """UPDATE schedules SET next_due_at=?,last_enqueued_at=COALESCE(?,last_enqueued_at),
+                       updated_at=? WHERE id=? AND next_due_at=?""",
+                (next_due, current if job else None, current, row["id"], due),
             )
-            jobs.append(job)
+            if job is not None:
+                jobs.append(job)
     return tuple(jobs)
 
 

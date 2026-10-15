@@ -252,6 +252,26 @@ class DurableJobTests(unittest.TestCase):
             ).fetchone()[0]
         self.assertEqual(preserved, format_utc(T0 + timedelta(seconds=240)))
 
+    def test_a_schedule_keeps_at_most_one_waiting_job(self):
+        upsert_interval_schedule(
+            schedule_id="ai:pending", kind="ai", next_due_at=T0, interval_seconds=60,
+        )
+        self.assertEqual(len(enqueue_due_schedules(now=T0)), 1)
+        # The first tick has not started: the next one only moves the schedule on.
+        self.assertEqual(enqueue_due_schedules(now=T0 + timedelta(seconds=70)), ())
+        with sqlite3.connect(self.path) as db:
+            self.assertEqual(db.execute("SELECT COUNT(*) FROM jobs").fetchone()[0], 1)
+            self.assertEqual(db.execute("SELECT next_due_at FROM schedules").fetchone()[0],
+                             format_utc(T0 + timedelta(seconds=120)))
+        claim_job(worker_id="worker-a", kinds=("ai",), now=T0 + timedelta(seconds=80))
+        self.assertEqual(len(enqueue_due_schedules(now=T0 + timedelta(seconds=130))), 1)
+        # That one waits; a job queued under an older configuration does not hold back the current one.
+        upsert_interval_schedule(
+            schedule_id="ai:pending", kind="ai", next_due_at=T0 + timedelta(seconds=180),
+            interval_seconds=60, payload={"revision": 2},
+        )
+        self.assertEqual(len(enqueue_due_schedules(now=T0 + timedelta(seconds=190))), 1)
+
     def test_changed_schedule_config_rejects_old_result(self):
         upsert_interval_schedule(
             schedule_id="crawl:feeds", kind="crawl", next_due_at=T0,
