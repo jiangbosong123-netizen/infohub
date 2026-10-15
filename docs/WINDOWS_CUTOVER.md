@@ -227,6 +227,12 @@ docker compose run --rm migrate python cli.py db-bundle-backup     # Mac 演练�
 只是统计数字，没有对错。任何一条报错就停下，把输出发给 Claude。之后再按 [生产升级方案](CUTOVER_PLAN.md) 逐个开启新的读取开关（修改 `.env` 后
 `docker compose up -d`）；主题读取需要先完成主题抽样复核与准入，否则会按设计返回 503。
 
+## 8b. 异地备份到 Mac
+
+按 [运维手册](RUNBOOK.md)“异地备份到 Mac”开启：Windows 上打开开关并签发只读备份的密钥，用 Tailscale 发给 Mac，
+Mac 上运行 `deploy/macos/offsite-install.sh`。第一次拉到后在 Mac 上做隔离恢复演练，通过后才可以删除
+`data-before-volume-<时间>`。
+
 ## 9. 如果已经被自动升级过
 
 ```powershell

@@ -125,11 +125,28 @@ def _disk() -> list[Problem]:
     return []
 
 
+def _offsite(db, now: datetime) -> list[Problem]:
+    """Once the Mac pulls copies (D25), warn when its newest verified copy is a week old."""
+    if not config.API_BACKUPS_ENABLED:
+        return []
+    from .offsite_backup import OFFSITE_MAX_AGE, read_receipt
+    receipt = read_receipt()
+    if receipt is not None:
+        age = now - parse_utc(receipt["received_at"])
+        if age > OFFSITE_MAX_AGE:
+            return [Problem("offsite_stale", f"Mac 上的异地备份已经 {age.days} 天没有更新")]
+        return []
+    row = db.execute("SELECT created_at FROM schedules WHERE id='maintenance:backup'").fetchone()
+    if row and now - parse_utc(row["created_at"]) > OFFSITE_MAX_AGE:
+        return [Problem("offsite_stale", "Mac 还没有取走过任何异地备份")]
+    return []
+
+
 def find_problems(now: datetime | None = None) -> list[Problem]:
     current = (now or datetime.now(timezone.utc)).astimezone(timezone.utc)
     with get_db() as db:
         problems = (_sources(db) + _ai(db, current) + _failed_jobs(db, current)
-                    + _stuck_jobs(db, current) + _backup(db, current))
+                    + _stuck_jobs(db, current) + _backup(db, current) + _offsite(db, current))
     return problems + _disk()
 
 

@@ -24,6 +24,7 @@ _MESSAGES = {
     "snapshot_limit_reached": "The snapshot creation limit has been reached.",
     "restricted_content": "The requested content is restricted.",
     "unsupported_history": "This historical read mode is not supported yet.",
+    "receipt_mismatch": "The receipt does not match a published backup.",
 }
 
 

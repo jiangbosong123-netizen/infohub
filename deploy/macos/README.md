@@ -50,6 +50,11 @@ Tailscale Serve 把私网 HTTPS 转发到 `127.0.0.1:8000`（`tailscale serve --
 维护角色依次运行 `legacy-curation-enqueue` / `legacy-curation-process`（可续跑）、`curation-search-advance`、
 `curation-hot-advance`，完成并通过审计后，才逐个把 `config/common.env` 里的读取开关改为 `true` 并重启 web。
 
+## 异地备份（Windows 生产时）
+
+Windows 是生产机时，这台 Mac 只做异地备份：`offsite-install.sh` 安装每天拉取最新夜间备份包的 LaunchAgent，
+`offsite_pull.py` 只用系统自带 Python。步骤和停用方法见 [运维手册](../../docs/RUNBOOK.md)“异地备份到 Mac”。
+
 ## 日常
 
 - 升级：`install-code <新 SHA>` → `migrate` → `start`。数据库只做兼容扩展，迁移前自动备份到 `data/backups/pre-migration/`。

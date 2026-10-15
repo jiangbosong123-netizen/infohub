@@ -152,6 +152,53 @@ docker compose up -d                                   # migrate 会再校验一
   重试会重新判断。副本里残留的任务租约（夜间备份包总带着正在运行的备份任务）按已失效处理。
 - 输出 JSON 里有被移走的旧库位置、补回的证据文件数和代际是否切换。
 
+### 异地备份到 Mac（D25、D30）
+
+Windows 上的运行库和全部备份都在同一个 Docker 卷里。Mac 每天从私网 HTTPS 接口拉最新的夜间备份包，自己逐个核对后只保留最新一份
+（约 5 GB，放在 `~/InfohubBackups`）。
+
+- **怎么拉**：`deploy/macos/offsite_pull.py`，只用 Mac 自带的 `/usr/bin/python3`，由 LaunchAgent 每天 12:30 和 20:30 运行；Mac 睡着时错过的
+  醒来后补跑一次。
+  1. 先问 `GET /api/v1/backups/latest` 最新的是哪一份，Mac 已有就结束。
+  2. 再把 `GET /api/v1/backups/<名称>/archive` 的 tar 流边下载边解到隐藏的暂存目录，只接受 `bundle/` 下的目录和普通文件。
+  3. 不信任 Windows，自己核对：清单、数据库 SHA-256、`integrity_check`、清单里每个证据文件的 SHA-256。
+  4. 全部通过才改名生效，删掉更旧的，再 `POST .../receipt` 回报。
+- **主机这边**：
+  - 接口默认关闭，开关是 `INFOHUB_API_BACKUPS_ENABLED=true`；
+  - 只认 `read:backups` 权限的密钥，`python cli.py offsite-key` 签发，有效期一年，新签发会作废旧的；
+  - 回报超过 7 天，或开启一周后还从没回报过，自检报 `offsite_stale`。
+- **每次的结果**：`~/InfohubBackups/status.json`，日志在 `~/Library/Logs/infohub-offsite.log`。`result` 的取值：
+  - `up_to_date`：已是最新；
+  - `pulled`：拉到并核对通过；
+  - `unreachable`：Windows 关机或不在线，下次再试；
+  - `failed`：核对不通过或其他错误，已有的备份不动。
+
+**开启（一次性）。** Windows 上（`.env` 改完要重启服务，接口才会打开）：
+
+```powershell
+cd ~\Server\infohub
+Add-Content -Encoding ASCII .env "INFOHUB_API_BACKUPS_ENABLED=true"
+$env:APP_VERSION = (git rev-parse --short=12 HEAD)
+docker compose up -d
+cmd /c "docker compose run --rm --no-deps -T migrate python cli.py offsite-key > %TEMP%\offsite.token"
+tailscale file cp $env:TEMP\offsite.token macbook-pro:
+Remove-Item $env:TEMP\offsite.token
+```
+
+Mac 上（密钥文件由 Tailscale 送到“下载”文件夹；在任何一份已更新的仓库副本里运行）：
+
+```bash
+deploy/macos/offsite-install.sh https://windows-server.<tailnet>.ts.net ~/Downloads/offsite.token
+rm ~/Downloads/offsite.token
+launchctl kickstart gui/$(id -u)/com.infohub.offsite-pull
+```
+
+第一次拉到后做一次隔离恢复演练（存储方式变更后必须做，见 `docs/spec/OPERATIONS.md` 3.2）：在 Mac 的开发环境用
+`db-bundle-restore` 把 `~/InfohubBackups/<名称>` 恢复到新的临时目录，再用 `db-bundle-smoke` 验收门户读路径。
+
+**停用**：`launchctl bootout gui/$(id -u)/com.infohub.offsite-pull`，删除 `~/Library/LaunchAgents/com.infohub.offsite-pull.plist`；
+Windows 上把开关改回 `false`，或用 `python cli.py api-admin key-revoke <key_id>` 作废密钥。
+
 ## 4. 采集、精选与 AI 策展
 
 - 失败的源按基础间隔指数退避，上限 6 小时（基础间隔本身超过 6 小时的源保持基础间隔）；部分公司失败

@@ -78,6 +78,7 @@
   python cli.py report-review ATTEMPT_ID approved|rejected DIGEST REASON  # 记录人工决定（maintenance only；同上）
   python cli.py report-publish-reviewed REVIEW_ID  # 发布已人工批准的模型日报（maintenance only；同上）
   python cli.py api-admin ACTION [ARGS]  # 本机管理 API 消费者和密钥（只在签发时输出明文）
+  python cli.py offsite-key            # 给 Mac 异地备份签发只读备份的密钥（只输出密钥本身，旧密钥作废）
 """
 from __future__ import annotations
 
@@ -1240,6 +1241,13 @@ def main() -> None:
     elif cmd == "api-admin":
         from app.api_key_admin import main as api_admin_main
         raise SystemExit(api_admin_main(sys.argv[2:]))
+    elif cmd == "offsite-key" and len(sys.argv) == 2:
+        import getpass
+        from app.db_admin import verify_database
+        from app.offsite_backup import issue_offsite_key
+        verify_database(config.DB_PATH, require_current=True)
+        with get_db() as db:
+            print(issue_offsite_key(db, actor=f"local-cli:{getpass.getuser()}"))
     else:
         print(__doc__)
         sys.exit(1)

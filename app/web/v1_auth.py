@@ -34,6 +34,9 @@ _POLICIES = (
     ("POST", re.compile(r"/api/v1/sync/snapshots/?"), "read:sync", "snapshots"),
     ("GET", re.compile(r"/api/v1/sync/snapshots/[^/]+(?:/pages)?/?"), "read:sync", "snapshots"),
     ("GET", re.compile(r"/api/v1/changes/?"), "read:sync", "changes"),
+    ("GET", re.compile(r"/api/v1/backups/latest/?"), "read:backups", "backups"),
+    ("GET", re.compile(r"/api/v1/backups/[^/]+/archive/?"), "read:backups", "backups"),
+    ("POST", re.compile(r"/api/v1/backups/[^/]+/receipt/?"), "read:backups", "backups"),
 )
 _BEARER = re.compile(r"Bearer ([^\s]+)", re.IGNORECASE)
 _LOG = logging.getLogger(__name__)
