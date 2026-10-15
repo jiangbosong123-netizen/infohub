@@ -49,15 +49,18 @@ def _market_cap(value) -> float | None:
     return number if number > 0 else None
 
 
-# Nasdaq appends the security type to the company name.
+# Nasdaq appends the security type to the company name ("(Delaware)Common Stock" has no space).
 _SECURITY_TYPE = re.compile(
-    r"\s+(Class [A-Z]\s+)?(Common Stock|Ordinary Shares|Common Shares|American Depositary Shares|"
-    r"American Depositary Receipts|Subordinate Voting Shares|Units?)\b.*$", re.IGNORECASE)
+    r"(?:\s+|(?<=\)))(Class [A-Z]\s+)?((New York|NY) Registry Shares|Common Stock|Capital Stock|Ordinary Shares?|"
+    r"Common Shares|American Deposit[ao]ry (Shares|Receipts)|Subordinate Voting Shares|Limited Voting Shares|"
+    r"Units?)\b.*$", re.IGNORECASE)
+# A relisting marker ("United Microelectronics Corporation (NEW)") and a state of incorporation.
+_MARKERS = re.compile(r"\s*\((new|delaware)\)", re.IGNORECASE)
 
 
 def display_name(raw: str) -> str:
     """'Teradyne Inc. Common Stock' -> 'Teradyne Inc.'"""
-    return _SECURITY_TYPE.sub("", raw.strip()).strip(" ,")
+    return _MARKERS.sub("", _SECURITY_TYPE.sub("", raw.strip())).strip(" ,")
 
 
 def _sec_headers() -> dict:
