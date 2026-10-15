@@ -159,6 +159,9 @@ docker compose up -d                                   # migrate 会再校验一
   - 只接 SEC 公告和 Nasdaq 个股新闻源，一小时一轮；
   - 不建主题页，不用 Google News 逐家搜；
   - 个股源只收提到这家公司的条目。
+- **一家公司用哪个代码：** 用它的普通股。代码是同公司另一个代码加后缀的（SMCIP 之于 SMCI，HBANL 之于 HBAN），
+  或者 Nasdaq 名称写着优先股、存托股、票据、权证、配股权、单位的，都不选，哪怕 Nasdaq 给它报的市值更大。
+  公司名去掉 Nasdaq 附带的证券类别（`New York Registry Shares`、`American Depository Shares`、`Ordinary Share`、`(NEW)` 等）。
 - **公司识别：**
   - 在任何新闻里，都认 `$代码`、法定名称和简称。单个词的简称区分大小写（`Intel` 算，`intel` 不算），日常词（Target、Benchmark 等）不单独算。
   - 在公司自己的个股源里，代码和简称也算。

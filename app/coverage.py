@@ -29,6 +29,9 @@ from .database import get_db
 COVERAGE_PATH = config.BASE_DIR / "config" / "coverage.yaml"
 LISTED_EXCHANGES = ("NYSE", "NASDAQ")
 EXCLUDED_INDUSTRIES = {"Blank Checks"}  # SPACs are not operating companies
+# Nasdaq names of listed lines that are not common stock (security_master.display_name keeps them).
+_NOT_COMMON = re.compile(r"\b(Preferred (Stock|Shares|Securities)|Depositary Shares|Notes? due|Senior Notes|"
+                         r"Warrants?|Rights|Tangible Equity|Corporate Units)\b", re.IGNORECASE)
 # Legal suffixes dropped to get the name people write in headlines.
 _LEGAL = re.compile(
     r"[,\s]+(inc|incorporated|corp|corporation|co|company|ltd|limited|plc|holdings?|group|n\.?\s?v|"
@@ -112,13 +115,23 @@ def plan(db, level: int, settings: dict | None = None) -> dict[int, dict]:
     settings = settings or load()
     if level <= 0:
         return {}
+    rows = [row for row in _listed(db) if row["industry"] not in EXCLUDED_INDUSTRIES]
+    tickers: dict[int, list[str]] = {}
+    for row in rows:
+        tickers.setdefault(row["cik"], []).append(row["ticker"])
+    # SMCIP (a preferred), BTSGU (units), HBANL (depositary shares): a line whose ticker extends
+    # another of the same company's is not its common stock, however large Nasdaq quotes it.
+    lines = [row for row in rows
+             if not any(row["ticker"] != other and row["ticker"].startswith(other) for other in tickers[row["cik"]])]
+    # BMNP (BitMine's preferred, next to BMNR) shares no prefix; its name still says what it is.
+    # A company whose only listed lines look like that keeps them.
+    common = [row for row in lines if not _NOT_COMMON.search(row["name"] or "")]
+    named = {row["cik"] for row in common}
     by_cik: dict[int, dict] = {}
-    for row in _listed(db):
-        if row["industry"] in EXCLUDED_INDUSTRIES:
-            continue
+    for row in common + [row for row in lines if row["cik"] not in named]:
         held = by_cik.get(row["cik"])
         if held is None or row["market_cap"] > held["market_cap"]:  # one row per company, largest class
-            by_cik[row["cik"]] = {**dict(row), "reasons": []}
+            by_cik[row["cik"]] = {**dict(row), "tickers": tickers[row["cik"]], "reasons": []}
     ranked = sorted(by_cik.values(), key=lambda company: company["market_cap"], reverse=True)
     for number in range(1, level + 1):
         rule = settings["tiers"].get(number)
@@ -167,7 +180,8 @@ def sync(level: int | None = None) -> dict:
         by_ticker = {row["ticker"]: row for row in us_rows if row["ticker"]}
         added = updated = 0
         for cik, company in planned.items():
-            existing = held.get(cik) or by_ticker.get(company["ticker"])
+            existing = held.get(cik) or next(
+                (by_ticker[ticker] for ticker in [company["ticker"], *company["tickers"]] if ticker in by_ticker), None)
             if existing is not None and existing["origin"] == "watchlist":
                 continue
             values = (company["name"], company["ticker"],

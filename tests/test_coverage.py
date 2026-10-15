@@ -13,7 +13,7 @@ SETTINGS = {
             "technology_industries": ["Electrical Products"]},
         2: {"name": "top 2", "top_market_cap": 2},
     },
-    "requests": {"research": {"ciks": [7, 99]}},
+    "requests": {"research": {"ciks": [7, 12, 99]}},
 }
 
 
@@ -34,6 +34,13 @@ LISTINGS = [
     listing("REQS", 7, 2e8, industry="Auto Parts"),                      # only by request
     listing("OTCX", 9, 9e9, exchange="OTC"),                             # not listed on NYSE/Nasdaq
     listing("NVDA", 10, 4e12, name="NVIDIA Corporation"),                # a watchlist company
+    listing("SUPR", 11, 2e10, name="Supermicron Inc."),
+    listing("SUPRP", 11, 4e10, name="Supermicron Inc."),                 # its preferred, quoted larger
+    listing("MINE", 13, 3e9, name="Bitminer Technologies Inc."),
+    listing("MINP", 13, 9e9, name="Bitminer Technologies Inc. 9.5% Series A Perpetual Preferred Stock"),
+    listing("PREF", 14, 2e9, name="Preferred Chips Inc."),                # "Preferred" in its own name
+    listing("GOOG", 12, 1e11, industry="Computer Software", name="Alphabet Inc."),
+    listing("GOOGL", 12, 1e11, industry="Computer Software", name="Alphabet Inc."),  # watchlist holds GOOGL
 ]
 
 
@@ -55,6 +62,8 @@ class CoverageTests(unittest.TestCase):
         with database.get_db() as db:  # a watchlist company before its first SEC crawl: no CIK yet
             db.execute("""INSERT INTO companies(slug,name,name_zh,ticker,market,aliases)
                           VALUES('nvidia','NVIDIA','英伟达','NVDA','US','["NVIDIA","NVDA"]')""")
+            db.execute("""INSERT INTO companies(slug,name,name_zh,ticker,market,aliases)
+                          VALUES('alphabet','Alphabet','谷歌','GOOGL','US','["Alphabet"]')""")
         with patch.object(security_master, "MIN_LISTINGS", 1):
             security_master.store_listings(LISTINGS)
 
@@ -68,8 +77,10 @@ class CoverageTests(unittest.TestCase):
 
     def test_tiers_follow_market_rules_and_requests_only_add_companies(self):
         self.assertEqual(self.plan(0), {})
+        # SUPRP is the preferred line of SUPR; GOOGL extends GOOG, both are Alphabet.
         self.assertEqual(self.plan(1), {"CHIP": ["tier 1"], "PWRX": ["tier 1"], "NVDA": ["tier 1"],
-                                        "REQS": ["request research"]})
+                                        "SUPR": ["tier 1"], "MINE": ["tier 1"], "PREF": ["tier 1"],
+                                        "REQS": ["request research"], "GOOG": ["request research"]})
         two = self.plan(2)
         self.assertEqual(two["MEGA"], ["tier 2"])  # one company, its largest share class
         self.assertNotIn("MEGB", two)
@@ -79,9 +90,13 @@ class CoverageTests(unittest.TestCase):
             self.assertEqual(coverage.unresolved_requests(db), {"research": [99]})
 
     def test_sync_adds_coverage_companies_keeps_the_watchlist_and_retires_quietly(self):
-        self.assertEqual(coverage.sync(1), {"tier": 1, "planned": 4, "added": 3, "updated": 0, "retired": 0})
+        self.assertEqual(coverage.sync(1), {"tier": 1, "planned": 8, "added": 6, "updated": 0, "retired": 0})
         rows = self.companies()
         self.assertEqual(rows["NVDA"]["origin"], "watchlist")  # matched by ticker, not duplicated
+        self.assertEqual(rows["GOOGL"]["origin"], "watchlist")  # matched by the company's other ticker
+        self.assertNotIn("GOOG", rows)
+        self.assertEqual(json.loads(rows["SUPR"]["aliases"])[0], "$SUPR")
+        self.assertNotIn("SUPRP", rows)
         self.assertEqual((rows["CHIP"]["slug"], rows["CHIP"]["origin"], rows["CHIP"]["cik"]),
                          ("cik1", "coverage", "0000000001"))
         self.assertEqual(json.loads(rows["CHIP"]["aliases"]),
@@ -90,7 +105,7 @@ class CoverageTests(unittest.TestCase):
         self.assertIn("nasdaq-cik1", keys)
         self.assertIn("googlenews-nvidia", keys)
         self.assertNotIn("googlenews-cik1", keys)  # no per-company Google search for coverage companies
-        self.assertEqual(coverage.sync(0)["retired"], 3)
+        self.assertEqual(coverage.sync(0)["retired"], 6)
         self.assertEqual(self.companies()["CHIP"]["covered"], 0)
         self.assertNotIn("nasdaq-cik1", {source["key"] for source in sources.all_sources()})
 
@@ -138,6 +153,18 @@ class CoverageTests(unittest.TestCase):
             security_master.store_listings(LISTINGS)
         self.assertEqual(security_master.display_name("Teradyne Inc. Common Stock"), "Teradyne Inc.")
         self.assertEqual(security_master.display_name("Alphabet Inc. Class A Common Stock"), "Alphabet Inc.")
+        for raw, name in (("ASML Holding N.V. New York Registry Shares", "ASML Holding N.V."),
+                          ("Arcelor Mittal NY Registry Shares NEW", "Arcelor Mittal"),
+                          ("LG Display Co Ltd AMERICAN DEPOSITORY SHARES", "LG Display Co Ltd"),
+                          ("Johnson Controls International plc Ordinary Share", "Johnson Controls International plc"),
+                          ("Brookfield Corporation Class A Limited Voting Shares", "Brookfield Corporation"),
+                          ("United Microelectronics Corporation (NEW) Common Stock", "United Microelectronics Corporation"),
+                          ("Iron Mountain Incorporated (Delaware)Common Stock REIT", "Iron Mountain Incorporated"),
+                          ("Alphabet Inc. Class C Capital Stock", "Alphabet Inc."),
+                          ("Newmont Corporation", "Newmont Corporation")):
+            with self.subTest(raw=raw):
+                self.assertEqual(security_master.display_name(raw), name)
+        self.assertEqual(coverage.aliases("ASML Holding N.V.", "ASML"), ["$ASML", "=ASML", "ASML Holding N.V"])
         self.assertEqual(security_master._ticker("BRK/B"), "BRK-B")
 
 
