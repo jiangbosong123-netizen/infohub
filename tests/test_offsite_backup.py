@@ -161,6 +161,13 @@ class OffsiteBackupTests(unittest.TestCase):
             self.puller.read_token(path)
         os.chmod(path, 0o600)
         self.assertEqual(self.puller.read_token(path), self.token)
+        # `docker compose run` without a terminal puts the image build log on stdout too.
+        path.write_text(f"#1 [internal] load build definition\n#1 DONE 0.0s\n\n{self.token}\n")
+        self.assertEqual(self.puller.read_token(path), self.token)
+        for bad in ("#1 DONE 0.0s\n", f"{self.token}\n{self.token}\n", f"key: {self.token}\n"):
+            path.write_text(bad)
+            with self.assertRaisesRegex(self.puller.PullError, "exactly one"):
+                self.puller.read_token(path)
 
     def test_the_self_check_warns_when_the_mac_copy_is_a_week_old(self):
         now = datetime.now(timezone.utc)

@@ -34,8 +34,9 @@ mkdir -p "$STATE" "$DEST" "$HOME/Library/LaunchAgents" "$HOME/Library/Logs"
 chmod 700 "$STATE"
 install -m 600 "$TOKEN_SOURCE" "$STATE/offsite.token"
 install -m 644 "$HERE/offsite_pull.py" "$STATE/offsite_pull.py"
-# Refuses an unreadable or wrong token before anything is scheduled.
-/usr/bin/python3 -I -c "import sys; sys.path.insert(0, sys.argv[1]); import offsite_pull; offsite_pull.read_token(__import__('pathlib').Path(sys.argv[2]))" \
+# Refuses an unreadable or wrong token before anything is scheduled, and keeps only the key
+# (the file from Windows may also hold the image build log).
+/usr/bin/python3 -I -c "import pathlib, sys; sys.path.insert(0, sys.argv[1]); import offsite_pull; path = pathlib.Path(sys.argv[2]); path.write_text(offsite_pull.read_token(path) + '\n')" \
   "$STATE" "$STATE/offsite.token"
 
 cat > "$PLIST" <<EOF

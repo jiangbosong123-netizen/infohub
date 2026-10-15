@@ -63,10 +63,13 @@ def read_token(path: Path) -> str:
         if raw.startswith(bom):
             raw = raw[len(bom):].decode(codec).encode("ascii", "ignore")
             break
-    token = raw.decode("ascii", "ignore").strip()
-    if not re.fullmatch(r"ih1\.[0-9a-f]{16}\.[A-Za-z0-9_-]{43}", token):
-        raise PullError(f"{path} does not hold an InfoHub API token")
-    return token
+    # `docker compose run` rebuilds first (pull_policy: build), and without a terminal the build
+    # log lands on stdout next to the key, so look for the one line that is a key.
+    tokens = [line.strip() for line in raw.decode("ascii", "ignore").splitlines()
+              if re.fullmatch(r"ih1\.[0-9a-f]{16}\.[A-Za-z0-9_-]{43}", line.strip())]
+    if len(tokens) != 1:
+        raise PullError(f"{path} does not hold exactly one InfoHub API token")
+    return tokens[0]
 
 
 def _request(url: str, token: str, *, data: bytes | None = None, timeout: float = 30.0):

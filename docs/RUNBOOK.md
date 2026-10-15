@@ -214,6 +214,9 @@ tailscale file cp $env:TEMP\offsite.token macbook-pro:
 Remove-Item $env:TEMP\offsite.token
 ```
 
+`docker compose run` 每次都会先构建镜像（`pull_policy: build`），没有终端时构建日志也写进这个文件，所以它有几 KB；
+Mac 的安装脚本只认其中恰好一行密钥，装好后 `~/.infohub/offsite.token` 里只剩密钥本身。
+
 Mac 上（密钥文件由 Tailscale 送到“下载”文件夹；在任何一份已更新的仓库副本里运行）：
 
 ```bash
