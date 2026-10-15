@@ -1,0 +1,33 @@
+{
+  "scope": "Coverage tiers of D31 measured on real public data before any collection change",
+  "recorded_at": "2026-10-15T15:30:00Z",
+  "sources": {
+    "sec_company_tickers_exchange": {"rows": 10444, "nyse": 3275, "nasdaq": 4374, "otc": 2573},
+    "nasdaq_stock_screener": {"rows": 7019, "market_cap_at_least_1b": 2684, "market_cap_at_least_10b": 959},
+    "nasdaq_symbol_feed": "https://www.nasdaq.com/feed/rssoutbound?symbol=NVDA returned 15 items with pubDate",
+    "yahoo_symbol_feed": "429 rate-limited on the first request; not used",
+    "sec_submissions_speed": "about 3 s per company for large filers' submissions files, so SIC is fetched only for covered companies, 100 per run"
+  },
+  "research_pool_check": {
+    "pool": "AI semiconductor research system 实现/标的池.py: 62 decision + 8 observe names, read-only",
+    "sic_codes": "spread over 21 SIC codes, 32 in 3674 (semiconductors); others include 7372 software, 3672 PCBs, 3572 storage, 3559 machinery, 1731 electrical work, 3714 auto parts",
+    "tier1_industry_rule_covers": "55 of 70",
+    "left_to_the_request": ["MSFT", "GOOGL", "AMZN", "META", "ORCL", "TER", "ONTO", "ENTG", "SNPS", "CDNS", "PWR", "MOD", "AOSL", "ALNT", "NBIS"]
+  },
+  "tiers_on_a_scratch_database": {
+    "security_master_listings": 10276,
+    "tier_1_companies": 144,
+    "tier_1_new_coverage_rows": 133,
+    "tier_1_already_on_watchlist": 11,
+    "tier_2_companies": 214,
+    "tier_3_companies": 584,
+    "research_pool_covered_at_every_tier": "70 of 70",
+    "unresolved_request_ciks": 0,
+    "sources_at_tier_1": {"nasdaq_symbol_feeds": 133, "google_news_per_company": 23},
+    "back_to_tier_0": "133 companies retired (covered=0), their feeds dropped from the source list"
+  },
+  "pending": [
+    "one to two weeks at tier 1 in production: items per day, model cost, database growth",
+    "owner check of 50 linked items (target: under 5 percent wrong)"
+  ]
+}

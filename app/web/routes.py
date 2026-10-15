@@ -815,7 +815,8 @@ def index(request: Request, channel: str = "all", company: str = "", event: str 
     if channel == "stock":
         with get_db() as db:
             companies = db.execute(
-                "SELECT slug, name, name_zh, ticker, market FROM companies ORDER BY market, name"
+                "SELECT slug, name, name_zh, ticker, market FROM companies"
+                " WHERE origin='watchlist' OR covered=1 ORDER BY market, name"
             ).fetchall()
         events = sorted(EVENT_NAMES.items())
 

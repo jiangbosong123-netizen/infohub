@@ -16,7 +16,7 @@ GROUPS = [('company', '公司与模型', '跟踪关注的公司、模型与产�
 def sync_topics(db):
     configured = yaml.safe_load((BASE_DIR / 'config/topics.yaml').read_text())['topics']
     definitions = {t['slug']: dict(t) for t in configured}
-    for company in db.execute('SELECT slug,name,name_zh,aliases FROM companies ORDER BY id'):
+    for company in db.execute("SELECT slug,name,name_zh,aliases FROM companies WHERE origin='watchlist' ORDER BY id"):
         name = company['name_zh'] or company['name']
         topic = definitions.setdefault(company['slug'], dict(
             slug=company['slug'], name=name, group='company',

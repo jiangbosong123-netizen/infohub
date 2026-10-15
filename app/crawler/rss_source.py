@@ -9,7 +9,7 @@ import feedparser
 from bs4 import BeautifulSoup
 
 from . import http
-from ..company_match import match_companies
+from ..company_match import match_companies, mentions_in_own_feed
 from ..source_time import parse_source_time
 
 
@@ -93,11 +93,13 @@ def fetch_rss(source: dict) -> list[dict]:
         published, source_times = _source_times(entry, observed_at)
         text = f"{title} {summary}"
 
-        # 个股源（Yahoo 等）噪声多：标题/摘要必须命中绑定公司的别名才收
+        # 个股源（Yahoo、Nasdaq 等）噪声多：标题/摘要必须提到绑定的公司才收
         if bound_slug:
             slugs = match_companies(text)
             if bound_slug not in slugs:
-                continue
+                if not mentions_in_own_feed(bound_slug, text):
+                    continue
+                slugs = [bound_slug, *slugs]
         else:
             slugs = None  # 由 runner 自动匹配
 

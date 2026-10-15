@@ -402,6 +402,8 @@ ALERT_DISK_FREE_MB = _integer(os.environ, "ALERT_DISK_FREE_MB", 10_240, 0, 1_048
 # A folder on the host's own disk (compose mounts one): a Docker volume only shows Docker's virtual
 # disk, so free-space checks also look here (app/disk_space.py).
 HOST_DISK_PATH = Path(os.environ["INFOHUB_HOST_DISK_PATH"]) if os.environ.get("INFOHUB_HOST_DISK_PATH") else None
+# D31: coverage tier beyond watchlist.yaml (config/coverage.yaml); 0 changes nothing.
+COVERAGE_TIER = _integer(os.environ, "INFOHUB_COVERAGE_TIER", 0, 0, 3)
 # D25/D30: the owner's Mac pulls the newest nightly bundle over /api/v1/backups (off until enabled).
 API_BACKUPS_ENABLED = _boolean(os.environ, "INFOHUB_API_BACKUPS_ENABLED", False)
 # D27: fetch article text for recent title-only items (worker only; off until the owner enables it).

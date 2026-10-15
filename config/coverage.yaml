@@ -1,0 +1,106 @@
+# 覆盖范围（D31，docs/spec/PLATFORM_DESIGN.md 第四节）。
+#
+# 档位按市场规则划，高档包含低档。现在用哪一档由 .env 的 INFOHUB_COVERAGE_TIER 决定：
+# 0 = 只有 watchlist.yaml（默认，什么都不变）；1、2、3 = 下面对应的档。改范围只改这里或那个数字，不改代码。
+# 行业用 Nasdaq 股票筛选器的分类（security_master.industry / sector），市值单位美元。
+# 覆盖进来的公司（companies.origin = coverage）只接 SEC 公告和 Nasdaq 个股新闻源，不建主题页、不用 Google News 逐家搜；
+# watchlist.yaml 里的公司照旧。
+
+tiers:
+  1:
+    name: AI 算力产业链（半导体与硬件）
+    min_market_cap: 1000000000
+    industries:                  # 任何板块
+      - Semiconductors
+      - Electronic Components
+      - Computer Manufacturing
+      - Computer peripheral equipment
+      - Computer Communications Equipment
+    technology_industries:       # 只算科技板块：同名行业在其他板块里混有电信运营商等
+      - Industrial Machinery/Components
+      - Electrical Products
+      - Telecommunications Equipment
+      - "Retail: Computer Software & Peripheral Equipment"
+  2:
+    name: 美股市值前 100
+    top_market_cap: 100
+  3:
+    name: 美股市值前 500
+    top_market_cap: 500
+
+# 调用方的覆盖申请：只决定"多采哪些公司"，不进数据结构，也不影响别人查到什么。名单变了只改这里。
+# 档位 >= 1 时生效。按 SEC 编号（CIK）写，注释里是当时的代码。
+requests:
+  ai-research:
+    note: AI 半导体投研系统的决策池 62 只与观察名单 8 只（2026-10-15 取自其 实现/标的池.py）
+    ciks:
+    - 789019  # MSFT
+    - 1652044  # GOOGL
+    - 1018724  # AMZN
+    - 1326801  # META
+    - 1341439  # ORCL
+    - 1045810  # NVDA
+    - 2488  # AMD
+    - 1730168  # AVGO
+    - 1835632  # MRVL
+    - 50863  # INTC
+    - 723125  # MU
+    - 106040  # WDC
+    - 1137789  # STX
+    - 6951  # AMAT
+    - 707549  # LRCX
+    - 319201  # KLAC
+    - 97210  # TER
+    - 704532  # ONTO
+    - 1113232  # ACLS
+    - 927003  # AEIS
+    - 1101302  # ENTG
+    - 1275014  # UCTT
+    - 1652535  # ICHR
+    - 810136  # PLAB
+    - 883241  # SNPS
+    - 813672  # CDNS
+    - 1973239  # ARM
+    - 820318  # COHR
+    - 1633978  # LITE
+    - 1158114  # AAOI
+    - 1408710  # FN
+    - 1807794  # CRDO
+    - 1596532  # ANET
+    - 858877  # CSCO
+    - 1375365  # SMCI
+    - 1571996  # DELL
+    - 1645590  # HPE
+    - 1674101  # VRT
+    - 1551182  # ETN
+    - 1050915  # PWR
+    - 67347  # MOD
+    - 97476  # TXN
+    - 6281  # ADI
+    - 1280452  # MPWR
+    - 1097864  # ON
+    - 827054  # MCHP
+    - 833640  # POWI
+    - 29002  # DIOD
+    - 866291  # ALGM
+    - 103730  # VSH
+    - 1116942  # TTMI
+    - 1736297  # ALAB
+    - 1047127  # AMKR
+    - 1039399  # FORM
+    - 855658  # LSCC
+    - 1493594  # MTSI
+    - 1387467  # AOSL
+    - 863436  # BHE
+    - 26058  # CTS
+    - 46129  # ALNT
+    - 785786  # PLXS
+    - 48898  # HUBB
+    - 1046179  # TSM
+    - 1033767  # UMC
+    - 1709048  # GFS
+    - 937966  # ASML
+    - 1413447  # NXPI
+    - 932787  # STM
+    - 1513845  # NBIS
+    - 2023554  # SNDK

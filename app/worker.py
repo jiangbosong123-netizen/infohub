@@ -36,7 +36,7 @@ from .timeutil import format_utc, utc_now
 log = logging.getLogger(__name__)
 JOB_KINDS = (
     "crawl", "ai", "reconcile", "report", "prune", "curation-search",
-    "curation-hot", "topic-statistics", "sync-snapshot", "backup", "article-text",
+    "curation-hot", "topic-statistics", "sync-snapshot", "backup", "article-text", "coverage",
 )
 # Succeeded routine jobs are kept a month for operations; fetch_log keeps 14 days.
 JOB_RETENTION_DAYS = 30
@@ -112,6 +112,18 @@ def register_default_schedules(now: datetime | None = None) -> None:
         with get_db() as db:
             db.execute("""UPDATE schedules SET enabled=0,updated_at=?
                           WHERE id='curation-hot:refresh' AND enabled=1""", (utc_now(),))
+    if config.COVERAGE_TIER >= 1:
+        # The tier is in the payload, so changing it makes the schedule due at the next start.
+        upsert_interval_schedule(
+            schedule_id="coverage:daily", kind="coverage", next_due_at=current,
+            interval_seconds=86_400, priority=8, max_attempts=3,
+            payload={"tier": config.COVERAGE_TIER},
+        )
+    else:
+        from .database import get_db
+        with get_db() as db:
+            db.execute("""UPDATE schedules SET enabled=0,updated_at=?
+                          WHERE id='coverage:daily' AND enabled=1""", (utc_now(),))
     if config.ARTICLE_TEXT_ENABLED:
         upsert_interval_schedule(
             schedule_id="article-text:fetch", kind="article-text",
@@ -275,6 +287,21 @@ def _sync_snapshot(job: JobRecord, *, now: datetime | str | None = None) -> dict
     ).to_dict()
 
 
+def _coverage() -> dict:
+    """D31: refresh the security master, apply the coverage tier, register the new feeds."""
+    from . import coverage, security_master
+    from .crawler.runner import upsert_sources
+    from .database import get_db
+    report = security_master.store_listings(security_master.fetch_listings())
+    report.update(coverage.sync())
+    with get_db() as db:
+        ciks = [int(row[0]) for row in db.execute(
+            "SELECT cik FROM companies WHERE origin='coverage' AND covered=1 AND cik!=''")]
+    report.update(security_master.refresh_industry_codes(ciks))
+    upsert_sources()
+    return report
+
+
 def default_handlers() -> dict[str, Callable[[], object]]:
     return {
         "crawl": _crawl,
@@ -283,6 +310,7 @@ def default_handlers() -> dict[str, Callable[[], object]]:
         "report": _report,
         "prune": _prune,
         "backup": _backup,
+        "coverage": _coverage,
         "article-text": _article_text,
         "curation-search": _curation_search_refresh,
         "curation-hot": _curation_hot_refresh,

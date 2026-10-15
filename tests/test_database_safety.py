@@ -9,6 +9,9 @@ from app import db_admin
 from app.jobs import claim_job, enqueue_job
 
 
+# The legacy columns; later migrations may add columns (57 added origin and covered) but never rewrite these.
+LEGACY_COMPANY_COLUMNS = "SELECT id,slug,name,name_zh,ticker,code,market,cik,hkex_stock_id,aliases FROM companies"
+
 class DatabaseSafetyTests(unittest.TestCase):
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory()
@@ -411,14 +414,14 @@ class DatabaseSafetyTests(unittest.TestCase):
                 """INSERT INTO companies(slug,name,name_zh,market,aliases)
                    VALUES('fixture','Fixture','示例','PRIVATE','[]')"""
             )
-            before = tuple(db.execute("SELECT * FROM companies").fetchone())
+            before = tuple(db.execute(LEGACY_COMPANY_COLUMNS).fetchone())
 
         report = db_admin.migrate_database(self.path)
         self.assertEqual(report.previous_version, 7)
         self.assertEqual(report.applied_versions, tuple(range(8, db_admin.CURRENT_SCHEMA_VERSION + 1)))
         self.assertTrue(report.backup_path)
         with sqlite3.connect(self.path) as db:
-            after = tuple(db.execute("SELECT * FROM companies").fetchone())
+            after = tuple(db.execute(LEGACY_COMPANY_COLUMNS).fetchone())
             counts = tuple(db.execute(
                 """SELECT
                    (SELECT COUNT(*) FROM entities),
@@ -438,14 +441,14 @@ class DatabaseSafetyTests(unittest.TestCase):
                 """INSERT INTO companies(slug,name,name_zh,market,aliases)
                    VALUES('fixture','Fixture','示例','US','[]')"""
             )
-            before = tuple(db.execute("SELECT * FROM companies").fetchone())
+            before = tuple(db.execute(LEGACY_COMPANY_COLUMNS).fetchone())
 
         report = db_admin.migrate_database(self.path)
         self.assertEqual(report.previous_version, 8)
         self.assertEqual(report.applied_versions, tuple(range(9, db_admin.CURRENT_SCHEMA_VERSION + 1)))
         self.assertTrue(report.backup_path)
         with sqlite3.connect(self.path) as db:
-            after = tuple(db.execute("SELECT * FROM companies").fetchone())
+            after = tuple(db.execute(LEGACY_COMPANY_COLUMNS).fetchone())
             counts = tuple(db.execute(
                 """SELECT
                    (SELECT COUNT(*) FROM sec_security_keys),

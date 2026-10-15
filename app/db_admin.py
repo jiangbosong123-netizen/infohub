@@ -4036,6 +4036,40 @@ def _topic_queue(db: sqlite3.Connection) -> None:
     _execute_script(db, TOPIC_QUEUE_SQL)
 
 
+# D31: the platform's security master (every US-listed company, CIK-keyed) and which companies the
+# coverage tiers added. Watchlist companies keep their topics and Google News feeds; coverage
+# companies get a per-symbol feed and SEC filings only (app/coverage.py).
+SECURITY_MASTER_SQL = """
+CREATE TABLE security_master (
+    ticker TEXT PRIMARY KEY CHECK(length(ticker) BETWEEN 1 AND 16),
+    cik INTEGER NOT NULL CHECK(cik > 0),
+    name TEXT NOT NULL,
+    display_name TEXT,
+    exchange TEXT,
+    market_cap REAL CHECK(market_cap IS NULL OR market_cap >= 0),
+    sector TEXT,
+    industry TEXT,
+    country TEXT,
+    first_seen_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+);
+CREATE INDEX idx_security_master_cik ON security_master(cik);
+CREATE TABLE security_industry_codes (
+    cik INTEGER PRIMARY KEY CHECK(cik > 0),
+    sic TEXT,
+    sic_description TEXT,
+    fetched_at TEXT NOT NULL
+);
+ALTER TABLE companies ADD COLUMN origin TEXT NOT NULL DEFAULT 'watchlist'
+    CHECK(origin IN ('watchlist','coverage'));
+ALTER TABLE companies ADD COLUMN covered INTEGER NOT NULL DEFAULT 1 CHECK(covered IN (0,1));
+"""
+
+
+def _security_master(db: sqlite3.Connection) -> None:
+    _execute_script(db, SECURITY_MASTER_SQL)
+
+
 # Migration 1 freezes the exact legacy schema at main@88a2a1e. Future schema
 # changes must append a new Migration instead of editing this definition.
 MIGRATIONS = (
@@ -4232,6 +4266,7 @@ MIGRATIONS = (
     Migration(54, "index item titles for Google News re-posts", ITEM_TITLE_INDEX_SQL, _item_title_index),
     Migration(55, "index the AI work queues and story anchors", WORK_QUEUE_INDEX_SQL, _work_queue_indexes),
     Migration(56, "queue topic reassignment apart from event matching", TOPIC_QUEUE_SQL, _topic_queue),
+    Migration(57, "security master and coverage companies", SECURITY_MASTER_SQL, _security_master),
 )
 CURRENT_SCHEMA_VERSION = MIGRATIONS[-1].version
 REQUIRED_MIGRATION_COLUMNS = {
@@ -4241,6 +4276,7 @@ LEGACY_ANCHORS = {"companies", "sources", "items"}
 EXPECTED_TABLES = LEGACY_ANCHORS | {
     "clusters", "cluster_members", "daily_reports", "fetch_log", "item_companies", "item_discoveries",
     "topics", "item_topics", "stories", "story_items", "derived_dirty", "topic_dirty",
+    "security_master", "security_industry_codes",
     "indexed_items", "schema_migrations", "jobs", "job_attempts", "schedules",
     "dataset_epochs", "dataset_state", "change_log", "clock_checks",
     "knowledge_checkpoints",
