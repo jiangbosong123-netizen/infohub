@@ -140,9 +140,9 @@ class RegressionTests(unittest.TestCase):
         with patch.object(pipeline.config, 'llm_enabled', return_value=True), \
                 patch.object(pipeline, '_call_llm_tmt', return_value=verdicts):
             pipeline.backfill_tmt(max_batches=1)
-        with database.get_db() as db:
+        with database.get_db() as db:  # an unscored item gets its tmt from scoring, not here
             self.assertEqual([db.execute('SELECT tmt FROM items WHERE id=?', (i,)).fetchone()[0]
-                              for i in (low, high, unscored)], [0, 1, 1])
+                              for i in (low, high, unscored)], [0, 1, None])
 
     def test_ai_transient_failure_stays_pending(self):
         self.item()

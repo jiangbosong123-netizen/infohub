@@ -1,10 +1,12 @@
 import tempfile
+import threading
 import unittest
 from pathlib import Path
 from unittest.mock import patch
 
-from app import database
+from app import config, database
 from app.ai import pipeline
+from app.crawler import runner
 
 
 class FilterError(Exception):
@@ -56,6 +58,73 @@ class AiBatchSplitTests(unittest.TestCase):
     def test_a_network_failure_is_not_split(self):
         self.assertEqual(self.judge(range(30), down=True), ([], []))
         self.assertEqual(len(self.calls), 1)
+
+
+class ParallelScoringTests(unittest.TestCase):
+    def setUp(self):
+        folder = tempfile.TemporaryDirectory()
+        self.addCleanup(folder.cleanup)
+        item = patch.object(database, "DB_PATH", Path(folder.name) / "app.db")
+        item.start()
+        self.addCleanup(item.stop)
+        database.init_schema()
+        with database.get_db() as db:
+            db.execute("INSERT INTO sources(key,name,channel,type,tier) VALUES('test','Test','ai','rss','info')")
+        for n in range(12):
+            runner.insert_item("test", dict(url=f"https://e.test/{n}", title=f"Story {n}",
+                                            published_at="2026-10-15T08:00:00+00:00"))
+        enabled = patch.object(config, "llm_enabled", return_value=True)
+        enabled.start()
+        self.addCleanup(enabled.stop)
+
+    @staticmethod
+    def verdicts(payload):
+        return [dict(id=entry["id"], tmt=True, score=50, summary_zh="s", title_zh="t", reason="r")
+                for entry in payload]
+
+    def scored(self):
+        with database.get_db() as db:
+            return db.execute("SELECT COUNT(*) FROM items WHERE score IS NOT NULL").fetchone()[0]
+
+    def test_parallel_batches_are_in_flight_together(self):
+        together = threading.Barrier(3, timeout=5)  # breaks unless all three requests wait at once
+        sizes = []
+
+        def call(payload):
+            sizes.append(len(payload))
+            together.wait()
+            return self.verdicts(payload)
+
+        with patch.object(pipeline, "_call_llm", side_effect=call):
+            self.assertEqual(pipeline.process_pending(limit=4, parallel=3), 12)
+        self.assertEqual(sorted(sizes), [4, 4, 4])
+        self.assertEqual(self.scored(), 12)
+
+    def test_a_failed_request_leaves_only_its_own_batch_pending(self):
+        def call(payload):
+            if 1 in [entry["id"] for entry in payload]:
+                raise ConnectionError("reset by peer")
+            return self.verdicts(payload)
+
+        with patch.object(pipeline, "_call_llm", side_effect=call):
+            self.assertEqual(pipeline.process_pending(limit=4, parallel=3), 8)
+        self.assertEqual(self.scored(), 8)
+
+    def test_the_backfills_leave_unscored_items_to_scoring(self):
+        with database.get_db() as db:
+            db.execute("UPDATE items SET tmt=NULL")
+            db.execute("UPDATE items SET score=40 WHERE id=3")
+        sent = []
+
+        def call(payload):
+            sent.append([entry["id"] for entry in payload])
+            return []
+
+        with patch.object(pipeline, "_call_llm_tmt", side_effect=call), \
+                patch.object(pipeline, "_call_llm_titles", side_effect=call):
+            pipeline.backfill_tmt(max_batches=1)
+            pipeline.backfill_titles(days=36500, max_batches=1)
+        self.assertEqual(sent, [[3], [3]])
 
 
 if __name__ == "__main__":

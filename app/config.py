@@ -410,6 +410,9 @@ API_BACKUPS_ENABLED = _boolean(os.environ, "INFOHUB_API_BACKUPS_ENABLED", False)
 ARTICLE_TEXT_ENABLED = _boolean(os.environ, "INFOHUB_ARTICLE_TEXT_ENABLED", False)
 ARTICLE_TEXT_WAIT_MINUTES = _integer(os.environ, "ARTICLE_TEXT_WAIT_MINUTES", 30, 0, 1440)
 AI_TICK_MINUTES = _integer(os.environ, "AI_TICK_MINUTES", 15, 1, 1440)
+# Model requests in flight at once while scoring: a morning backlog is thousands of items and each
+# 30-item request takes about a minute. Lower it if the provider answers 429.
+AI_PARALLEL = _integer(os.environ, "INFOHUB_AI_PARALLEL", 3, 1, 8)
 WORKER_POLL_SECONDS = _integer(os.environ, "WORKER_POLL_SECONDS", 2, 1, 60)
 WORKER_HEARTBEAT_SECONDS = _integer(os.environ, "WORKER_HEARTBEAT_SECONDS", 10, 2, 60)
 WORKER_HEARTBEAT_TTL_SECONDS = _integer(

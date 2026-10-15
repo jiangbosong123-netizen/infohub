@@ -163,11 +163,22 @@ def _crawl() -> dict:
 
 
 AI_BATCH = 30
-AI_BATCHES_PER_JOB = 12
+# Each round sends config.AI_PARALLEL batches at once (about a minute); eight rounds keep a run near
+# ten minutes, so the daily jobs and the next crawl results are never far behind.
+AI_BATCHES_PER_JOB = 8
 # The once-a-day jobs (reconcile 40, report 38, backup 36, prune 34, coverage 32) outrank the AI
 # tick (30): a morning backlog keeps the AI busy for hours and must not hold them back. Follow-ups
 # (1) come after everything else.
 AI_FOLLOW_UP_PRIORITY = 1
+
+
+def _ai_job_waiting() -> bool:
+    """A queued AI job (the tick or an earlier follow-up) already continues the backlog. Without
+    this check follow-ups piled up behind the busier tick and kept the backlog alarm raised."""
+    from .database import get_db
+    with get_db() as db:
+        return db.execute(
+            "SELECT 1 FROM jobs WHERE kind='ai' AND state IN ('pending','retry_wait') LIMIT 1").fetchone() is not None
 
 
 def _ai() -> dict:
@@ -175,7 +186,7 @@ def _ai() -> dict:
     total = 0
     drained = False
     for _ in range(AI_BATCHES_PER_JOB):
-        count = process_pending(limit=AI_BATCH)
+        count = process_pending(limit=AI_BATCH, parallel=config.AI_PARALLEL)
         total += count
         # A short batch can mean one failed half, not an empty queue: only a batch that judged
         # nothing ends the run (nothing waiting, or the model is down).
@@ -184,7 +195,7 @@ def _ai() -> dict:
             break
     # After a night switched off hundreds of items wait. A run that used its whole budget queues
     # the next one now instead of waiting for the next tick; a model that judges nothing never chains.
-    follow_up = not drained
+    follow_up = not drained and not _ai_job_waiting()
     if follow_up:
         enqueue_job(kind="ai", idempotency_key=f"ai:follow-up:{utc_now()}",
                     priority=AI_FOLLOW_UP_PRIORITY, max_attempts=3)

@@ -7,6 +7,7 @@ from __future__ import annotations
 """
 import json
 import logging
+from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timedelta, timezone
 
 from openai import OpenAI
@@ -174,11 +175,16 @@ def _judge(payload: list[dict], alone: bool = False) -> tuple[list, list[int]]:
         return first[0] + second[0], first[1] + second[1]
 
 
-def process_pending(limit: int = 20) -> int:
-    """处理未评分条目（新旧条目按配额处理，避免旧条目被持续的新消息挤出），返回成功更新条数。"""
+def process_pending(limit: int = 20, parallel: int = 1) -> int:
+    """处理未评分条目（新旧条目按配额处理，避免旧条目被持续的新消息挤出），返回成功更新条数。
+
+    ``parallel`` batches of ``limit`` items go to the model at once; each is judged (and split on
+    a content-filter refusal) on its own, so one slow or failing request does not hold the others.
+    """
     if not config.llm_enabled():
         return 0
-    limit = max(1,min(limit,100))
+    batch = max(1, min(limit, 100))
+    limit = batch * max(1, min(parallel, 8))
     # A title-only item waits a while for its article text (D27) so it is judged on more than its headline.
     waiting, params = waiting_for_text_clause(datetime.now(timezone.utc))
     with get_db() as db:
@@ -198,7 +204,14 @@ def process_pending(limit: int = 20) -> int:
     payload = [dict(id=r["id"], channel=r["channel"], title=r["title"],
                     excerpt=texts.get(r["id"]) or (r["raw_summary"] if r["raw_summary"] is not None else r["summary"] or "")[:200])
                for r in rows]
-    results, skipped = _judge(payload)
+    chunks = [payload[start:start + batch] for start in range(0, len(payload), batch)]
+    if len(chunks) == 1:
+        outcomes = [_judge(chunks[0])]
+    else:
+        with ThreadPoolExecutor(max_workers=len(chunks), thread_name_prefix="ai-judge") as pool:
+            outcomes = list(pool.map(_judge, chunks))
+    results = [result for judged, _ in outcomes for result in judged]
+    skipped = [item_id for _, refused in outcomes for item_id in refused]
     if skipped:  # refused by the content filter even alone: mark -1 so it never blocks the queue
         with get_db() as db:
             for item_id in skipped:
@@ -240,8 +253,10 @@ def backfill_tmt(days: int = 0, max_batches: int = 60) -> int:
     total = 0
     for _ in range(max_batches):
         with get_db() as db:
+            # Unscored items get tmt with their score (process_pending); judging them here too
+            # would pay for the same verdict twice.
             sql = """SELECT id, title, title_zh, summary, channel, event_type, official, companies, score FROM items
-                     WHERE tmt IS NULL"""
+                     WHERE tmt IS NULL AND score IS NOT NULL"""
             params: list = []
             if days:
                 cutoff = (datetime.now(timezone.utc) - timedelta(days=days)).isoformat()
@@ -314,7 +329,7 @@ def _call_llm_tmt(payload: list[dict]) -> list:
 
 
 def backfill_titles(days: int = 4, max_batches: int = 40) -> int:
-    """给最近 days 天已入库但缺中文标题的条目补翻译，返回更新条数。"""
+    """给最近 days 天已评分但缺中文标题的条目补翻译，返回更新条数（未评分的条目随评分一起得到标题）。"""
     if not config.llm_enabled():
         return 0
     cutoff = (datetime.now(timezone.utc) - timedelta(days=days)).isoformat()
@@ -323,7 +338,7 @@ def backfill_titles(days: int = 4, max_batches: int = 40) -> int:
         with get_db() as db:
             rows = db.execute(
                 """SELECT id, title, summary FROM items
-                   WHERE title_zh='' AND published_at >= ?
+                   WHERE title_zh='' AND published_at >= ? AND score IS NOT NULL
                    ORDER BY id DESC LIMIT 40""", (cutoff,)).fetchall()
         if not rows:
             break
