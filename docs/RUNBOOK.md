@@ -152,6 +152,35 @@ docker compose up -d                                   # migrate 会再校验一
   重试会重新判断。副本里残留的任务租约（夜间备份包总带着正在运行的备份任务）按已失效处理。
 - 输出 JSON 里有被移走的旧库位置、补回的证据文件数和代际是否切换。
 
+### 覆盖范围（D31）
+
+- **默认：** Infohub 只采 `config/watchlist.yaml` 里的公司。设了 `INFOHUB_COVERAGE_TIER` 之后，再按市场规则加采一档公司（`config/coverage.yaml`，设计见 [平台设计](spec/PLATFORM_DESIGN.md) 第四节）。
+- **新加进来的公司**（`companies.origin = coverage`）：
+  - 只接 SEC 公告和 Nasdaq 个股新闻源，一小时一轮；
+  - 不建主题页，不用 Google News 逐家搜；
+  - 个股源只收提到这家公司的条目。
+- **公司识别：**
+  - 在任何新闻里，都认 `$代码`、法定名称和简称。单个词的简称区分大小写（`Intel` 算，`intel` 不算），日常词（Target、Benchmark 等）不单独算。
+  - 在公司自己的个股源里，代码和简称也算。
+- **刷新：** worker 每天跑一次 `coverage` 任务：刷新全美上市公司表（SEC 代码表 + Nasdaq 市值与行业）、按当前档同步公司、为新公司取 SIC（每次最多 100 家）、登记新闻源。改了档位重启后会立刻跑一次。
+
+开启或换档（Windows）：
+
+```powershell
+Add-Content -Encoding ASCII .env "INFOHUB_COVERAGE_TIER=1"      # 已有这一行时用记事本改数字
+$env:APP_VERSION = (git rev-parse --short=12 HEAD)
+docker compose up -d
+docker compose run --rm --no-deps migrate python cli.py coverage-preview   # 只读：会覆盖哪些公司
+```
+
+每档跑 1–2 周，看四件事再决定进不进下一档：
+1. 每天新增条数（`/health` 里 `nasdaq-` 开头的源）；
+2. AI 费用；
+3. 数据库每天涨多少；
+4. 抽 50 条核对公司认得对不对。
+
+退回 0 不会删任何数据：退出的公司保留在库里（`covered=0`），它们的新闻源自动停用。
+
 ### 异地备份到 Mac（D25、D30）
 
 Windows 上的运行库和全部备份都在同一个 Docker 卷里。Mac 每天从私网 HTTPS 接口拉最新的夜间备份包，自己逐个核对后只保留最新一份

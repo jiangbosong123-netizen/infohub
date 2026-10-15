@@ -79,6 +79,8 @@
   python cli.py report-publish-reviewed REVIEW_ID  # 发布已人工批准的模型日报（maintenance only；同上）
   python cli.py api-admin ACTION [ARGS]  # 本机管理 API 消费者和密钥（只在签发时输出明文）
   python cli.py offsite-key            # 给 Mac 异地备份签发只读备份的密钥（只输出密钥本身，旧密钥作废）
+  python cli.py security-master-refresh  # 联网刷新全美上市公司表（SEC 代码表 + Nasdaq 市值与行业）
+  python cli.py coverage-preview [TIER] # 只读：某一档会覆盖哪些公司（默认当前档），以及没对上的覆盖申请
 """
 from __future__ import annotations
 
@@ -114,6 +116,8 @@ def cmd_init_db() -> None:
     init_schema()
     from app.crawler.runner import upsert_sources
     n = _load_companies()
+    from app.coverage import sync as sync_coverage
+    sync_coverage()  # D31: uses the stored security master; the worker's coverage job refreshes it
     upsert_sources()
     from app.stories import refresh_derived
     refresh_derived()
@@ -125,6 +129,25 @@ def cmd_init_db() -> None:
         f"身份目录包含 {catalog.companies_seen} 个旧公司映射、"
         f"{catalog.topics_seen} 个主题和 {catalog.publishers_seen} 个发布方。"
     )
+
+
+def cmd_coverage_preview(level: int | None) -> None:
+    from collections import Counter
+    from app import coverage
+    level = coverage.tier() if level is None else level
+    with get_db() as db:
+        planned = coverage.plan(db, level)
+        unresolved = coverage.unresolved_requests(db) if level >= 1 else {}
+        listings = db.execute("SELECT COUNT(*) FROM security_master").fetchone()[0]
+    reasons = Counter(reason for company in planned.values() for reason in company["reasons"])
+    print(json.dumps({
+        "tier": level, "security_master_listings": listings, "companies": len(planned),
+        "by_reason": dict(reasons), "unresolved_requests": unresolved,
+        "companies_by_market_cap": [
+            f"{company['ticker']} {company['name']} ({company['market_cap'] / 1e9:.1f}B; "
+            f"{', '.join(company['reasons'])})"
+            for company in sorted(planned.values(), key=lambda c: c["market_cap"], reverse=True)],
+    }, ensure_ascii=False, indent=2))
 
 
 def cmd_db_status(path: str | None = None) -> None:
@@ -1241,6 +1264,12 @@ def main() -> None:
     elif cmd == "api-admin":
         from app.api_key_admin import main as api_admin_main
         raise SystemExit(api_admin_main(sys.argv[2:]))
+    elif cmd == "security-master-refresh" and len(sys.argv) == 2:
+        config.require_network_tasks("security-master-refresh")
+        from app import security_master
+        print(json.dumps(security_master.store_listings(security_master.fetch_listings()), ensure_ascii=False))
+    elif cmd == "coverage-preview" and len(sys.argv) <= 3:
+        cmd_coverage_preview(int(sys.argv[2]) if len(sys.argv) == 3 else None)
     elif cmd == "offsite-key" and len(sys.argv) == 2:
         import getpass
         from app.db_admin import verify_database

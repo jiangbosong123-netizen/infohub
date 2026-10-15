@@ -149,7 +149,8 @@ def _reconcile_companies() -> dict:
     source = next(item for item in SOURCES if item["key"] == "google-news")
     ingest_run = begin_ingest_run(source)
     with get_db() as db:
-        rows = db.execute("SELECT slug, name, name_zh, aliases FROM companies").fetchall()
+        # Coverage companies (D31) have their own Nasdaq feeds; the daily Google search stays on the watchlist.
+        rows = db.execute("SELECT slug, name, name_zh, aliases FROM companies WHERE origin='watchlist'").fetchall()
     stats = {}
     accepted = 0
     duplicates = 0

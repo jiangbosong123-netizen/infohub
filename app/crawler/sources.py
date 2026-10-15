@@ -115,14 +115,27 @@ def google_news_source_for(slug: str, name: str, name_zh: str) -> dict:
                 url="https://news.google.com/rss/search", interval_minutes=20)
 
 
+NASDAQ_SYMBOL_FEED = "https://www.nasdaq.com/feed/rssoutbound?symbol={ticker}"
+
+
+def nasdaq_source_for(slug: str, name: str, ticker: str) -> dict:
+    """覆盖范围（D31）里的公司：Nasdaq 个股新闻源，一小时一轮；只收提到这家公司的条目（rss_source 的绑定过滤）。"""
+    return dict(key=f"nasdaq-{slug}", name=f"Nasdaq · {name}", channel="stock", tier="media", type="rss",
+                company_slug=slug, url=NASDAQ_SYMBOL_FEED.format(ticker=ticker), interval_minutes=60)
+
+
 def all_sources() -> list[dict]:
-    """常规源 + 依据 watchlist 动态生成的每公司 Google News 源。"""
+    """常规源 + watchlist 公司的 Google News 源 + 覆盖范围公司的 Nasdaq 个股源。"""
     from ..database import get_db
     extra: list[dict] = []
     try:
         with get_db() as db:
-            rows = db.execute("SELECT slug, name, name_zh FROM companies").fetchall()
-        extra = [google_news_source_for(r["slug"], r["name"], r["name_zh"]) for r in rows]
+            rows = db.execute("SELECT slug, name, name_zh, ticker, origin, covered FROM companies").fetchall()
+        for r in rows:
+            if r["origin"] == "watchlist":
+                extra.append(google_news_source_for(r["slug"], r["name"], r["name_zh"]))
+            elif r["covered"] and r["ticker"]:
+                extra.append(nasdaq_source_for(r["slug"], r["name"], r["ticker"]))
     except Exception:
         pass  # init-db 之前 companies 表还没数据
     return SOURCES + extra

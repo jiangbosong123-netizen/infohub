@@ -308,6 +308,7 @@ def fetch_sec(source: dict) -> list[dict]:
     with get_db() as db:
         rows = db.execute(
             "SELECT slug, name, name_zh, ticker, cik FROM companies WHERE market='US' AND ticker != ''"
+            " AND (origin='watchlist' OR covered=1)"
         ).fetchall()
     companies = [dict(r) for r in rows]
     associations_by_cik = resolve_missing_ciks(companies)
