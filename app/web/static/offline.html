@@ -1,0 +1,25 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>离线 — Infohub</title>
+<style>
+  body { margin: 0; min-height: 100vh; display: flex; align-items: center; justify-content: center;
+         background: #070b12; color: #e6edf7; text-align: center; padding: 24px;
+         font: 15px/1.7 -apple-system, BlinkMacSystemFont, "PingFang SC", "Microsoft YaHei", sans-serif; }
+  h1 { font-size: 20px; margin: 18px 0 6px; }
+  p { color: #8b9ab0; max-width: 320px; margin: 0 auto 22px; }
+  button { padding: 9px 22px; border-radius: 10px; border: 1px solid #2ee6c8; background: transparent;
+           color: #2ee6c8; font-size: 15px; cursor: pointer; }
+</style>
+</head>
+<body>
+<main>
+  <img src="/static/icons/icon.svg" width="72" height="72" alt="">
+  <h1>暂时连不上 Infohub</h1>
+  <p>这台设备可能没有连上 Tailscale，或者服务器正在重启。连上之后再试一次。</p>
+  <button type="button" onclick="location.reload()">重新加载</button>
+</main>
+</body>
+</html>

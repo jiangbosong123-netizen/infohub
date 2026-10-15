@@ -2,9 +2,18 @@
 <html lang="zh-CN">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
-<title>{% block title %}行业情报站{% endblock %}</title>
-<link rel="stylesheet" href="/static/style.css">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>{% block title %}Infohub{% endblock %}</title>
+<link rel="stylesheet" href="/static/style.css?v={{ app_version }}">
+<link rel="manifest" href="/manifest.webmanifest">
+<link rel="icon" href="/static/icons/icon.svg" type="image/svg+xml">
+<link rel="apple-touch-icon" href="/static/icons/apple-touch-icon.png">
+<meta name="theme-color" content="#070b12" media="(prefers-color-scheme: dark)">
+<meta name="theme-color" content="#f4f6fa" media="(prefers-color-scheme: light)">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="Infohub">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <script>
 (function(){
   var t = localStorage.getItem('theme') || 'system';
@@ -17,7 +26,21 @@
 <body>
 {% set nav = 'index' if request.url.path == '/' else ('daily' if request.url.path.startswith('/daily') else ('topics' if request.url.path.startswith('/topics') else request.url.path.strip('/'))) %}
 <aside class="side">
-  <a class="logo" href="/?mode=selected">行业<br>情报站</a>
+  <a class="brand" href="/?mode=selected" aria-label="Infohub 首页">
+    <svg class="brand-mark" viewBox="0 0 512 512" aria-hidden="true">
+      <defs><linearGradient id="brand-edge" gradientUnits="userSpaceOnUse" x1="96" y1="96" x2="416" y2="416">
+        <stop offset="0" stop-color="#2ee6c8"/><stop offset="1" stop-color="#7c6cff"/></linearGradient></defs>
+      <polygon points="256,96 394.6,176 394.6,336 256,416 117.4,336 117.4,176" fill="none" stroke="url(#brand-edge)" stroke-width="30" stroke-linejoin="round"/>
+      <g stroke="url(#brand-edge)" stroke-width="24" stroke-linecap="round"><line x1="256" y1="256" x2="256" y2="152"/><line x1="256" y1="256" x2="346" y2="308"/><line x1="256" y1="256" x2="166" y2="308"/></g>
+      <circle class="brand-core" cx="256" cy="256" r="40"/>
+      <circle class="brand-node" cx="256" cy="152" r="26"/><circle class="brand-node" cx="346" cy="308" r="26"/><circle class="brand-node" cx="166" cy="308" r="26"/>
+    </svg>
+    <span class="brand-text"><span class="brand-name">Infohub</span><span class="brand-sub">Intelligence hub</span></span>
+  </a>
+  <div class="side-quick">
+    <a href="/topics" class="{{ 'on' if nav == 'topics' }}" aria-label="主题">▦</a>
+    <a href="/health" class="{{ 'on' if nav == 'health' }}" aria-label="源状态">◷</a>
+  </div>
   <nav>
     <div class="navgroup">内容</div>
     <a href="/?mode=selected" class="{{ 'on' if nav == 'index' and mode == 'selected' }}">✦ 精选</a>
@@ -39,9 +62,18 @@
     <div class="sidefoot">信息聚合自公开网络<br>版权归原站点所有</div>
   </div>
 </aside>
-<main class="main {{ 'main-wide' if request.url.path == '/topics' }}">
+<main class="main">
+<div class="main-in {% block main_class %}{{ 'main-wide' if request.url.path == '/topics' }}{% endblock %}">
 {% block content %}{% endblock %}
+</div>
 </main>
+<nav class="tabbar" aria-label="主要页面">
+  <a href="/?mode=selected" class="{{ 'on' if nav == 'index' and mode == 'selected' }}"><span>✦</span>精选</a>
+  <a href="/?mode=all" class="{{ 'on' if nav == 'index' and mode == 'all' }}"><span>☰</span>全部</a>
+  <a href="/hot" class="{{ 'on' if nav == 'hot' }}"><span>◎</span>热点</a>
+  <a href="/daily" class="{{ 'on' if nav == 'daily' }}"><span>▤</span>日报</a>
+  <a href="/saved" class="{{ 'on' if nav == 'saved' }}"><span>☆</span>稍后读</a>
+</nav>
 <script>
 document.querySelectorAll('[data-set-theme]').forEach(function(b){
   b.addEventListener('click', function(){
@@ -96,6 +128,9 @@ document.querySelectorAll('[data-set-theme]').forEach(function(b){
   window.InfoHubReading = { saved: saved, paint: paint };
   paint();
 })();
+if ('serviceWorker' in navigator && (location.protocol === 'https:' || location.hostname === 'localhost')) {
+  navigator.serviceWorker.register('/sw.js').catch(function () {});
+}
 </script>
 </body>
 </html>

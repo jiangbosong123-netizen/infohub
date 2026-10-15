@@ -3,6 +3,7 @@ from __future__ import annotations
 """FastAPI 页面路由：首页时间线 / 热点榜 / 日报 / 搜索 / 源状态。"""
 import json
 import sqlite3
+import time
 from datetime import datetime, timedelta, timezone
 
 from fastapi import FastAPI, Request, Response, HTTPException, Query
@@ -139,6 +140,7 @@ from ..config import (
     PROCESS_ROLE,
     SCHEDULER_ENABLED,
 )
+from .. import database as database_module
 from ..database import get_db, sqlite_wal_reset_safe
 from ..curation_projection import display_curation, published_curation
 from ..curation_query import portal_curation_sql
@@ -161,11 +163,13 @@ from .transport_security import private_https_headers
 from .v1_errors import v1_error
 
 # The interactive docs load scripts from a CDN; the schema itself stays at /openapi.json.
-app = FastAPI(title="行业情报站", docs_url=None, redoc_url=None)
+app = FastAPI(title="Infohub", docs_url=None, redoc_url=None)
 app.middleware("http")(v1_auth_guard)
 app.middleware("http")(private_https_headers)
 app.mount("/static", StaticFiles(directory=BASE_DIR / "app" / "web" / "static"), name="static")
 templates = Jinja2Templates(directory=str(BASE_DIR / "app" / "web" / "templates"))
+# Static URLs carry the release, so browsers and the installed app fetch new CSS after an upgrade.
+templates.env.globals["app_version"] = APP_VERSION
 
 # Deep pages cost a scan of every earlier row; nobody reads past page 1,000.
 MAX_PAGE = 1000
@@ -758,6 +762,34 @@ def _top_clusters(limit: int = 10, channel: str = "all", topic: str = "", days: 
     return out
 
 
+# The home page's side column: the last 24 hours at a glance, cached briefly so it adds nothing to
+# most page loads. Keyed by database so tests and restores never see another database's numbers.
+OVERVIEW_TTL_SECONDS = 60
+_overview_cache: dict[str, tuple[float, dict]] = {}
+
+
+def _home_overview() -> dict:
+    key = str(database_module.DB_PATH)
+    cached = _overview_cache.get(key)
+    if cached and time.monotonic() - cached[0] < OVERVIEW_TTL_SECONDS:
+        return cached[1]
+    cutoff = (datetime.now(timezone.utc) - timedelta(hours=24)).isoformat()
+    with get_db() as db:
+        total, relevant = db.execute(
+            "SELECT COUNT(*), COALESCE(SUM(tmt IS NULL OR tmt!=0), 0) FROM items WHERE fetched_at>=?",
+            (cutoff,)).fetchone()
+        sources, failing = db.execute(
+            "SELECT COUNT(*), COALESCE(SUM(fail_count>0), 0) FROM sources WHERE enabled=1").fetchone()
+        names = {r["slug"]: r["name_zh"] or r["name"] for r in db.execute("SELECT slug,name,name_zh FROM companies")}
+        companies = [dict(slug=slug, label=names.get(slug, slug), count=count) for slug, count in db.execute(
+            """SELECT j.value, COUNT(*) FROM items i, json_each(i.companies) j
+               WHERE i.fetched_at>=? AND (i.tmt IS NULL OR i.tmt!=0) AND json_valid(i.companies)
+               GROUP BY j.value ORDER BY COUNT(*) DESC, j.value LIMIT 6""", (cutoff,))]
+    value = dict(total=total, relevant=relevant, sources=sources, failing=failing, companies=companies)
+    _overview_cache[key] = (time.monotonic(), value)
+    return value
+
+
 @app.get("/", response_class=HTMLResponse)
 def index(request: Request, channel: str = "all", company: str = "", event: str = "",
           cat: str = "", mode: str = "selected", page: int = Query(1, le=MAX_PAGE)):
@@ -794,8 +826,57 @@ def index(request: Request, channel: str = "all", company: str = "", event: str 
         mode=mode, cat=cat,
         companies=companies, events=events, clusters=_top_clusters(8, channel),
         page=page, has_next=has_next,
-        last_update=_relative(last_fetch),
+        last_update=_relative(last_fetch), overview=_home_overview(),
     ))
+
+
+# Installable app (PWA): "Add to Home Screen" on a phone, "Add to Dock" or Install on a Mac. The
+# service worker must be served from the root to control every page; it only adds an offline page
+# for navigations and never caches news, so nothing shown can be stale.
+WEB_MANIFEST = {
+    "name": "Infohub",
+    "short_name": "Infohub",
+    "description": "科技与市场情报中枢",
+    "lang": "zh-CN",
+    "start_url": "/?mode=selected",
+    "scope": "/",
+    "display": "standalone",
+    "background_color": "#070b12",
+    "theme_color": "#070b12",
+    "icons": [
+        {"src": "/static/icons/icon-192.png", "sizes": "192x192", "type": "image/png"},
+        {"src": "/static/icons/icon-512.png", "sizes": "512x512", "type": "image/png"},
+        {"src": "/static/icons/icon-maskable-512.png", "sizes": "512x512", "type": "image/png",
+         "purpose": "maskable"},
+        {"src": "/static/icons/icon.svg", "sizes": "any", "type": "image/svg+xml"},
+    ],
+}
+SERVICE_WORKER = """const CACHE = 'infohub-shell-%s';
+const SHELL = ['/static/offline.html', '/static/icons/icon.svg'];
+self.addEventListener('install', (event) => {
+  event.waitUntil(caches.open(CACHE).then((cache) => cache.addAll(SHELL)).then(() => self.skipWaiting()));
+});
+self.addEventListener('activate', (event) => {
+  event.waitUntil(caches.keys()
+    .then((keys) => Promise.all(keys.filter((key) => key !== CACHE).map((key) => caches.delete(key))))
+    .then(() => self.clients.claim()));
+});
+self.addEventListener('fetch', (event) => {
+  if (event.request.mode !== 'navigate') return;
+  event.respondWith(fetch(event.request).catch(() => caches.match('/static/offline.html')));
+});
+"""
+
+
+@app.get("/manifest.webmanifest", include_in_schema=False)
+def web_manifest():
+    return JSONResponse(WEB_MANIFEST, media_type="application/manifest+json")
+
+
+@app.get("/sw.js", include_in_schema=False)
+def service_worker():
+    return Response(SERVICE_WORKER % APP_VERSION, media_type="text/javascript",
+                    headers={"Cache-Control": "no-cache"})
 
 
 @app.get("/hot", response_class=HTMLResponse)

@@ -1,8 +1,10 @@
 {% extends "base.html" %}
 {% from "macros.html" import item_card, focus_list %}
-{% block title %}{{ '精选' if mode == 'selected' else '全部动态' }} — 行业情报站{% endblock %}
+{% block title %}{{ '精选' if mode == 'selected' else '全部动态' }} — Infohub{% endblock %}
+{% block main_class %}main-home{% endblock %}
 {% block content %}
-
+<div class="home">
+<div class="home-head">
 <div class="titlerow">
   <h1 class="pagetitle">{{ '精选' if mode == 'selected' else '全部动态' }}
     <small>{{ '事件去重后的今日重点' if mode == 'selected' else 'TMT 全量信息流' }}</small>
@@ -18,7 +20,7 @@
   <a class="{{ 'on' if channel == key }}"
      href="/?mode={{ mode }}&amp;channel={{ key }}{% if key == 'stock' and company %}&amp;company={{ company }}{% endif %}{% if key == 'stock' and event %}&amp;event={{ event }}{% endif %}">{{ label }}</a>
   {% endfor %}
-  <span class="updatetime" title="最近一条新内容的入库时间">数据更新于 {{ last_update }}</span>
+  <span class="updatetime" title="最近一条新内容的入库时间"><span class="live-dot" aria-hidden="true"></span>数据更新于 {{ last_update }}</span>
 </nav>
 
 {% if channel == 'ai' %}
@@ -50,13 +52,38 @@
 </form>
 {% endif %}
 
+</div>
+
+<aside class="home-rail">
+<section class="railbox rail-extra">
+  <div class="boxhead"><h2>24 小时概览</h2><a class="boxmore" href="/health">源状态 →</a></div>
+  <div class="stat-grid">
+    <div class="stat"><b>{{ overview.total }}</b><span>新收录</span></div>
+    <div class="stat"><b>{{ overview.relevant }}</b><span>AI 判为相关</span></div>
+    <div class="stat"><b>{{ overview.sources }}</b><span>信息源</span></div>
+    <div class="stat {{ 'stat-warn' if overview.failing }}"><b>{{ overview.failing }}</b><span>源报错</span></div>
+  </div>
+</section>
 {% if clusters %}
 <section class="hotbox">
   <div class="boxhead"><h2>当前热点</h2><a class="boxmore" href="/hot">完整榜单 →</a></div>
   {{ focus_list(clusters) }}
 </section>
 {% endif %}
+{% if overview.companies %}
+<section class="railbox rail-extra">
+  <div class="boxhead"><h2>提及最多的公司</h2><span class="boxmore">24 小时</span></div>
+  <ol class="company-list">
+    {% set top = overview.companies[0].count %}
+    {% for c in overview.companies %}
+    <li><a href="/topics/{{ c.slug }}">{{ c.label }}</a><span class="bar"><i style="width: {{ (100 * c.count / top) | round | int }}%"></i></span><b>{{ c.count }}</b></li>
+    {% endfor %}
+  </ol>
+</section>
+{% endif %}
+</aside>
 
+<div class="home-feed">
 {% if not days %}
 <p class="empty">当前筛选下暂无内容。可以切换频道，或<a href="/?mode=all">查看全部动态</a>。</p>
 {% endif %}
@@ -76,5 +103,6 @@
   {% if has_next %}<a href="/?mode={{ mode }}&amp;channel={{ channel }}&amp;company={{ company }}&amp;event={{ event }}&amp;cat={{ cat }}&amp;page={{ page + 1 }}">下一页 →</a>{% endif %}
 </nav>
 {% endif %}
-
+</div>
+</div>
 {% endblock %}
