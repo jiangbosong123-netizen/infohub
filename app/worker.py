@@ -22,6 +22,7 @@ from .jobs import (
     claim_job,
     complete_job,
     enqueue_due_schedules,
+    enqueue_job,
     fail_job,
     renew_lease,
     schedule_changed,
@@ -142,20 +143,35 @@ def _crawl() -> dict:
     return result
 
 
+AI_BATCH = 30
+AI_BATCHES_PER_JOB = 12
+# Below the daily reconcile, report and backup (5-20), above prune (0): when those are due they
+# still run first while a backlog drains.
+AI_FOLLOW_UP_PRIORITY = 1
+
+
 def _ai() -> dict:
     from .ai.pipeline import backfill_titles, backfill_tmt, process_pending
     total = 0
-    for _ in range(12):
-        count = process_pending(limit=30)
+    for _ in range(AI_BATCHES_PER_JOB):
+        count = process_pending(limit=AI_BATCH)
         total += count
-        if count < 30:
+        if count < AI_BATCH:
             break
+    # After a night switched off hundreds of items wait. A run that used its whole budget queues
+    # the next one now instead of waiting for the next tick; a failing model returns short batches,
+    # so it never chains.
+    follow_up = total >= AI_BATCH * AI_BATCHES_PER_JOB
+    if follow_up:
+        enqueue_job(kind="ai", idempotency_key=f"ai:follow-up:{utc_now()}",
+                    priority=AI_FOLLOW_UP_PRIORITY, max_attempts=3)
     judged = backfill_tmt(max_batches=12)
     translated = backfill_titles(max_batches=12)
     from .stories import refresh_derived
     derived = refresh_derived()
     return {
         "processed": total,
+        "follow_up": follow_up,
         "tmt": judged,
         "translated": translated,
         "derived": derived,
