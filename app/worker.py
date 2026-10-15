@@ -58,22 +58,22 @@ def register_default_schedules(now: datetime | None = None) -> None:
         (
             "reconcile:daily", "reconcile",
             _next_daily(config.RECONCILE_HOUR, config.RECONCILE_MINUTE, current),
-            86_400, 20, 3,
+            86_400, 40, 3,
             {"timezone": str(config.APP_TZ), "local_time": f"{config.RECONCILE_HOUR:02d}:{config.RECONCILE_MINUTE:02d}"},
         ),
         (
             "report:daily", "report",
             _next_daily(config.REPORT_HOUR, config.REPORT_MINUTE, current),
-            86_400, 10, 3,
+            86_400, 38, 3,
             {"timezone": str(config.APP_TZ), "local_time": f"{config.REPORT_HOUR:02d}:{config.REPORT_MINUTE:02d}"},
         ),
         (
-            "maintenance:prune", "prune", _next_daily(4, 5, current), 86_400, 0, 3,
+            "maintenance:prune", "prune", _next_daily(4, 5, current), 86_400, 34, 3,
             {"timezone": str(config.APP_TZ), "local_time": "04:05"},
         ),
         (
             "maintenance:backup", "backup",
-            _next_daily(config.BACKUP_HOUR, config.BACKUP_MINUTE, current), 86_400, 5, 2,
+            _next_daily(config.BACKUP_HOUR, config.BACKUP_MINUTE, current), 86_400, 36, 2,
             {"timezone": str(config.APP_TZ), "local_time": f"{config.BACKUP_HOUR:02d}:{config.BACKUP_MINUTE:02d}"},
         ),
     )
@@ -87,6 +87,13 @@ def register_default_schedules(now: datetime | None = None) -> None:
             priority=priority,
             max_attempts=attempts,
         )
+    # Jobs these schedules queued before a priority change keep their old priority; lift them too,
+    # or one queued under the old order would still wait behind a busy AI lane.
+    from .database import get_db
+    with get_db() as db:
+        for schedule_id, kind, due, interval, priority, attempts, payload in definitions:
+            db.execute("""UPDATE jobs SET priority=? WHERE kind=? AND state IN ('pending','retry_wait')
+                          AND priority<?""", (priority, kind, priority))
     if config.CURATION_SEARCH_ENABLED:
         upsert_interval_schedule(
             schedule_id="curation-search:refresh", kind="curation-search",
@@ -116,7 +123,7 @@ def register_default_schedules(now: datetime | None = None) -> None:
         # The tier is in the payload, so changing it makes the schedule due at the next start.
         upsert_interval_schedule(
             schedule_id="coverage:daily", kind="coverage", next_due_at=current,
-            interval_seconds=86_400, priority=8, max_attempts=3,
+            interval_seconds=86_400, priority=32, max_attempts=3,
             payload={"tier": config.COVERAGE_TIER},
         )
     else:
@@ -157,23 +164,27 @@ def _crawl() -> dict:
 
 AI_BATCH = 30
 AI_BATCHES_PER_JOB = 12
-# Below the daily reconcile, report and backup (5-20), above prune (0): when those are due they
-# still run first while a backlog drains.
+# The once-a-day jobs (reconcile 40, report 38, backup 36, prune 34, coverage 32) outrank the AI
+# tick (30): a morning backlog keeps the AI busy for hours and must not hold them back. Follow-ups
+# (1) come after everything else.
 AI_FOLLOW_UP_PRIORITY = 1
 
 
 def _ai() -> dict:
     from .ai.pipeline import backfill_titles, backfill_tmt, process_pending
     total = 0
+    drained = False
     for _ in range(AI_BATCHES_PER_JOB):
         count = process_pending(limit=AI_BATCH)
         total += count
-        if count < AI_BATCH:
+        # A short batch can mean one failed half, not an empty queue: only a batch that judged
+        # nothing ends the run (nothing waiting, or the model is down).
+        if count == 0:
+            drained = True
             break
     # After a night switched off hundreds of items wait. A run that used its whole budget queues
-    # the next one now instead of waiting for the next tick; a failing model returns short batches,
-    # so it never chains.
-    follow_up = total >= AI_BATCH * AI_BATCHES_PER_JOB
+    # the next one now instead of waiting for the next tick; a model that judges nothing never chains.
+    follow_up = not drained
     if follow_up:
         enqueue_job(kind="ai", idempotency_key=f"ai:follow-up:{utc_now()}",
                     priority=AI_FOLLOW_UP_PRIORITY, max_attempts=3)
