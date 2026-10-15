@@ -167,9 +167,10 @@ def _llm_report(date_str: str, data: dict) -> str:
         "标题直接用素材里的中文标题，并使用对应 url 字段作为 Markdown 来源链接。不得捏造素材之外的结论；最后加「值得关注」一节列 2-3 个后续观察点。"
         "语言精炼，别堆砌，总长 800 字以内。\n\n素材：\n"
         + json.dumps(data, ensure_ascii=False))
-    resp = client.chat.completions.create(
+    from .usage import call
+    resp = call("daily_report", lambda: client.chat.completions.create(
         model=config.LLM_MODEL, temperature=0.4,
-        messages=[{"role": "user", "content": prompt}])
+        messages=[{"role": "user", "content": prompt}]))
     text = resp.choices[0].message.content or ""
     return text.strip() or _digest_fallback(date_str, data)
 

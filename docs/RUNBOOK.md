@@ -176,18 +176,20 @@ docker compose up -d
 docker compose run --rm --no-deps migrate python cli.py coverage-preview   # 只读：会覆盖哪些公司
 ```
 
-每档跑 1–2 周，看四件事再决定进不进下一档：
-1. 每天新增条数（`/health` 里 `nasdaq-` 开头的源）；
-2. AI 费用；
-3. 数据库每天涨多少；
-4. 抽 50 条核对公司认得对不对。
+每档跑 1–2 周，看四件事再决定进不进下一档。前三件在 `/api/coverage`（私网，最近 14 天，按北京时间分天，5 分钟缓存）：
+1. 每天新增条数：`items`，其中 Nasdaq 个股源的 `coverage_feed_items`、认到覆盖公司的 `coverage_linked_items`，以及已评分 `scored`、
+   保留 `kept`；
+2. AI 用量：`ai` 按任务（`score` 评分、`tmt` 补判定、`title` 补标题、`daily_report` 日报）列出请求数、失败数、输入与输出 token 和条数，
+   费用按服务商当时的单价换算；
+3. 数据库每天涨多少：`database_growth_bytes`（worker 每轮抓取后记一次当天大小，取前后两天之差）；
+4. 抽 50 条核对公司认得对不对（人工）。
 
 退回 0 不会删任何数据：退出的公司保留在库里（`covered=0`），它们的新闻源自动停用。
 
 ### 异地备份到 Mac（D25、D30）
 
 Windows 上的运行库和全部备份都在同一个 Docker 卷里。Mac 每天从私网 HTTPS 接口拉最新的夜间备份包，自己逐个核对后只保留最新一份
-（约 5 GB，放在 `~/InfohubBackups`）。
+（2026-10-15 第一份约 430 MB，补完历史数据后预计约 5 GB；放在 `~/InfohubBackups`）。
 
 - **怎么拉**：`deploy/macos/offsite_pull.py`，只用 Mac 自带的 `/usr/bin/python3`，由 LaunchAgent 每天 12:30 和 20:30 运行；Mac 睡着时错过的
   醒来后补跑一次。
