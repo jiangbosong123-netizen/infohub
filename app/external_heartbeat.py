@@ -61,4 +61,6 @@ def report_cycle() -> bool:
         record(problems)
     except OSError as exc:
         log.warning("could not record the self-check: %s", type(exc).__name__)
+    from .coverage_stats import safe_record_size
+    safe_record_size()  # D31 tier evaluation: the day's database size
     return ping(problems=problems)

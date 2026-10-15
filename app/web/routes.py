@@ -2160,6 +2160,26 @@ async def api_v1_backup_receipt(name: str, request: Request):
     return JSONResponse(receipt)
 
 
+# D31 tier evaluation (docs/RUNBOOK.md "覆盖范围"): items, model usage and database size per day.
+COVERAGE_STATS_TTL_SECONDS = 300
+_coverage_stats_cache: dict[str, tuple[float, dict]] = {}
+
+
+@app.get("/api/coverage")
+def api_coverage():
+    key = str(database_module.DB_PATH)
+    cached = _coverage_stats_cache.get(key)
+    if cached and time.monotonic() - cached[0] < COVERAGE_STATS_TTL_SECONDS:
+        return cached[1]
+    from ..coverage_stats import summary
+    try:
+        result = summary()
+    except (OSError, sqlite3.Error) as exc:
+        return JSONResponse({"status": "unavailable", "error": type(exc).__name__}, status_code=503)
+    _coverage_stats_cache[key] = (time.monotonic(), result)
+    return result
+
+
 @app.get("/api/pipeline")
 def api_pipeline():
     """Operational freshness and backlog; degraded data does not make web unreadable."""

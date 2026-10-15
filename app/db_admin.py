@@ -4070,6 +4070,32 @@ def _security_master(db: sqlite3.Connection) -> None:
     _execute_script(db, SECURITY_MASTER_SQL)
 
 
+# D31 tier evaluation: model usage per day and task, and the database size once a day.
+DAILY_METRICS_SQL = """
+CREATE TABLE ai_usage_daily (
+    day TEXT NOT NULL CHECK(length(day) = 10),
+    task TEXT NOT NULL CHECK(length(task) BETWEEN 1 AND 40),
+    model TEXT NOT NULL DEFAULT '',
+    calls INTEGER NOT NULL DEFAULT 0 CHECK(calls >= 0),
+    failed_calls INTEGER NOT NULL DEFAULT 0 CHECK(failed_calls >= 0),
+    prompt_tokens INTEGER NOT NULL DEFAULT 0 CHECK(prompt_tokens >= 0),
+    completion_tokens INTEGER NOT NULL DEFAULT 0 CHECK(completion_tokens >= 0),
+    items INTEGER NOT NULL DEFAULT 0 CHECK(items >= 0),
+    PRIMARY KEY(day, task, model)
+);
+CREATE TABLE database_size_daily (
+    day TEXT PRIMARY KEY CHECK(length(day) = 10),
+    bytes INTEGER NOT NULL CHECK(bytes >= 0),
+    items INTEGER NOT NULL CHECK(items >= 0),
+    recorded_at TEXT NOT NULL
+);
+"""
+
+
+def _daily_metrics(db: sqlite3.Connection) -> None:
+    _execute_script(db, DAILY_METRICS_SQL)
+
+
 # Migration 1 freezes the exact legacy schema at main@88a2a1e. Future schema
 # changes must append a new Migration instead of editing this definition.
 MIGRATIONS = (
@@ -4267,6 +4293,7 @@ MIGRATIONS = (
     Migration(55, "index the AI work queues and story anchors", WORK_QUEUE_INDEX_SQL, _work_queue_indexes),
     Migration(56, "queue topic reassignment apart from event matching", TOPIC_QUEUE_SQL, _topic_queue),
     Migration(57, "security master and coverage companies", SECURITY_MASTER_SQL, _security_master),
+    Migration(58, "daily model usage and database size", DAILY_METRICS_SQL, _daily_metrics),
 )
 CURRENT_SCHEMA_VERSION = MIGRATIONS[-1].version
 REQUIRED_MIGRATION_COLUMNS = {

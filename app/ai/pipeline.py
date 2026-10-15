@@ -17,6 +17,7 @@ from ..crawler.article_text import excerpts, waiting_for_text_clause
 from ..database import get_db
 from ..redaction import redact
 from ..stories import is_stock_move_title
+from . import usage
 
 log = logging.getLogger(__name__)
 
@@ -133,11 +134,11 @@ def _reuse_judgements(db, rows) -> set[int]:
 
 def _call_llm(payload: list[dict]) -> list:
     client = OpenAI(base_url=config.LLM_BASE_URL, api_key=config.LLM_API_KEY, timeout=180)
-    resp = client.chat.completions.create(
+    resp = usage.call("score", lambda: client.chat.completions.create(
         model=config.LLM_MODEL, temperature=0.2,
         extra_body={"thinking": {"type": "disabled"}},  # 结构化策展任务，关闭深度思考提速省钱
         messages=[{"role": "system", "content": SYSTEM_PROMPT},
-                  {"role": "user", "content": json.dumps(payload, ensure_ascii=False)}])
+                  {"role": "user", "content": json.dumps(payload, ensure_ascii=False)}]), items=len(payload))
     return _extract_json(resp.choices[0].message.content or "")
 
 
@@ -312,7 +313,7 @@ def backfill_tmt(days: int = 0, max_batches: int = 60) -> int:
 
 def _call_llm_tmt(payload: list[dict]) -> list:
     client = OpenAI(base_url=config.LLM_BASE_URL, api_key=config.LLM_API_KEY, timeout=180)
-    resp = client.chat.completions.create(
+    resp = usage.call("tmt", lambda: client.chat.completions.create(
         model=config.LLM_MODEL, temperature=0.2,
         extra_body={"thinking": {"type": "disabled"}},
         messages=[
@@ -324,7 +325,7 @@ def _call_llm_tmt(payload: list[dict]) -> list:
                          "购物与生活方式、医疗健康、只是与关注公司同名的内容=false。"
                          '只输出 JSON 数组：[{"id": 1, "tmt": true, "reason": "…", "ai_cat": null}]'
                          "（ai_cat 仅当明显是 AI 资讯时从 [model,product,industry,paper,opinion] 选，否则 null）")},
-            {"role": "user", "content": json.dumps(payload, ensure_ascii=False)}])
+            {"role": "user", "content": json.dumps(payload, ensure_ascii=False)}]), items=len(payload))
     return _extract_json(resp.choices[0].message.content or "")
 
 
@@ -377,7 +378,7 @@ def backfill_titles(days: int = 4, max_batches: int = 40) -> int:
 
 def _call_llm_titles(payload: list[dict]) -> list:
     client = OpenAI(base_url=config.LLM_BASE_URL, api_key=config.LLM_API_KEY, timeout=180)
-    resp = client.chat.completions.create(
+    resp = usage.call("title", lambda: client.chat.completions.create(
         model=config.LLM_MODEL, temperature=0.2,
         extra_body={"thinking": {"type": "disabled"}},
         messages=[
@@ -385,5 +386,5 @@ def _call_llm_titles(payload: list[dict]) -> list:
              "content": ("把每条新闻标题处理成简洁中文标题（title_zh）：英文翻译，中文润色。"
                          "保留公司名、数字、关键实体。只输出 JSON 数组："
                          '[{"id": 1, "title_zh": "…"}]')},
-            {"role": "user", "content": json.dumps(payload, ensure_ascii=False)}])
+            {"role": "user", "content": json.dumps(payload, ensure_ascii=False)}]), items=len(payload))
     return _extract_json(resp.choices[0].message.content or "")
