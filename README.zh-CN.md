@@ -1,4 +1,4 @@
-# 行业情报站
+# Infohub（行业情报站）
 
 **AI / 机器人 / 美股港股科技企业** 三个频道的行业信息聚合站：多源分批抓取 → 去重与热度聚类 → 主题、
 持久事件时间线、热点榜与每日日报，可选接入 LLM 做 AI 策展。信息组织方式对标
@@ -123,6 +123,9 @@ evaluation/                数据集契约、合成样本、基线（私有数�
 blob、备份和心跳持久化在外部 Docker 卷 `infohub-data`（首次用 `docker volume create infohub-data` 创建；Windows 上
 NTFS 文件夹挂载让每次启动检查慢几十倍，见 D29）。门户端口只绑定 `127.0.0.1`，通过 Tailscale Serve 私网 HTTPS 访问
 （[私网 HTTPS 生产入口](docs/PRIVATE_HTTPS_INGRESS.md)）。
+
+网站可以装成手机和电脑上的 App（PWA）：iPhone 用 Safari 打开后“分享 → 添加到主屏幕”，Mac 上 Safari 用“文件 → 添加到程序坞”，
+Chrome/Edge 点地址栏的安装按钮。设备需要登录同一个 Tailscale。
 
 配套部署管理器（独立仓库）轮询本仓库并以 fast-forward 方式应用 `main` 的更新，把提交 SHA 传入容器，
 使 `/api/health` 报告确切的运行版本。worker 每晚自动做完整备份（保留 3 份），每轮抓取后自检，抓取大面积失败、

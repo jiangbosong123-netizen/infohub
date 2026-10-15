@@ -1,6 +1,6 @@
 {% extends "base.html" %}
 {% from "macros.html" import focus_list %}
-{% block title %}热点榜 — 行业情报站{% endblock %}
+{% block title %}热点榜 — Infohub{% endblock %}
 {% block content %}
 <header class="topic-heading"><p class="eyebrow">TRENDING · 正在发生</p><h1 class="pagetitle">热点榜</h1><p class="hint">近 48 小时的事件 · 多源优先 · 点击查看完整报道时间线</p></header>
 {% if clusters %}<section class="hotbox">{{ focus_list(clusters) }}</section>{% else %}<p class="empty">暂无近期事件。</p>{% endif %}

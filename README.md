@@ -147,6 +147,9 @@ NTFS folder mount made every startup check tens of times slower, decision D29). 
 web port is bound to `127.0.0.1` and reached privately through Tailscale Serve
 ([`docs/PRIVATE_HTTPS_INGRESS.md`](docs/PRIVATE_HTTPS_INGRESS.md)).
 
+The portal is installable as an app (PWA): Add to Home Screen on iPhone, Add to Dock in Safari
+on a Mac, or the install button in Chrome and Edge. The device must be on the same tailnet.
+
 A companion deployment manager (separate repository) polls this repository and applies
 fast-forward-only updates of `main`, passing the commit SHA into the container so
 `/api/health` reports the exact running version.
