@@ -17,7 +17,7 @@
 
 每个消费者独立 Bearer token，服务端仅存不可逆哈希、key_id、scopes、状态、到期时间；token 不进 URL、日志、数据库导出或网页 localStorage。私网是网络边界，应用 token 是消费者边界，二者都需要。
 
-权限：`read:catalog`、`read:items`、`read:events`、`read:analyses`、`read:evidence`、`read:signals`、`read:reports`、`read:sync`、`read:ops`。role 只是 scope 集合；没有默认全权 key。
+权限：`read:catalog`、`read:items`、`read:events`、`read:analyses`、`read:evidence`、`read:signals`、`read:reports`、`read:sync`、`read:ops`，以及运维专用、不属于对外契约的 `read:backups`（Mac 异地备份，D30）。role 只是 scope 集合；没有默认全权 key。
 
 默认每 key 60 请求/分钟、单消费者同时 5 个查询、limit 最大 100；快照每 key 最多 1 个运行任务、每日默认 5 次。超过返回 429+Retry-After。该值是首期配置默认，负载验证后可调整。不同 key 不能互用游标/快照；权限变更触发 authz_version 更新，旧同步会话要求重建。
 

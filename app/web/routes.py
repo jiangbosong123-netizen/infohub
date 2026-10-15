@@ -7,7 +7,7 @@ import time
 from datetime import datetime, timedelta, timezone
 
 from fastapi import FastAPI, Request, Response, HTTPException, Query
-from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
+from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from pydantic import ValidationError
@@ -142,6 +142,7 @@ from ..config import (
 )
 from .. import database as database_module
 from ..database import get_db, sqlite_wal_reset_safe
+from .. import offsite_backup
 from ..curation_projection import display_curation, published_curation
 from ..curation_query import portal_curation_sql
 from ..curation_search_query import search_curated, search_index_usable
@@ -2091,6 +2092,54 @@ def api_ready():
         "checked_at": snapshot["checked_at"],
     }
     return JSONResponse(payload, status_code=200 if payload["ready"] else 503)
+
+
+# Off-site copy for the owner's Mac (D25): newest nightly bundle, its tar stream, and the receipt
+# the Mac posts after verifying every hash. Operational, so not part of the published contract.
+@app.get("/api/v1/backups/latest", include_in_schema=False)
+def api_v1_backup_latest(request: Request):
+    request_id = request.state.request_id
+    if not config.API_BACKUPS_ENABLED:
+        return v1_error(503, "not_ready", request_id)
+    try:
+        latest = offsite_backup.latest_bundle()
+    except (OSError, ValueError):
+        return v1_error(503, "temporarily_unavailable", request_id)
+    if latest is None:
+        return v1_error(404, "resource_not_found", request_id)
+    return JSONResponse(latest)
+
+
+@app.get("/api/v1/backups/{name}/archive", include_in_schema=False)
+def api_v1_backup_archive(name: str, request: Request):
+    request_id = request.state.request_id
+    if not config.API_BACKUPS_ENABLED:
+        return v1_error(503, "not_ready", request_id)
+    try:
+        bundle = offsite_backup.bundle_path(name)
+    except offsite_backup.OffsiteError:
+        return v1_error(404, "resource_not_found", request_id)
+    return StreamingResponse(offsite_backup.tar_stream(bundle), media_type="application/x-tar",
+                             headers={"Content-Disposition": f'attachment; filename="{bundle.name}.tar"'})
+
+
+@app.post("/api/v1/backups/{name}/receipt", include_in_schema=False)
+async def api_v1_backup_receipt(name: str, request: Request):
+    request_id = request.state.request_id
+    if not config.API_BACKUPS_ENABLED:
+        return v1_error(503, "not_ready", request_id)
+    try:
+        body = await request.json()
+    except ValueError:
+        return v1_error(422, "invalid_parameter", request_id)
+    if not isinstance(body, dict) or set(body) != {"database_sha256"} or not isinstance(body["database_sha256"], str):
+        return v1_error(422, "invalid_parameter", request_id)
+    try:
+        receipt = offsite_backup.record_receipt(
+            name, body["database_sha256"], request.state.api_principal.consumer_id)
+    except offsite_backup.OffsiteError:
+        return v1_error(409, "receipt_mismatch", request_id)
+    return JSONResponse(receipt)
 
 
 @app.get("/api/pipeline")

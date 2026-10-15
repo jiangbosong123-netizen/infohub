@@ -10,7 +10,7 @@ from .api_auth import ApiPrincipal, SCOPES
 EVENTS = frozenset({"admitted", "completed", "denied", "handler_error"})
 RESOURCES = frozenset({
     "items", "evidence", "events", "analyses", "catalog", "signals",
-    "reports", "snapshots", "changes",
+    "reports", "snapshots", "changes", "backups",
 })
 
 

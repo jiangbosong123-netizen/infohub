@@ -143,6 +143,37 @@ silver 层规则：标注器必须版本化（代码/提示词/模型 ID 的 has
 **生效 PR。** 本记录所在 PR 只确立协议；状态、导入、自复核、指标与标注工具在后续 PR 中逐项实现，
 实施进度见 [`IMPLEMENTATION_STATUS.md`](IMPLEMENTATION_STATUS.md)。
 
+### D30 异地备份：Mac 每天从 Windows 拉最新的夜间备份包（2026-10-15）
+
+**问题。** D25 定了 Mac 做异地备份，方式等 Windows 检查后再定。D29 之后运行库和全部备份都在 Windows 同一个 Docker 卷里，
+硬盘损坏、Docker 被重置或卸载会一起丢。Mac 经常睡眠、会带出门，所有者晚上会关 Windows。
+
+**候选。**
+- (1) Windows 用 Tailscale 文件传送推给 Mac：Windows 上要另设计划任务，先把文件从卷里拷出来，Mac 还得在线。
+- (2) 网盘或共享文件夹同步：多一个外部服务和凭据，SQLite 文件也不该放在同步目录里（OPERATIONS 3.1）。
+- (3) Mac 定时从已有的私网 HTTPS 接口拉（选定）。
+
+**选择。** 方案 3。
+- Windows 只多三个运维接口：最新是哪一份、下载 tar 流、收到回报。接口默认关闭，开关是 `INFOHUB_API_BACKUPS_ENABLED`。
+- 只认新增的 `read:backups` 权限，`cli.py offsite-key` 一条命令签发，有效期一年，签发新的作废旧的；请求照常审计、限流。
+- 只提供夜间任务已校验发布的备份包。
+- Mac 上的 `deploy/macos/offsite_pull.py` 只用系统 Python：
+  - 每天两次，睡眠错过就醒来补跑；
+  - 边下载边解到暂存目录，拒绝 `bundle/` 以外的路径、链接和特殊文件；
+  - 不信任 Windows，自己核对数据库 SHA-256、`integrity_check` 和每个证据文件的 SHA-256，通过后才替换；
+  - 只留最新一份（约 5 GB），再回报。
+- 回报超过 7 天，或开启一周还从没回报，自检报 `offsite_stale`。
+
+**评估。**
+- 端到端测试：真实生成夜间备份包，经接口拉取，Mac 脚本解包核对，回报后自检恢复正常。
+- 拒绝的情况：缺开关、权限不对、名称不对、回报不一致、文件被篡改、恶意路径、权限过宽的密钥文件。
+- 迁移后的 Mac 库（302 MB）用系统 Python 3.9 解包 0.2 秒、完整核对 1.4 秒。
+- 第一次真实拉取和 Mac 上的隔离恢复演练等 Windows 开机后补。
+
+**代价。** 每天传一份完整备份（补完历史后约 5 GB，局域网或 Tailscale 几分钟）；Mac 占约 5 GB。Mac 长时间不开机时异地副本会变旧，由 `offsite_stale` 提醒。
+
+**回滚。** 关掉开关、作废密钥、卸载 Mac 上的 LaunchAgent（运维手册“异地备份到 Mac”）。Mac 上已有的副本保留。
+
 ### D29 Windows 上的数据放进 Docker 命名卷（2026-10-15，所有者确认）
 
 **问题。** 2026-10-14 升级时数据放在 Windows 文件夹挂载（`.\data` → `/app/data`）。实测（`deploy/windows/probe_storage.py`）：

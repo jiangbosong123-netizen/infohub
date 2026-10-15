@@ -98,6 +98,7 @@ worker 进程里有两条任务通道，各自领取自己的任务：采集通�
     外部监控只靠采集周期发现不了；最长的正常任务（夜间备份）在 4.9 GB 时约 8 分钟 |
   | `backup_stale` | 最新夜间备份超过 36 小时；或备份计划建立已超过 36 小时却从未成功 |
   | `disk_low` | 数据库、证据或备份所在磁盘，或 Windows 主机磁盘（compose 只读挂载的 `host-disk` 目录，`INFOHUB_HOST_DISK_PATH`；Docker 卷在容器里只显示 Docker 的虚拟磁盘）剩余空间低于 `ALERT_DISK_FREE_MB`（默认 10240 MB）。夜间备份和从备份恢复也按两者中较少的那个检查空间 |
+  | `offsite_stale` | 开启了 Mac 异地备份（`INFOHUB_API_BACKUPS_ENABLED`）但 Mac 的回报超过 7 天，或开启一周还从没回报过（D30） |
   | `self_check_error` | 自检本身出错 |
 
   结果同时写到 `data/runtime/self-check.json`，`/api/pipeline` 的 `self_check` 显示最近一次结果与时间（网页进程没有

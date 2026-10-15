@@ -14,7 +14,7 @@ from uuid import uuid4
 
 SCOPES = frozenset({
     "read:catalog", "read:items", "read:events", "read:analyses",
-    "read:evidence", "read:signals", "read:reports", "read:sync", "read:ops",
+    "read:evidence", "read:signals", "read:reports", "read:sync", "read:ops", "read:backups",
 })
 _TOKEN = re.compile(r"^ih1\.([0-9a-f]{16})\.([A-Za-z0-9_-]{43})$")
 
