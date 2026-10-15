@@ -58,8 +58,9 @@ def summary(days: int = 14, now: datetime | None = None) -> dict:
             per_day[row["day"]] = {key: row[key] or 0 for key in
                                    ("items", "coverage_feed_items", "scored", "kept")}
         for row in db.execute(
+                # CROSS JOIN keeps the recent-items range first instead of scanning every link.
                 """SELECT date(i.fetched_at, ?) AS day, COUNT(DISTINCT i.id) AS n
-                   FROM items i JOIN item_companies ic ON ic.item_id=i.id
+                   FROM items i CROSS JOIN item_companies ic ON ic.item_id=i.id
                    JOIN companies c ON c.id=ic.company_id AND c.origin='coverage'
                    WHERE i.fetched_at>=? GROUP BY day""", (shift, since)):
             per_day.setdefault(row["day"], {}).update(coverage_linked_items=row["n"])
