@@ -3,7 +3,7 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
-from app import config, database
+from app import database
 from app.ai import pipeline
 
 
