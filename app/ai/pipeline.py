@@ -145,6 +145,35 @@ def _is_content_filter(exc: Exception) -> bool:
     return "1301" in text or "contentFilter" in text
 
 
+def _judge(payload: list[dict], alone: bool = False) -> tuple[list, list[int]]:
+    """Judge a batch; returns (results, ids the content filter refuses even alone).
+
+    A content-filter refusal or an unreadable answer splits the batch in halves, so one bad item
+    costs a few extra calls instead of the whole batch (or 30 single calls). Network, quota and
+    authentication errors are not split: they would fail again, so the batch stays pending.
+    An item is marked refused only after a call of its own was refused; a batch that was one item
+    to begin with gets that call as a retry, since the filter also reacts to the model's answer.
+    """
+    try:
+        return _call_llm(payload), []
+    except Exception as exc:  # noqa: BLE001
+        filtered = _is_content_filter(exc)
+        if not filtered and not isinstance(exc, ValueError):
+            log.warning("AI 流水线失败: %s", redact(str(exc)))
+            return [], []
+        if len(payload) == 1:
+            if filtered and not alone:
+                return _judge(payload, alone=True)
+            if filtered:
+                return [], [payload[0]["id"]]
+            log.warning("AI 单条回答无法解析，保留待重试: %s", payload[0]["id"])
+            return [], []
+        log.info("AI 批次%s，拆成两半重试（%d 条）", "触发内容过滤" if filtered else "回答无法解析", len(payload))
+        half = len(payload) // 2
+        first, second = _judge(payload[:half], len(payload[:half]) == 1), _judge(payload[half:], len(payload[half:]) == 1)
+        return first[0] + second[0], first[1] + second[1]
+
+
 def process_pending(limit: int = 20) -> int:
     """处理未评分条目（新旧条目按配额处理，避免旧条目被持续的新消息挤出），返回成功更新条数。"""
     if not config.llm_enabled():
@@ -169,28 +198,11 @@ def process_pending(limit: int = 20) -> int:
     payload = [dict(id=r["id"], channel=r["channel"], title=r["title"],
                     excerpt=texts.get(r["id"]) or (r["raw_summary"] if r["raw_summary"] is not None else r["summary"] or "")[:200])
                for r in rows]
-    try:
-        results = _call_llm(payload)
-    except Exception as exc:  # noqa: BLE001
-        if not _is_content_filter(exc):
-            log.warning("AI 流水线失败: %s", redact(str(exc)))
-            return len(reused)
-        # 整批被内容过滤拦截：逐条处理，被过滤的单条标记 -1 跳过，避免永远卡住
-        log.info("批次触发内容过滤，降级为逐条处理")
-        results = []
-        skipped = []
-        for single in payload:
-            try:
-                results.extend(_call_llm([single]))
-            except Exception as single_exc:
-                if _is_content_filter(single_exc):
-                    skipped.append(single["id"])
-                else:
-                    log.warning("AI 单条暂时失败，保留待重试: %s", type(single_exc).__name__)
-        if skipped:
-            with get_db() as db:
-                for item_id in skipped:
-                    db.execute("UPDATE items SET score=-1 WHERE id=?", (item_id,))
+    results, skipped = _judge(payload)
+    if skipped:  # refused by the content filter even alone: mark -1 so it never blocks the queue
+        with get_db() as db:
+            for item_id in skipped:
+                db.execute("UPDATE items SET score=-1 WHERE id=?", (item_id,))
 
     updated = 0
     with get_db() as db:
