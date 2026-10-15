@@ -513,7 +513,13 @@ def _system_snapshot() -> dict:
         max(0, int((now - _fmt_dt(oldest_ready)).total_seconds()))
         if oldest_ready else None
     )
-    job_delayed = oldest_ready_age is not None and oldest_ready_age > PIPELINE_JOB_STALE_SECONDS
+    # A job waiting behind a running job of its own kind (the next AI round, the next crawl) is
+    # queued, not stuck; a hung job shows as an expired lease instead.
+    running_kinds = {job["kind"] for job in running_jobs}
+    oldest_blocked = min((value["oldest_at"] for kind, value in ready_by_kind.items()
+                          if kind not in running_kinds), default=None)
+    job_delayed = (oldest_blocked is not None
+                   and (now - _fmt_dt(oldest_blocked)).total_seconds() > PIPELINE_JOB_STALE_SECONDS)
     job_issues = job_states["blocked"] + job_states["dead_letter"] + expired_running
     dataset_owner_matches = dataset_row["owner_environment_id"] == ENVIRONMENT_ID
     worker = read_worker_heartbeat(expected_version=APP_VERSION)

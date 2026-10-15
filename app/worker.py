@@ -163,9 +163,9 @@ def _crawl() -> dict:
 
 
 AI_BATCH = 30
-# Each round sends config.AI_PARALLEL batches at once (about a minute); eight rounds keep a run near
-# ten minutes, so the daily jobs and the next crawl results are never far behind.
-AI_BATCHES_PER_JOB = 8
+# Each round sends config.AI_PARALLEL batches at once (about 2.5 minutes on 10-15 with GLM-4.6);
+# five rounds keep a run near twelve minutes, so a daily job waits less than the 15-minute alarm.
+AI_BATCHES_PER_JOB = 5
 # The once-a-day jobs (reconcile 40, report 38, backup 36, prune 34, coverage 32) outrank the AI
 # tick (30): a morning backlog keeps the AI busy for hours and must not hold them back. Follow-ups
 # (1) come after everything else.
