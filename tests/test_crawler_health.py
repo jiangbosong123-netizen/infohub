@@ -160,3 +160,21 @@ class CrawlerHealthTests(unittest.TestCase):
         self.assertEqual(response.json()['ingest']['raw_records'], 0)
         self.assertEqual(response.json()['ingest']['observations'], 0)
         self.assertEqual(response.json()['ingest']['source_time_states'], {})
+
+    def test_health_names_the_running_and_waiting_job_kinds(self):
+        from datetime import datetime, timedelta, timezone
+        from app.jobs import claim_job, enqueue_job
+
+        earlier = datetime.now(timezone.utc) - timedelta(minutes=5)
+        enqueue_job(kind='reconcile', idempotency_key='kinds-a', priority=40, scheduled_for=earlier)
+        for key in ('kinds-b', 'kinds-c'):
+            enqueue_job(kind='ai', idempotency_key=key, priority=30, scheduled_for=earlier)
+        enqueue_job(kind='report', idempotency_key='kinds-later',
+                    scheduled_for=datetime.now(timezone.utc) + timedelta(hours=1))
+        claimed = claim_job(worker_id='health-test', kinds=('reconcile',))
+        jobs = TestClient(app).get('/api/pipeline').json()['jobs']
+        self.assertEqual([(job['kind'], job['priority'], job['attempt']) for job in jobs['running']],
+                         [('reconcile', 40, 1)])
+        self.assertIsNotNone(jobs['running'][0]['started_at'])
+        self.assertEqual(claimed.kind, 'reconcile')
+        self.assertEqual({kind: value['count'] for kind, value in jobs['ready_by_kind'].items()}, {'ai': 2})

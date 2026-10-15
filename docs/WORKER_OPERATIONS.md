@@ -81,7 +81,9 @@ worker 进程里有两条任务通道，各自领取自己的任务：采集通�
 - `/api/ready`：检查数据库查询、dataset owner 和当前构建 SHA 的 worker 心跳。任一失败返回
   503，供发布门禁使用。
 - `/api/pipeline`：报告来源从未成功、失败、部分失败、过期或静默，job blocked/dead-letter/过期租约，
-  AI与索引积压和日报日期。业务数据延迟会标记 degraded，但不会让已有门户内容不可读。
+  AI与索引积压和日报日期。业务数据延迟会标记 degraded，但不会让已有门户内容不可读。`jobs.running` 列出正在运行的
+  job 种类、优先级、第几次尝试和开始时间，`jobs.ready_by_kind` 按种类列出已到期但还在排队的 job，队列卡住时不用登录
+  主机就能看出是谁占着、谁在等。
 
 - 机器外心跳（可选）：以上三者都由本机回答，主机关机、睡眠、断网或 worker 卡死时没人能看到。在 `.env` 设置
   `INFOHUB_EXTERNAL_HEARTBEAT_URL`（Healthchecks、Uptime Kuma 等服务的 https 推送地址；周期 5 分钟、宽限约 20 分钟）后，

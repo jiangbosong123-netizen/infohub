@@ -465,6 +465,15 @@ def _system_snapshot() -> dict:
                WHERE state='running' AND lease_expires_at<=?""",
             (now_utc,),
         ).fetchone()[0]
+        # Which kinds are running and waiting, so a stuck queue can be read remotely.
+        running_jobs = [dict(row) for row in db.execute(
+            """SELECT j.kind,j.priority,j.attempt_count AS attempt,a.started_at FROM jobs j
+               LEFT JOIN job_attempts a ON a.lease_token=j.lease_token
+               WHERE j.state='running' ORDER BY a.started_at""")]
+        ready_by_kind = {row["kind"]: {"count": row["n"], "oldest_at": row["oldest"]} for row in db.execute(
+            """SELECT kind,COUNT(*) AS n,MIN(next_attempt_at) AS oldest FROM jobs
+               WHERE state IN ('pending','retry_wait') AND next_attempt_at<=?
+               GROUP BY kind ORDER BY oldest""", (now_utc,))}
         dataset_row = db.execute(
             """SELECT dataset_id,current_epoch,owner_environment_id
                FROM dataset_state WHERE singleton=1"""
@@ -576,6 +585,8 @@ def _system_snapshot() -> dict:
             "oldest_ready_at": oldest_ready,
             "oldest_ready_age_seconds": oldest_ready_age,
             "expired_running": expired_running,
+            "running": running_jobs,
+            "ready_by_kind": ready_by_kind,
         },
         "ingest": {
             "states": ingest_states,
