@@ -33,6 +33,13 @@ class AiFollowUpTests(unittest.TestCase):
         self.assertTrue(result["follow_up"])
         self.assertEqual(self.ai_jobs(), [(worker.AI_FOLLOW_UP_PRIORITY, "pending")])
 
+    def test_no_follow_up_while_another_ai_job_waits(self):
+        from app.jobs import enqueue_job
+        enqueue_job(kind="ai", idempotency_key="schedule:ai:pending:tick", priority=30)
+        result = self.run_ai([worker.AI_BATCH] * worker.AI_BATCHES_PER_JOB)
+        self.assertFalse(result["follow_up"])
+        self.assertEqual(self.ai_jobs(), [(30, "pending")])
+
     def test_a_drained_backlog_or_a_failing_model_does_not_chain(self):
         for batches in ([worker.AI_BATCH, 7, 0], [0], [worker.AI_BATCH] * 3 + [12, 0]):
             with self.subTest(batches=batches):
