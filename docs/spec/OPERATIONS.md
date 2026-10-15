@@ -88,7 +88,7 @@ NTFS bind mount 是第一次升级（2026-10-14）时的存储；之后按 [D29]
 3. 保存 manifest：backup_id、dataset/epoch、schema、release digest、checkpoint、table counts、DB SHA256、blob manifest hash、生成时间、保留期、完整性状态。
 4. `.env` 不进入 Git 或普通数据导出；恢复所需配置用脱敏模板和单独加密的凭据备份记录。解密密钥与备份分开保管。
 5. 备份分为 nightly（7 份）、weekly（4 份）、monthly（3 份），另保留最近两次成功升级的迁移前备份。（现状：已实现每晚完整
-   备份包保留 3 份、迁移前副本保留 2 份，见 [运维手册](../RUNBOOK.md)；weekly/monthly 与异机副本尚未实现。）容量不足先告警，不能自动删唯一可恢复副本。
+   备份包保留 3 份、迁移前副本保留 2 份，见 [运维手册](../RUNBOOK.md)；weekly/monthly 尚未实现；异机副本由 Mac 每天两次拉取最新一份（D30），2026-10-15 首次拉到并通过隔离恢复演练，见 `docs/evidence/offsite-restore-drill-20261015.json`。）容量不足先告警，不能自动删唯一可恢复副本。
 6. 至少一份异机/离线或加密对象存储副本；存到同一 Windows 磁盘只能防逻辑误操作，不能防磁盘损坏。Mac 是候选异机目标，离线时任务延迟并告警，不能标已完成。
 7. 备份上传成功不等于可恢复。首轮迁移前、每月以及存储方案变更后执行隔离恢复演练。
 

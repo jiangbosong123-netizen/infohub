@@ -1,0 +1,41 @@
+{
+  "scope": "First off-site pull to the owner's Mac and the isolated restore drill required after the storage change (D29, D30, docs/spec/OPERATIONS.md 3.2 item 7)",
+  "recorded_at": "2026-10-15T22:30:00Z",
+  "host_backup": {
+    "release": "a5ee74cf94fe (the bundle itself was written by 17c41d101a04)",
+    "name": "app.windows-production.20261015T193814.950883Z.bundle",
+    "created_at": "2026-10-15T19:38:44Z",
+    "how": "nightly backup job, due 03:30 Asia/Shanghai (19:30Z)",
+    "bytes": 427987035,
+    "files": 11170,
+    "schema_version": 57,
+    "database_sha256": "1359a31d103a250522ccb52e3880ad61ae60be7044dc3f3b92e34cb4f4dbfac9"
+  },
+  "offsite_pull": {
+    "tool": "deploy/macos/offsite_pull.py via the LaunchAgent com.infohub.offsite-pull, started by hand with launchctl kickstart",
+    "transport": "Tailscale Serve, /api/v1/backups (read:backups key)",
+    "earlier_attempts": [
+      {"checked_at": "2026-10-15T16:00:59Z", "result": "failed", "detail": "HTTP 404: no nightly bundle yet"},
+      {"checked_at": "2026-10-15T19:30:03Z", "result": "failed", "detail": "HTTP 404: the scheduled pull ran 8 minutes before the first bundle was written"}
+    ],
+    "checked_at": "2026-10-15T22:17:20Z",
+    "result": "pulled",
+    "items": 99214,
+    "blobs": 11168,
+    "database_sha256_matches_host": true
+  },
+  "restore_drill": {
+    "where": "Mac, main@a5ee74cf94fe checkout, Python 3.12 venv with SQLite 3.53.1, a new scratch directory",
+    "db_bundle_restore": {"status": "ok", "seconds": 10.5, "unique_blobs": 11168, "schema_version": 57, "evidence_status": "ok"},
+    "db_bundle_smoke": {
+      "status": "ok",
+      "seconds": 7.8,
+      "checks": ["home", "topics", "search", "daily_list", "live", "daily_legacy", "topic_detail", "story_detail"],
+      "http_status": 200,
+      "bundle_unchanged": true
+    },
+    "rto_target_minutes": 60
+  },
+  "consequence": "docs/WINDOWS_CUTOVER.md 8b: data-before-volume-<time> on the Windows host may now be deleted; the owner decides when",
+  "not_done": ["weekly and monthly bundle tiers", "a timed restore of the live host from this copy"]
+}

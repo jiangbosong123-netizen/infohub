@@ -231,7 +231,8 @@ docker compose run --rm migrate python cli.py db-bundle-backup     # Mac 演练�
 
 按 [运维手册](RUNBOOK.md)“异地备份到 Mac”开启：Windows 上打开开关并签发只读备份的密钥，用 Tailscale 发给 Mac，
 Mac 上运行 `deploy/macos/offsite-install.sh`。第一次拉到后在 Mac 上做隔离恢复演练，通过后才可以删除
-`data-before-volume-<时间>`。
+`data-before-volume-<时间>`。（2026-10-15 已完成：第一份夜间备份包拉到 Mac，恢复约 10 秒，门户 8 项读检查全部通过，
+见 `docs/evidence/offsite-restore-drill-20261015.json`。）
 
 ## 9. 如果已经被自动升级过
 
