@@ -1,0 +1,61 @@
+{
+  "scope": "AI scoring throughput in production before and after #249 (parallel batches, no duplicate backfill calls)",
+  "recorded_at": "2026-10-15T22:30:00Z",
+  "method": "scored = rise in items.total minus fall in items.pending_score between two /api/pipeline readings",
+  "before": {
+    "release": "17c41d101a04",
+    "readings": [
+      {
+        "at": "2026-10-15T16:01Z",
+        "total": 97628,
+        "pending_score": 7603
+      },
+      {
+        "at": "2026-10-15T16:20Z",
+        "total": 97773,
+        "pending_score": 7538
+      },
+      {
+        "at": "2026-10-15T21:13Z",
+        "total": 99882,
+        "pending_score": 6443
+      }
+    ],
+    "scored_per_hour": {
+      "16:01-16:20": 663,
+      "16:20-21:13": 656
+    },
+    "calls_per_run": "12 scoring calls in sequence plus up to 12 tmt and 12 title calls, which during a backlog re-judged unscored items"
+  },
+  "after": {
+    "release": "a5ee74cf94fe (INFOHUB_AI_PARALLEL default 3, 8 rounds per run)",
+    "readings": [
+      {
+        "at": "2026-10-15T21:36Z",
+        "total": 100011,
+        "pending_score": 6243,
+        "pending_tmt": 4040
+      },
+      {
+        "at": "2026-10-15T22:00Z",
+        "total": 100169,
+        "pending_score": 5530,
+        "pending_tmt": 3830
+      },
+      {
+        "at": "2026-10-15T22:16Z",
+        "total": 100239,
+        "pending_score": 5237,
+        "pending_tmt": 3735
+      }
+    ],
+    "scored_per_hour": {
+      "21:36-22:00": 2178,
+      "22:00-22:16": 1361
+    },
+    "run_minutes": 20,
+    "minutes_per_round": 2.5,
+    "note": "one run of 8 rounds started 21:35:10 and the next 21:55:11; the second interval includes a run boundary and its refresh_derived step"
+  },
+  "follow_up": "#251: one waiting job per schedule and 5 rounds per run, because 20-minute runs outlasted the 15-minute tick"
+}
