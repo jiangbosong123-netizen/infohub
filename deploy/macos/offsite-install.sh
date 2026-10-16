@@ -5,7 +5,7 @@
 #
 # The token file comes from `python cli.py offsite-key` on the Windows host. It is copied to
 # ~/.infohub/offsite.token (mode 600) together with offsite_pull.py. A LaunchAgent then runs the
-# pull at 12:30 and 20:30 (launchd catches up after sleep) into ~/InfohubBackups, keeping one
+# pull at 12:30 and 21:30 (launchd catches up after sleep) into ~/InfohubBackups, keeping one
 # verified bundle (about 5 GB). Run it again to replace the token or the script; remove it with:
 #
 #   launchctl bootout gui/$(id -u)/com.infohub.offsite-pull
@@ -55,7 +55,9 @@ cat > "$PLIST" <<EOF
   <key>StartCalendarInterval</key>
   <array>
     <dict><key>Hour</key><integer>12</integer><key>Minute</key><integer>30</integer></dict>
-    <dict><key>Hour</key><integer>20</integer><key>Minute</key><integer>30</integer></dict>
+    <!-- The host's nightly backup starts at 03:30 Asia/Shanghai, 19:30 UTC: 20:30 in British summer
+         time, the minute the old evening pull ran, so that pull always got the night before. -->
+    <dict><key>Hour</key><integer>21</integer><key>Minute</key><integer>30</integer></dict>
   </array>
   <key>LowPriorityIO</key><true/>
   <key>Nice</key><integer>10</integer>
@@ -67,5 +69,5 @@ EOF
 plutil -lint "$PLIST" >/dev/null
 launchctl bootout "gui/$(id -u)/$LABEL" 2>/dev/null || true
 launchctl bootstrap "gui/$(id -u)" "$PLIST"
-echo "installed $LABEL: pulls into $DEST at 12:30 and 20:30; log: $LOG"
+echo "installed $LABEL: pulls into $DEST at 12:30 and 21:30; log: $LOG"
 echo "pull now:  launchctl kickstart gui/$(id -u)/$LABEL"

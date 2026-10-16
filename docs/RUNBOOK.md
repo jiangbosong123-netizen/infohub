@@ -192,7 +192,7 @@ docker compose run --rm --no-deps migrate python cli.py coverage-preview   # 只
 Windows 上的运行库和全部备份都在同一个 Docker 卷里。Mac 每天从私网 HTTPS 接口拉最新的夜间备份包，自己逐个核对后只保留最新一份
 （2026-10-15 第一份约 430 MB，补完历史数据后预计约 5 GB；放在 `~/InfohubBackups`）。
 
-- **怎么拉**：`deploy/macos/offsite_pull.py`，只用 Mac 自带的 `/usr/bin/python3`，由 LaunchAgent 每天 12:30 和 20:30 运行；Mac 睡着时错过的
+- **怎么拉**：`deploy/macos/offsite_pull.py`，只用 Mac 自带的 `/usr/bin/python3`，由 LaunchAgent 每天 12:30 和 21:30 运行（Windows 的夜间备份在北京时间 03:30 开始，即 UTC 19:30；原来的 20:30 在英国夏令时正好同一分钟，晚上那次总拉到前一晚的，所以推后一小时）；Mac 睡着时错过的
   醒来后补跑一次。
   1. 先问 `GET /api/v1/backups/latest` 最新的是哪一份，Mac 已有就结束。
   2. 再把 `GET /api/v1/backups/<名称>/archive` 的 tar 流边下载边解到隐藏的暂存目录，只接受 `bundle/` 下的目录和普通文件。
