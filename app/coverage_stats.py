@@ -69,6 +69,12 @@ def summary(days: int = 14, now: datetime | None = None) -> dict:
                 """SELECT day,task,model,calls,failed_calls,prompt_tokens,completion_tokens,items
                    FROM ai_usage_daily WHERE day>=? ORDER BY day,task""", (start_day,)):
             usage.setdefault(row["day"], []).append({key: row[key] for key in row.keys() if key != "day"})
+        failures: dict[str, list] = {}
+        for row in db.execute(
+                "SELECT day,task,kind,calls FROM ai_failures_daily WHERE day>=? ORDER BY day,task,kind",
+                (start_day,)):
+            failures.setdefault(row["day"], []).append({"task": row["task"], "kind": row["kind"],
+                                                        "calls": row["calls"]})
         sizes = {row["day"]: {"bytes": row["bytes"], "items": row["items"]} for row in db.execute(
             "SELECT day,bytes,items FROM database_size_daily WHERE day>=? ORDER BY day",
             (_day(current - timedelta(days=days)),))}
@@ -80,6 +86,7 @@ def summary(days: int = 14, now: datetime | None = None) -> dict:
         entry = {"day": day, **{"items": 0, "coverage_feed_items": 0, "coverage_linked_items": 0,
                                 "scored": 0, "kept": 0}, **per_day.get(day, {})}
         entry["ai"] = usage.get(day, [])
+        entry["ai_failures"] = failures.get(day, [])
         entry["database_bytes"] = size["bytes"] if size else None
         entry["database_growth_bytes"] = (size["bytes"] - prior["bytes"]) if size and prior else None
         table.append(entry)

@@ -46,6 +46,60 @@ class TierMetricsTests(unittest.TestCase):
         self.assertEqual(self.usage_rows(), [dict(task="score", calls=2, failed_calls=1, prompt_tokens=1300,
                                                   completion_tokens=850, items=32)])
 
+    def test_failures_are_counted_by_kind(self):
+        class ApiError(Exception):
+            def __init__(self, text, status=None):
+                super().__init__(text)
+                self.status_code = status
+
+        class APITimeoutError(Exception):
+            pass
+
+        cases = [(ApiError("Error code: 400 - {'error': {'code': '1301', 'message': 'contentFilter'}}", 400),
+                  "content_filter"),
+                 (ApiError("Error code: 429 - {'error': {'code': '1302'}}", 429), "rate_limited"),
+                 (ApiError("Error code: 429 - {'error': {'code': '1113'}}", 429), "quota"),
+                 (APITimeoutError("Request timed out."), "timeout"),
+                 (ApiError("Error code: 401", 401), "auth"),
+                 (ApiError("Error code: 502", 502), "server"),
+                 (ValueError("odd"), "other")]
+        for error, kind in cases:
+            with self.subTest(kind=kind):
+                self.assertEqual(usage.failure_kind(error), kind)
+        for error in (cases[0][0], cases[0][0], cases[1][0]):
+            with self.assertRaises(ApiError):
+                usage.call("score", lambda error=error: (_ for _ in ()).throw(error), items=30)
+        with database.get_db() as db:
+            self.assertEqual([tuple(row) for row in db.execute(
+                "SELECT task,kind,calls FROM ai_failures_daily ORDER BY kind")],
+                [("score", "content_filter", 2), ("score", "rate_limited", 1)])
+        self.assertEqual(self.usage_rows()[0]["failed_calls"], 3)
+
+    def test_a_stalled_ai_alert_names_todays_failure_causes(self):
+        from app import self_check
+        with database.get_db() as db:
+            db.execute("INSERT INTO sources(key,name,channel,type) VALUES('cls','cls','stock','rss')")
+        for n in range(6):
+            runner.insert_item("cls", dict(url=f"https://e.test/s{n}", title=f"Story {n}", published_at=NOW.isoformat()))
+        with database.get_db() as db:
+            db.execute("UPDATE items SET fetched_at=?", ((NOW - timedelta(hours=3)).isoformat(),))
+            db.execute("INSERT INTO ai_failures_daily(day,task,kind,calls) VALUES('2026-10-16','score','quota',7)")
+            with patch.object(config, "llm_enabled", return_value=True):
+                problems = self_check._ai(db, NOW)
+        self.assertEqual([problem.code for problem in problems], ["ai_stalled"])
+        self.assertIn("余额不足 7 次", problems[0].detail)
+
+    def test_retrying_jobs_show_their_kind_and_error_code(self):
+        from app.jobs import claim_job, enqueue_job, fail_job
+        enqueue_job(kind="report", idempotency_key="report-retry", max_attempts=3)
+        claimed = claim_job(worker_id="w")
+        fail_job(claimed.id, claimed.lease_token, error_code="handler_runtimeerror", error_detail="secret detail",
+                 retry_at=datetime.now(timezone.utc) + timedelta(minutes=5))
+        jobs = TestClient(routes.app).get("/api/pipeline").json()["jobs"]
+        self.assertEqual([(job["kind"], job["attempt"], job["error_code"]) for job in jobs["retrying"]],
+                         [("report", 1, "handler_runtimeerror")])
+        self.assertNotIn("secret detail", json.dumps(jobs))
+
     def test_the_scoring_request_is_counted(self):
         class Client:
             def __init__(self, **_):
@@ -90,6 +144,7 @@ class TierMetricsTests(unittest.TestCase):
                                                        "scored", "kept")},
                          {"items": 4, "coverage_feed_items": 2, "coverage_linked_items": 2, "scored": 2, "kept": 2})
         self.assertEqual(today["ai"][0]["prompt_tokens"], 1200)
+        self.assertEqual(today["ai_failures"], [])
         self.assertEqual(today["database_growth_bytes"], 4096)
         self.assertIsNone(result["days"][0]["database_growth_bytes"])  # no reading the day before
         self.assertEqual(result["companies"], {"coverage": 1})
