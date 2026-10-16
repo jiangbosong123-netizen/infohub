@@ -39,6 +39,8 @@ class SourceActivityTests(unittest.TestCase):
             "weekdays": weekdays(friday),                        # quiet since Friday, as every weekend
             "sparse": [NOW - timedelta(days=n * 3) for n in range(5)],
             "failing": hourly(NOW - timedelta(hours=20)),
+            # A new per-company feed: its first fetch listed 14 old items at once, nothing since.
+            "first_fetch": [NOW - timedelta(hours=20, seconds=n) for n in range(14)],
         }
         with database.get_db() as db:
             for n, (key, times) in enumerate(self.patterns.items(), start=1):
@@ -65,8 +67,9 @@ class SourceActivityTests(unittest.TestCase):
     def test_only_a_source_quiet_far_beyond_its_own_rhythm_is_silent(self):
         statuses, activity = self.statuses()
         self.assertEqual(statuses, {"stopped": "silent", "alive": "ok", "weekdays": "ok",
-                                    "sparse": "ok", "failing": "bad"})
-        by_key = dict(zip(self.patterns, (activity[n] for n in range(1, 6))))
+                                    "sparse": "ok", "failing": "bad", "first_fetch": "ok"})
+        by_key = dict(zip(self.patterns, (activity[n] for n in range(1, 7))))
+        self.assertIsNone(by_key["first_fetch"].quiet_limit)  # one listing, however many items
         self.assertEqual(by_key["stopped"].quiet_limit, timedelta(hours=12))
         self.assertGreater(by_key["weekdays"].quiet_limit, timedelta(hours=70))
         self.assertIsNone(by_key["sparse"].quiet_limit)
@@ -98,7 +101,9 @@ class SourceActivityTests(unittest.TestCase):
                      for sql, args in (
                          ("SELECT MAX(first_seen_at) FROM item_discoveries WHERE source_id=?", (1,)),
                          ("SELECT first_seen_at FROM item_discoveries WHERE source_id=? AND first_seen_at>=?",
-                          (1, "2026-10-01")))]
+                          (1, "2026-10-01")),
+                         ("""SELECT MIN(first_seen_at) FROM item_discoveries WHERE source_id=? AND first_seen_at>=?
+                             GROUP BY substr(first_seen_at,1,16)""", (1, "2026-10-01")))]
         for plan in plans:
             self.assertIn("idx_item_discoveries_source_seen", plan)
             self.assertNotIn("SCAN item_discoveries", plan)
