@@ -88,7 +88,15 @@ docker compose exec worker python cli.py self-check
 
 ## 6. 升级、回退与恢复
 
-- **升级**：[Windows 升级指南](WINDOWS_CUTOVER.md) 第 6 步（停机几分钟，升级前自动备份）。
+- **升级**：在 PowerShell 里粘贴这一行（每次都是同一行，顺序已经写在里面）：
+
+  ```powershell
+  cd ~\Server\infohub; git pull; powershell -ExecutionPolicy Bypass -File deploy\windows\update.ps1
+  ```
+
+  它依次拉取新代码、构建并启动（数据库要升级时先自动备份）、等网站和后台都报出新版本号。最后一行是绿色的
+  `DONE: InfoHub is running <版本号>` 就是成功；红色的 `STOPPED: ...` 说明停在了哪一步，之后的步骤没有执行，
+  把窗口拍给 Claude。细节见 [Windows 升级指南](WINDOWS_CUTOVER.md) 第 6 步。
 - **升级后有问题，回到上一版**：同一指南第 11 步。
 - **数据坏了或误操作，用夜间备份恢复**：[运维手册](RUNBOOK.md)“从备份恢复到线上”，照着那几条命令做；当前库会被移到
   卷里的 `replaced/`，不会被删除。
