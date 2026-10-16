@@ -180,7 +180,8 @@ docker compose run --rm --no-deps migrate python cli.py coverage-preview   # 只
 1. 每天新增条数：`items`，其中 Nasdaq 个股源的 `coverage_feed_items`、认到覆盖公司的 `coverage_linked_items`，以及已评分 `scored`、
    保留 `kept`；
 2. AI 用量：`ai` 按任务（`score` 评分、`tmt` 补判定、`title` 补标题、`daily_report` 日报）列出请求数、失败数、输入与输出 token 和条数，
-   费用按服务商当时的单价换算；
+   费用按服务商当时的单价换算；`ai_failures` 按原因数失败的请求（`content_filter` 内容审查拒绝，批次会对半拆开重试，属预期；
+   `rate_limited` 说明 `INFOHUB_AI_PARALLEL` 偏高；`quota` 是余额不足，所有 AI 会停）。AI 卡住告警（`ai_stalled`）会附上当天的失败原因；
 3. 数据库每天涨多少：`database_growth_bytes`（worker 每轮抓取后记一次当天大小，取前后两天之差）；
 4. 抽 50 条核对公司认得对不对（人工）。
 

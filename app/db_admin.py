@@ -4096,6 +4096,24 @@ def _daily_metrics(db: sqlite3.Connection) -> None:
     _execute_script(db, DAILY_METRICS_SQL)
 
 
+# Why model requests fail, per day and task: a content-filter refusal is expected and handled by
+# splitting the batch, a rate limit means AI_PARALLEL is too high, an empty balance stops all AI.
+AI_FAILURES_SQL = """
+CREATE TABLE ai_failures_daily (
+    day TEXT NOT NULL CHECK(length(day) = 10),
+    task TEXT NOT NULL CHECK(length(task) BETWEEN 1 AND 40),
+    kind TEXT NOT NULL CHECK(kind IN ('content_filter','rate_limited','quota','timeout','connection',
+                                      'auth','server','other')),
+    calls INTEGER NOT NULL DEFAULT 0 CHECK(calls >= 0),
+    PRIMARY KEY(day, task, kind)
+);
+"""
+
+
+def _ai_failures(db: sqlite3.Connection) -> None:
+    _execute_script(db, AI_FAILURES_SQL)
+
+
 # Migration 1 freezes the exact legacy schema at main@88a2a1e. Future schema
 # changes must append a new Migration instead of editing this definition.
 MIGRATIONS = (
@@ -4294,6 +4312,7 @@ MIGRATIONS = (
     Migration(56, "queue topic reassignment apart from event matching", TOPIC_QUEUE_SQL, _topic_queue),
     Migration(57, "security master and coverage companies", SECURITY_MASTER_SQL, _security_master),
     Migration(58, "daily model usage and database size", DAILY_METRICS_SQL, _daily_metrics),
+    Migration(59, "daily model failures by kind", AI_FAILURES_SQL, _ai_failures),
 )
 CURRENT_SCHEMA_VERSION = MIGRATIONS[-1].version
 REQUIRED_MIGRATION_COLUMNS = {

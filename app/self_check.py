@@ -11,6 +11,7 @@ single slow item does not page anyone.
 
 import json
 import os
+import sqlite3
 from dataclasses import asdict, dataclass
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -67,8 +68,27 @@ def _ai(db, now: datetime) -> list[Problem]:
         (oldest.isoformat(), newest.isoformat()),
     ).fetchone()
     if total >= MIN_AI_ITEMS and unscored > total * AI_UNSCORED_SHARE:
-        return [Problem("ai_stalled", f"1–6 小时前抓到的 {total} 条中 {unscored} 条仍未评分")]
+        return [Problem("ai_stalled", f"1–6 小时前抓到的 {total} 条中 {unscored} 条仍未评分"
+                        + _ai_failure_hint(db, now))]
     return []
+
+
+FAILURE_LABELS = {"quota": "余额不足", "auth": "密钥无效", "rate_limited": "请求过快被限流", "timeout": "超时",
+                  "connection": "连不上", "server": "服务商出错", "content_filter": "内容审查拒绝", "other": "其他"}
+
+
+def _ai_failure_hint(db, now: datetime) -> str:
+    """Today's failed model requests by cause, so the alert says why (an empty balance, a revoked key)."""
+    try:
+        rows = db.execute(
+            "SELECT kind, SUM(calls) AS n FROM ai_failures_daily WHERE day=? GROUP BY kind ORDER BY n DESC",
+            (now.astimezone(config.APP_TZ).strftime("%Y-%m-%d"),)).fetchall()
+    except sqlite3.Error:
+        return ""
+    if not rows:
+        return ""
+    return "；今天模型请求失败：" + "、".join(f"{FAILURE_LABELS.get(row['kind'], row['kind'])} {row['n']} 次"
+                                          for row in rows)
 
 
 def _failed_jobs(db, now: datetime) -> list[Problem]:

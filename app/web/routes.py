@@ -470,6 +470,9 @@ def _system_snapshot() -> dict:
             """SELECT j.kind,j.priority,j.attempt_count AS attempt,a.started_at FROM jobs j
                LEFT JOIN job_attempts a ON a.lease_token=j.lease_token
                WHERE j.state='running' ORDER BY a.started_at""")]
+        retrying = [dict(row) for row in db.execute(
+            """SELECT kind,attempt_count AS attempt,max_attempts,next_attempt_at,error_code FROM jobs
+               WHERE state='retry_wait' ORDER BY next_attempt_at LIMIT 20""")]
         ready_by_kind = {row["kind"]: {"count": row["n"], "oldest_at": row["oldest"]} for row in db.execute(
             """SELECT kind,COUNT(*) AS n,MIN(next_attempt_at) AS oldest FROM jobs
                WHERE state IN ('pending','retry_wait') AND next_attempt_at<=?
@@ -593,6 +596,7 @@ def _system_snapshot() -> dict:
             "expired_running": expired_running,
             "running": running_jobs,
             "ready_by_kind": ready_by_kind,
+            "retrying": retrying,
         },
         "ingest": {
             "states": ingest_states,
