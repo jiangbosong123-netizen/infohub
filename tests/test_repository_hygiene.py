@@ -36,6 +36,16 @@ class RepositoryHygieneTests(unittest.TestCase):
             with self.subTest(script=script.name):
                 self.assertTrue(script.read_bytes().isascii())
 
+    def test_the_documented_update_line_runs_the_update_script(self):
+        line = r"cd ~\Server\infohub; git pull; powershell -ExecutionPolicy Bypass -File deploy\windows\update.ps1"
+        script = (ROOT / "deploy" / "windows" / "update.ps1").read_text(encoding="ascii")
+        self.assertIn(line, script)
+        for guide in ("OWNER_GUIDE.md", "WINDOWS_CUTOVER.md"):
+            with self.subTest(guide=guide):
+                self.assertIn(line, (ROOT / "docs" / guide).read_text(encoding="utf-8"))
+        # The build must never start from a pull that did not reach GitHub main.
+        self.assertLess(script.index("origin/main"), script.index("docker compose up"))
+
     def test_data_copies_and_env_files_are_never_committed(self):
         ignored = (ROOT / ".gitignore").read_text(encoding="utf-8").splitlines()
         for pattern in (".env", ".env.*", "!.env.example", "data/", "/data-*/", "*.db"):

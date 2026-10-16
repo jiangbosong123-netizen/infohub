@@ -137,6 +137,16 @@ INFOHUB_PUBLIC_ORIGIN=https://windows-server.<tailnet>.ts.net
 
 第一次升级（2026-10-14）时数据还在 `data` 文件夹；之后的版本要求命名卷 `infohub-data`，数据还在文件夹里时先做第 6b 步。
 
+日常升级只用一行（`deploy/windows/update.ps1`：拉取，拉取没到 GitHub main 就停下；以新版本号构建启动；等 `/api/ready`
+里网站和 worker 都报出新版本号，最多 15 分钟）：
+
+```powershell
+cd ~\Server\infohub; git pull; powershell -ExecutionPolicy Bypass -File deploy\windows\update.ps1
+```
+
+2026-10-15 分三行输入时，两次把 `docker compose up` 放在了 `git pull` 前面，重启后仍是旧版本，所以改成一个脚本。
+下面是脚本做的事，排查时可以逐行运行：
+
 ```powershell
 git pull --ff-only origin main
 $env:APP_VERSION = (git rev-parse --short=12 HEAD)
