@@ -8,7 +8,7 @@ CIK 缺失时从 SEC 官方 ticker/exchange 关联文件解析并回填数据库
 import json
 import re
 import time
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 import httpx
 
@@ -29,6 +29,11 @@ _HEADER_FIELDS = re.compile(r"^<(ACCEPTANCE-DATETIME|ACCESSION-NUMBER)>(\S+)", r
 # Header reads per run, newest filings first; the rest wait for a later run. A newly followed
 # company brings 40 filings at once, and an empty dataset of 13 companies fills in about 90 minutes.
 HEADER_READS_PER_RUN = 60
+# Filings filed longer ago than this are not collected. A company added to coverage lists its 40
+# latest filings, which for a small issuer reach back months: when tier 1 added 133 companies on
+# 10-15, 4,453 of the 5,319 filings collected the next day were over 30 days old (2,896 of them
+# insider forms) and each went through the model. Newer filings of a known company are unaffected.
+FILING_MAX_AGE = timedelta(days=30)
 
 _FORM_DESC = {
     "8-K": ("重大事件报告", ""),
@@ -331,12 +336,15 @@ def fetch_sec(source: dict) -> list[dict]:
             continue
         recent = data.get("filings", {}).get("recent", {})
         forms = recent.get("form", [])
+        oldest = (response_observed_at - FILING_MAX_AGE).date().isoformat()
         for i in range(min(len(forms), 40)):
             accession = _at(recent, "accessionNumber", i)
             doc = _at(recent, "primaryDocument", i) or ""
             if not accession:
                 continue
             if not doc:
+                continue
+            if str(_at(recent, "filingDate", i) or "9999") < oldest:
                 continue
             filings.append(dict(
                 company=c, data=data, recent=recent, index=i, cik=c["cik"], accession=accession,

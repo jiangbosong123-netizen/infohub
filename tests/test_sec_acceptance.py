@@ -1,6 +1,7 @@
 import json
 import tempfile
 import unittest
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
@@ -88,8 +89,10 @@ class SecAcceptanceTests(unittest.TestCase):
                           VALUES('alphabet','Alphabet Inc.','Alphabet','GOOGL','US',?,'[]')""", (CIK,))
             sync_identity_catalog(db)
         self.source = next(s for s in runner.all_sources() if s["type"] == "sec")
+        # These fixtures span March to October; the age limit has its own test.
         for target, name, value in ((sec_source, "resolve_missing_ciks", lambda companies: {}),
-                                    (sec_source.time, "sleep", lambda seconds: None)):
+                                    (sec_source.time, "sleep", lambda seconds: None),
+                                    (sec_source, "FILING_MAX_AGE", timedelta(days=36500))):
             item = patch.object(target, name, value)
             item.start()
             self.addCleanup(item.stop)
@@ -129,6 +132,18 @@ class SecAcceptanceTests(unittest.TestCase):
         self.run_sec(fake)
         self.assertEqual(len(fake.header_reads), 3)
         self.assertEqual((self.count("raw_records"), self.count("sec_filing_versions")), before)
+
+    def test_filings_older_than_the_age_limit_are_not_collected(self):
+        class Clock(datetime):
+            @classmethod
+            def now(cls, tz=None):
+                return datetime(2026, 10, 17, 12, 0, tzinfo=timezone.utc)
+
+        fake = FakeSec()
+        with patch.object(sec_source, "FILING_MAX_AGE", timedelta(days=30)), patch.object(sec_source, "datetime", Clock):
+            self.run_sec(fake)
+        self.assertEqual(set(self.items()), {url_of(FILINGS[0])})  # the 10-08 8-K; not July or March
+        self.assertEqual(len(fake.header_reads), 1)
 
     def test_new_filings_beyond_the_budget_wait_for_a_later_run(self):
         fake = FakeSec()

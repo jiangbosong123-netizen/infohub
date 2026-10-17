@@ -1,3 +1,4 @@
+import json
 import tempfile
 import threading
 import unittest
@@ -109,6 +110,26 @@ class ParallelScoringTests(unittest.TestCase):
         with patch.object(pipeline, "_call_llm", side_effect=call):
             self.assertEqual(pipeline.process_pending(limit=4, parallel=3), 8)
         self.assertEqual(self.scored(), 8)
+
+    def test_routine_filings_take_a_fixed_judgement_without_the_model(self):
+        with database.get_db() as db:
+            db.execute("""UPDATE items SET official=1, event_type='insider', title='Chipworks Inc. · SEC 内部人持股变动',
+                          extra=json_set(CASE WHEN json_valid(extra) THEN extra ELSE '{}' END,'$.routine',json('true'))
+                          WHERE id IN (1,2)""")
+        sent = []
+
+        def call(payload):
+            sent.extend(entry["id"] for entry in payload)
+            return self.verdicts(payload)
+
+        with patch.object(pipeline, "_call_llm", side_effect=call):
+            self.assertEqual(pipeline.process_pending(limit=30), 12)
+        self.assertEqual(sorted(sent), list(range(3, 13)))
+        with database.get_db() as db:
+            row = dict(db.execute("SELECT score,tmt,title_zh,reason,event_type,extra FROM items WHERE id=1").fetchone())
+        self.assertEqual((row["score"], row["tmt"], row["title_zh"], row["reason"], row["event_type"]),
+                         (pipeline.ROUTINE_SCORE, 1, "Chipworks Inc. · SEC 内部人持股变动", "", "insider"))
+        self.assertEqual(json.loads(row["extra"])["ai_rule"], "routine")
 
     def test_the_backfills_leave_unscored_items_to_scoring(self):
         with database.get_db() as db:
