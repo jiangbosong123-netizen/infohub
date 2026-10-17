@@ -4114,6 +4114,21 @@ def _ai_failures(db: sqlite3.Connection) -> None:
     _execute_script(db, AI_FAILURES_SQL)
 
 
+# The scoring model's good-or-bad-news call per item (-2..2) for the portal's mood face. A side
+# table, so items, its triggers and the legacy hashes stay as they are.
+ITEM_MOODS_SQL = """
+CREATE TABLE item_moods (
+    item_id INTEGER PRIMARY KEY REFERENCES items(id) ON DELETE CASCADE,
+    mood INTEGER NOT NULL CHECK(mood BETWEEN -2 AND 2),
+    judged_at TEXT NOT NULL
+);
+"""
+
+
+def _item_moods(db: sqlite3.Connection) -> None:
+    _execute_script(db, ITEM_MOODS_SQL)
+
+
 # Migration 1 freezes the exact legacy schema at main@88a2a1e. Future schema
 # changes must append a new Migration instead of editing this definition.
 MIGRATIONS = (
@@ -4313,6 +4328,7 @@ MIGRATIONS = (
     Migration(57, "security master and coverage companies", SECURITY_MASTER_SQL, _security_master),
     Migration(58, "daily model usage and database size", DAILY_METRICS_SQL, _daily_metrics),
     Migration(59, "daily model failures by kind", AI_FAILURES_SQL, _ai_failures),
+    Migration(60, "the scoring model's mood per item", ITEM_MOODS_SQL, _item_moods),
 )
 CURRENT_SCHEMA_VERSION = MIGRATIONS[-1].version
 REQUIRED_MIGRATION_COLUMNS = {
