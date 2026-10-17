@@ -42,7 +42,15 @@ while ((Get-Date) -lt $deadline) {
         }
         $last = "site $($ready.version), worker $($ready.worker.version), ready $($ready.ready)"
     } catch {
+        # /api/ready answers 503 until ready, and Invoke-RestMethod throws on it; the body still
+        # says what is missing.
         $last = "site not answering yet"
+        if ($_.ErrorDetails -and $_.ErrorDetails.Message) {
+            try {
+                $body = $_.ErrorDetails.Message | ConvertFrom-Json
+                $last = "site $($body.version), worker $($body.worker.version), ready $($body.ready), issues: $($body.issues -join ', ')"
+            } catch { }
+        }
     }
     Start-Sleep -Seconds 10
 }

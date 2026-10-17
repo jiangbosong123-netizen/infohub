@@ -111,6 +111,22 @@ class ParallelScoringTests(unittest.TestCase):
             self.assertEqual(pipeline.process_pending(limit=4, parallel=3), 8)
         self.assertEqual(self.scored(), 8)
 
+    def test_an_answer_naming_another_requests_item_is_ignored(self):
+        def call(payload):
+            ids = [entry["id"] for entry in payload]
+            verdicts = [dict(id=item_id, tmt=True, score=50, summary_zh=f"summary of {item_id}", title_zh="t",
+                             reason="r") for item_id in ids]
+            if 1 in ids:  # the model copies the neighbouring chunk's id 11 instead of 1
+                verdicts[ids.index(1)]["id"] = 11
+            return verdicts
+
+        with patch.object(pipeline, "_call_llm", side_effect=call):
+            pipeline.process_pending(limit=4, parallel=3)
+        with database.get_db() as db:
+            rows = {row["id"]: (row["score"], row["summary"]) for row in db.execute("SELECT id,score,summary FROM items")}
+        self.assertEqual(rows[11], (50, "summary of 11"))  # its own request's verdict
+        self.assertIsNone(rows[1][0])  # unanswered, so it waits for the next round
+
     def test_routine_filings_take_a_fixed_judgement_without_the_model(self):
         with database.get_db() as db:
             db.execute("""UPDATE items SET official=1, event_type='insider', title='Chipworks Inc. · SEC 内部人持股变动',
