@@ -176,6 +176,32 @@ def _judge(payload: list[dict], alone: bool = False) -> tuple[list, list[int]]:
         return first[0] + second[0], first[1] + second[1]
 
 
+# Routine official filings (extra.routine: SEC insider forms 3/4/5/144, HKEX next-day returns) carry
+# a Chinese title and summary from their connector and never reach the selected feed (D25). The
+# model added little for them: 3,641 judged by 10-16 averaged 23 (max 55) with boilerplate reasons,
+# yet they were a third of that day's calls. They now take a fixed judgement instead.
+ROUTINE_SCORE = 25
+
+
+def _rule_judgements(db, rows) -> set[int]:
+    done = set()
+    for row in rows:
+        try:
+            routine = bool(json.loads(row["extra"] or "{}").get("routine"))
+        except (TypeError, ValueError, AttributeError):
+            routine = False
+        if not routine:
+            continue
+        db.execute(
+            """UPDATE items SET score=?, tmt=1, reason='', ai_cat=NULL,
+                      title_zh=CASE WHEN title_zh='' THEN title ELSE title_zh END,
+                      extra=json_set(CASE WHEN json_valid(extra) THEN extra ELSE '{}' END, '$.ai_rule', 'routine')
+               WHERE id=? AND score IS NULL""",
+            (ROUTINE_SCORE, row["id"]))
+        done.add(row["id"])
+    return done
+
+
 def process_pending(limit: int = 20, parallel: int = 1) -> int:
     """处理未评分条目（新旧条目按配额处理，避免旧条目被持续的新消息挤出），返回成功更新条数。
 
@@ -190,13 +216,15 @@ def process_pending(limit: int = 20, parallel: int = 1) -> int:
     waiting, params = waiting_for_text_clause(datetime.now(timezone.utc))
     with get_db() as db:
         query = ("SELECT i.id,i.title,i.summary,i.raw_summary,i.channel,i.event_type,i.official,i.companies,"
-                 "i.published_at FROM items i WHERE i.score IS NULL" + waiting + " ORDER BY i.id {} LIMIT ?")
+                 "i.published_at,i.extra FROM items i WHERE i.score IS NULL" + waiting + " ORDER BY i.id {} LIMIT ?")
         # Reserve a quarter of each batch for the oldest backlog, while keeping
         # most capacity for fresh news. A busy feed cannot starve old items.
         oldest = db.execute(query.format('ASC'),(*params, max(1,limit//4))).fetchall()
         latest = db.execute(query.format('DESC'),(*params, limit)).fetchall()
         rows = list({r['id']:r for r in oldest+latest}.values())[:limit]
-        reused = _reuse_judgements(db, rows)
+        reused = _rule_judgements(db, rows)
+        rows = [r for r in rows if r["id"] not in reused]
+        reused |= _reuse_judgements(db, rows)
         rows = [r for r in rows if r["id"] not in reused]
         texts = excerpts(db, (r["id"] for r in rows))
     if not rows:
