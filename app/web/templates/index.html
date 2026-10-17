@@ -15,6 +15,7 @@
   </form>
 </div>
 
+{% if fresh_since %}<button type="button" class="fresh-pill" data-since="{{ fresh_since }}" hidden></button>{% endif %}
 <nav class="tabs">
   {% for key, label in tabs %}
   <a class="{{ 'on' if channel == key }}"

@@ -110,5 +110,30 @@ class MoodTests(unittest.TestCase):
         self.assertNotIn('class="mood ', page.text)
 
 
+    def test_an_open_page_can_fetch_the_face_alone(self):
+        for n in range(25):
+            self.add(n, mood_value=2)
+        with patch.object(mood, "datetime") as clock:
+            clock.now.return_value = NOW
+            response = TestClient(routes.app).get("/fragment/mood")
+        self.assertEqual(response.headers["cache-control"], "no-store")
+        self.assertIn('class="mood mood-great"', response.text)
+        self.assertNotIn("<html", response.text)
+
+    def test_the_feed_learns_how_many_items_arrived_since_it_was_rendered(self):
+        self.add(1, hours_ago=3)
+        page = TestClient(routes.app).get("/").text
+        with database.get_db() as db:
+            newest = db.execute("SELECT MAX(fetched_at) FROM items").fetchone()[0]
+        self.assertIn(f'data-since="{newest}"', page)
+        client = TestClient(routes.app)
+        self.assertEqual(client.get("/api/fresh", params={"since": newest}).json(), {"new": 0, "capped": False})
+        self.add(2, hours_ago=1)
+        self.add(3, hours_ago=1, tmt=0)  # not relevant: not counted
+        self.assertEqual(client.get("/api/fresh", params={"since": newest}).json()["new"], 1)
+        self.assertEqual(client.get("/api/fresh", params={"since": "yesterday at noon"}).status_code, 400)
+        self.assertNotIn('class="fresh-pill"', client.get("/", params={"page": 2}).text)  # only the first page
+
+
 if __name__ == "__main__":
     unittest.main()
