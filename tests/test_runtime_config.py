@@ -253,6 +253,17 @@ class RuntimeConfigurationTests(unittest.TestCase):
         compose = yaml.safe_load((config.BASE_DIR / "compose.yaml").read_text(encoding="utf-8"))
         self.assertEqual(compose["volumes"], {"infohub-data": {"external": True, "name": "infohub-data"}})
 
+    def test_every_feature_flag_reaches_the_containers(self):
+        # 10-18: INFOHUB_API_SIGNALS_ENABLED was set in .env but never passed to the site, so
+        # signals.cmd waited for an API that could not turn on.
+        import re
+        compose = yaml.safe_load((config.BASE_DIR / "compose.yaml").read_text(encoding="utf-8"))
+        passed = set(compose["x-infohub-environment"])
+        source = (config.BASE_DIR / "app" / "config.py").read_text(encoding="utf-8")
+        flags = set(re.findall(r'"(INFOHUB_API_[A-Z_]+_ENABLED)"', source))
+        self.assertTrue(flags)
+        self.assertEqual(flags - passed, set())
+
     def test_compose_production_environment_passes_runtime_validation(self):
         compose = yaml.safe_load((config.BASE_DIR / "compose.yaml").read_text(encoding="utf-8"))
         expected_roles = {"migrate": "maintenance", "infohub": "web", "worker": "worker"}
