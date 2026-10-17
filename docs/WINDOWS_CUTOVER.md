@@ -191,7 +191,7 @@ powershell -ExecutionPolicy Bypass -File $env:TEMP\move-to-volume.ps1
 
 - 新窗口先运行 `$env:APP_VERSION = (git rev-parse --short=12 HEAD)`，再看 `docker compose ps`，两个服务应在几分钟内变为
   healthy。
-- `data-before-volume-<时间>` 留到第 8 步的备份包和隔离恢复都通过后再删（存储方式变更后必须做恢复演练，见
+- `data-before-volume-<时间>` 留到夜间备份包的隔离恢复演练通过后再删（2026-10-15 已通过，见第 8b 步；存储方式变更后必须做恢复演练，见
   `docs/spec/OPERATIONS.md` 3.2）。
 - 查看卷里的文件：`docker compose run --rm --no-deps migrate ls -la /app/data /app/data/backups/nightly`。
 - 项目下会多一个空的 `host-disk` 文件夹：容器只读挂载它，用来看 C 盘还剩多少空间（卷在容器里只显示 Docker 的虚拟磁盘）。
@@ -206,7 +206,18 @@ $env:APP_VERSION = (git rev-parse --short=12 HEAD)
 docker compose up -d --build
 ```
 
-## 7. 补历史数据（门户可用，Mac 同机实测约 33 分钟（2026-10-14）；演练时的旧版本为 3.5–4 小时，Windows 可能更慢）
+## 7. 补历史数据（门户可用；10-16 的生产备份在 Mac 上约 6 分钟，另加需联网的 SEC 时间校正约 4 分钟，Windows 可能慢一倍）
+
+第 7、8 步合成一行（`deploy/windows/backfill.ps1`：暂停 worker、依次运行下面的回填和第 8 步的审计，任何一步失败就停下；
+无论成败最后都重新启动 worker；输出同时存到桌面的 `infohub-backfill.txt`）。旧 AI 评分记录的导入暂缓，见第 7b 步和 [D32](spec/DECISIONS.md)：
+
+```powershell
+cd ~\Server\infohub; git pull; powershell -ExecutionPolicy Bypass -File deploy\windows\backfill.ps1
+```
+
+最后一行绿色 `DONE` 是成功；红色 `STOPPED at: <步骤>` 说明停在哪一步，worker 已恢复，把窗口或桌面那个文件发给 Claude。
+每一步都可以重跑，已经做完的会跳过。第 8 步的手动备份包脚本不做：主机常开后，当晚 03:30 的夜间备份就包含回填后的数据，
+而手动包放在 `nightly/` 之外，不会被自动清理。下面是脚本做的事，排查时可以逐行运行。
 
 回填期间建议暂停采集，避免与 worker 争用数据库写锁；如果更在意采集连续，也可以不停（会变慢但不会出错）。
 
@@ -217,20 +228,31 @@ docker compose run --rm migrate python cli.py legacy-topic-backfill 1000
 docker compose run --rm migrate python cli.py legacy-event-project
 docker compose run --rm migrate python cli.py routine-filings-mark --apply   # 几秒；旧库的 SEC 内部人申报与港交所翌日披露報表不再进精选
 docker compose run --rm migrate python cli.py sec-acceptance-times --apply   # 约 4 分钟，需联网；按 SEC 文件头改正旧 SEC 卡片时间（演练数据 641 份中 119 份早了 4 小时），中断后重新运行即可续跑
-docker compose run --rm migrate python cli.py legacy-curation-run       # 约 24 分钟（含排队）；中断后重新运行即可续跑
-docker compose run --rm migrate python cli.py projection-builders-run   # 约 3 分钟
+docker compose start worker
+```
+
+## 7b. 旧 AI 评分记录导入新分析结构（暂缓，[D32](spec/DECISIONS.md)）
+
+只在要打开新精选读取（`INFOHUB_CURATION_READ_ENABLED` 等）之前做。10-16 的数据上会让数据库从约 1.6 GB 涨到约 5 GB，
+所以先确认 C 盘空间和备份保留份数。
+
+```powershell
+docker compose stop worker
+docker compose run --rm migrate python cli.py legacy-curation-run       # Mac 上 27 分钟（10-16 数据）；中断后重新运行即可续跑
+docker compose run --rm migrate python cli.py projection-builders-run   # Mac 上约 4 分钟
+docker compose run --rm migrate python cli.py db-curation-audit
+docker compose run --rm migrate python cli.py db-projection-audit
 docker compose start worker
 ```
 
 `legacy-curation-run` 结束时若报告 `remaining` 不为空（等待重试的任务），过几分钟再运行一次。
 
-## 8. 审计与备份包
+## 8. 审计
 
 ```powershell
-foreach ($c in "db-verify","raw-verify","evidence-verify","db-curation-audit","db-projection-audit","db-event-audit","db-coverage") {
+foreach ($c in "db-verify","raw-verify","evidence-verify","db-event-audit") {
   docker compose run --rm migrate python cli.py $c
 }
-docker compose run --rm migrate python cli.py db-bundle-backup     # Mac 演练约 8 分钟（4.9 GB）
 ```
 
 逐条看输出：`db-verify` 的 `state` 应为 `current`、`integrity` 为 `ok`；各审计命令不应报错或列出问题；`db-coverage`

@@ -158,6 +158,34 @@ class EventCandidateProjectionTests(unittest.TestCase):
         self.assertEqual(len(links), 2)
         self.assertIsNotNone(links[-1]["supersedes_link_id"])
 
+    def test_an_item_sharing_another_items_document_is_projected_through_its_mapping(self):
+        first = self._ingest("OpenAI releases a coding platform for developers")
+        self._prepare()
+        with database.get_db() as db:
+            # The same article seen again under a trailing-slash URL: the backfill maps the second
+            # item to the first item's document, whose legacy_item_id names only the first.
+            dataset_id = db.execute("SELECT dataset_id FROM dataset_state WHERE singleton=1").fetchone()[0]
+            document_id, story_id = db.execute(
+                """SELECT d.id, si.story_id FROM documents d JOIN story_items si ON si.item_id=d.legacy_item_id
+                   WHERE d.legacy_item_id=?""", (first,)).fetchone()
+            second = db.execute(
+                """INSERT INTO items(source_id,url,title,channel,published_at,fetched_at,companies)
+                   SELECT source_id,url||'/',title,channel,published_at,fetched_at,companies FROM items WHERE id=?""",
+                (first,)).lastrowid
+            db.execute("DELETE FROM story_items WHERE item_id=? AND story_id<>?", (second, story_id))
+            db.execute("""INSERT OR REPLACE INTO story_items(item_id,story_id,match_reason,match_score)
+                          VALUES(?,?,'titles-v3',1)""", (second, story_id))
+            db.execute(
+                """INSERT INTO legacy_object_mappings(dataset_id,resource_type,legacy_key,target_type,target_id,
+                       legacy_sha256,mapping_status,detail_json,available_at)
+                   VALUES(?,'item',?,'document',?,?,'mapped_unverified','{}','2026-09-17T10:05:00Z')""",
+                (dataset_id, str(second), document_id, "0" * 64))
+            db.execute("DELETE FROM stories WHERE id<>? AND id NOT IN (SELECT story_id FROM story_items)", (story_id,))
+            report = project_legacy_stories(db)
+            links = db.execute("SELECT COUNT(*) FROM document_event_links").fetchone()[0]
+        self.assertEqual(report.events_created, 1)
+        self.assertEqual(links, 1)  # one document, linked once
+
     def test_projection_rejects_story_items_without_document_evidence(self):
         with database.get_db() as db:
             db.execute(
