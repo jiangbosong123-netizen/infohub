@@ -1,10 +1,11 @@
 # One-command update of InfoHub on the Windows host: pull, build, start, then confirm that the
 # running site reports the new version. Paste this one line into PowerShell:
 #
-#   cd ~\Server\infohub; git pull; powershell -ExecutionPolicy Bypass -File deploy\windows\update.ps1
+#   cd ~\Server\infohub; git pull; .\update.cmd
 #
-# The leading git pull only matters the first time (it brings this script); the script pulls
-# again and stops before building if the pull did not work, so the order can no longer go wrong.
+# update.cmd at the top of the repository runs this script with the execution policy it needs;
+# a short line survives copying where the full powershell command was cut in two (10-17).
+# The script pulls again and stops before building if the pull did not work.
 # The database is backed up before any schema upgrade by the migrate service, as always.
 $ErrorActionPreference = "Continue"
 Set-Location (Join-Path $env:USERPROFILE "Server\infohub")

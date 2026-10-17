@@ -141,7 +141,7 @@ INFOHUB_PUBLIC_ORIGIN=https://windows-server.<tailnet>.ts.net
 里网站和 worker 都报出新版本号，最多 15 分钟）：
 
 ```powershell
-cd ~\Server\infohub; git pull; powershell -ExecutionPolicy Bypass -File deploy\windows\update.ps1
+cd ~\Server\infohub; git pull; .\update.cmd
 ```
 
 2026-10-15 分三行输入时，两次把 `docker compose up` 放在了 `git pull` 前面，重启后仍是旧版本，所以改成一个脚本。
@@ -212,10 +212,12 @@ docker compose up -d --build
 无论成败最后都重新启动 worker；输出同时存到桌面的 `infohub-backfill.txt`）。旧 AI 评分记录的导入暂缓，见第 7b 步和 [D32](spec/DECISIONS.md)：
 
 ```powershell
-cd ~\Server\infohub; git pull; powershell -ExecutionPolicy Bypass -File deploy\windows\backfill.ps1
+cd ~\Server\infohub; git pull; .\backfill.cmd
 ```
 
 最后一行绿色 `DONE` 是成功；红色 `STOPPED at: <步骤>` 说明停在哪一步，worker 已恢复，把窗口或桌面那个文件发给 Claude。
+它先确认网站已经在跑这个文件夹的代码，没有就停下并提示先更新，所以可以和更新连在一起：
+`cd ~\Server\infohub; git pull; .\update.cmd; .\backfill.cmd`。
 每一步都可以重跑，已经做完的会跳过。第 8 步的手动备份包脚本不做：主机常开后，当晚 03:30 的夜间备份就包含回填后的数据，
 而手动包放在 `nightly/` 之外，不会被自动清理。下面是脚本做的事，排查时可以逐行运行。
 

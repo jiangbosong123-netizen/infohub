@@ -91,7 +91,7 @@ docker compose exec worker python cli.py self-check
 - **升级**：在 PowerShell 里粘贴这一行（每次都是同一行，顺序已经写在里面）：
 
   ```powershell
-  cd ~\Server\infohub; git pull; powershell -ExecutionPolicy Bypass -File deploy\windows\update.ps1
+  cd ~\Server\infohub; git pull; .\update.cmd
   ```
 
   它依次拉取新代码、构建并启动（数据库要升级时先自动备份）、等网站和后台都报出新版本号。最后一行是绿色的

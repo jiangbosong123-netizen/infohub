@@ -37,9 +37,10 @@ class RepositoryHygieneTests(unittest.TestCase):
                 self.assertTrue(script.read_bytes().isascii())
 
     def test_the_documented_update_line_runs_the_update_script(self):
-        line = r"cd ~\Server\infohub; git pull; powershell -ExecutionPolicy Bypass -File deploy\windows\update.ps1"
+        line = r"cd ~\Server\infohub; git pull; .\update.cmd"
         script = (ROOT / "deploy" / "windows" / "update.ps1").read_text(encoding="ascii")
         self.assertIn(line, script)
+        self.assertIn(r'-File "%~dp0deploy\windows\update.ps1"', (ROOT / "update.cmd").read_text(encoding="ascii"))
         for guide in ("OWNER_GUIDE.md", "WINDOWS_CUTOVER.md"):
             with self.subTest(guide=guide):
                 self.assertIn(line, (ROOT / "docs" / guide).read_text(encoding="utf-8"))
@@ -47,8 +48,11 @@ class RepositoryHygieneTests(unittest.TestCase):
         self.assertLess(script.index("origin/main"), script.index("docker compose up"))
 
     def test_the_documented_backfill_line_runs_every_step_and_restarts_the_worker(self):
-        line = r"cd ~\Server\infohub; git pull; powershell -ExecutionPolicy Bypass -File deploy\windows\backfill.ps1"
+        line = r"cd ~\Server\infohub; git pull; .\backfill.cmd"
         script = (ROOT / "deploy" / "windows" / "backfill.ps1").read_text(encoding="ascii")
+        self.assertIn(r'-File "%~dp0deploy\windows\backfill.ps1"', (ROOT / "backfill.cmd").read_text(encoding="ascii"))
+        # It runs this folder's code, so it first checks that the site already runs it.
+        self.assertLess(script.index("/api/live"), script.index("docker compose stop worker"))
         self.assertIn(line, script)
         self.assertIn(line, (ROOT / "docs" / "WINDOWS_CUTOVER.md").read_text(encoding="utf-8"))
         guide = (ROOT / "docs" / "WINDOWS_CUTOVER.md").read_text(encoding="utf-8")
@@ -64,6 +68,14 @@ class RepositoryHygieneTests(unittest.TestCase):
                 self.assertNotIn(f'"{command}"', script)
         self.assertIn("finally", script)  # the worker is started again after a failure too
         self.assertLess(script.index("finally"), script.index("docker compose start worker"))
+
+    def test_windows_launchers_keep_crlf_line_endings(self):
+        self.assertIn("*.cmd text eol=crlf", (ROOT / ".gitattributes").read_text(encoding="ascii"))
+        for launcher in ROOT.glob("*.cmd"):
+            with self.subTest(launcher=launcher.name):
+                data = launcher.read_bytes()
+                self.assertTrue(data.isascii())
+                self.assertEqual(data.count(b"\n"), data.count(b"\r\n"))
 
     def test_data_copies_and_env_files_are_never_committed(self):
         ignored = (ROOT / ".gitignore").read_text(encoding="utf-8").splitlines()
