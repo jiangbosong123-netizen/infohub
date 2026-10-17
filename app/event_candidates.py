@@ -85,7 +85,10 @@ def _event_type(value: object) -> str:
     }.get(str(value or ""), "other")
 
 
-def _story_documents(db: sqlite3.Connection, story_id: str) -> list[sqlite3.Row]:
+def _story_documents(db: sqlite3.Connection, story_id: str, dataset_id: str) -> list[sqlite3.Row]:
+    # An item can share its document with an earlier one (the same URL with a trailing slash, a
+    # Google News re-post of the same article); the backfill maps it to that document, whose
+    # legacy_item_id names only the first item. Six story members on 10-16 were such items.
     rows = db.execute(
         """SELECT item.id AS item_id,item.event_type,item.companies,
                   membership.match_reason,membership.match_score,
@@ -94,13 +97,18 @@ def _story_documents(db: sqlite3.Connection, story_id: str) -> list[sqlite3.Row]
                   input.raw_record_id
            FROM story_items AS membership
            JOIN items AS item ON item.id=membership.item_id
-           LEFT JOIN documents AS document ON document.legacy_item_id=item.id
+           LEFT JOIN legacy_object_mappings AS mapping
+             ON mapping.dataset_id=? AND mapping.resource_type='item'
+            AND mapping.legacy_key=CAST(item.id AS TEXT) AND mapping.target_type='document'
+           LEFT JOIN documents AS document ON document.id=COALESCE(
+               mapping.target_id,
+               (SELECT owner.id FROM documents AS owner WHERE owner.legacy_item_id=item.id))
            LEFT JOIN document_versions AS version ON version.id=document.current_version_id
            LEFT JOIN document_version_inputs AS input
              ON input.version_id=version.id AND input.role='primary'
            WHERE membership.story_id=?
            ORDER BY item.id,input.raw_record_id""",
-        (story_id,),
+        (dataset_id, story_id),
     ).fetchall()
     missing = [row["item_id"] for row in rows if not row["document_version_id"] or not row["raw_record_id"]]
     if missing:
@@ -346,7 +354,7 @@ def project_legacy_stories(db: sqlite3.Connection) -> EventProjectionReport:
     event_by_canonical: dict[str, tuple[str, str]] = {}
     for story_id in sorted({value for value in canonical.values()}):
         story = stories[story_id]
-        rows = _story_documents(db, story_id)
+        rows = _story_documents(db, story_id, dataset_id)
         event_id, version_id, event_created, version_created = _ensure_event(
             db, story=story, rows=rows, now=now, dataset_id=dataset_id,
         )
@@ -378,7 +386,7 @@ def project_legacy_stories(db: sqlite3.Connection) -> EventProjectionReport:
             mappings += 1
         if story_id != canonical_id:
             continue
-        rows = _story_documents(db, story_id)
+        rows = _story_documents(db, story_id, dataset_id)
         added = _project_links(
             db, event_id=event_id, event_version_id=version_id,
             story_id=story_id, rows=rows, dataset_id=dataset_id, now=now,

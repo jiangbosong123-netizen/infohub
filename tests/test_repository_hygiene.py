@@ -46,6 +46,25 @@ class RepositoryHygieneTests(unittest.TestCase):
         # The build must never start from a pull that did not reach GitHub main.
         self.assertLess(script.index("origin/main"), script.index("docker compose up"))
 
+    def test_the_documented_backfill_line_runs_every_step_and_restarts_the_worker(self):
+        line = r"cd ~\Server\infohub; git pull; powershell -ExecutionPolicy Bypass -File deploy\windows\backfill.ps1"
+        script = (ROOT / "deploy" / "windows" / "backfill.ps1").read_text(encoding="ascii")
+        self.assertIn(line, script)
+        self.assertIn(line, (ROOT / "docs" / "WINDOWS_CUTOVER.md").read_text(encoding="utf-8"))
+        guide = (ROOT / "docs" / "WINDOWS_CUTOVER.md").read_text(encoding="utf-8")
+        step7 = guide[guide.index("## 7."):guide.index("## 7b.")]
+        step8 = guide[guide.index("## 8."):guide.index("## 8b.")]
+        audits = set(re.findall(r'"([a-z-]+)"', step8[:step8.index("```", step8.index("```") + 3)]))
+        for command in sorted(set(re.findall(r"python cli\.py ([a-z-]+)", step7)) | audits):
+            with self.subTest(command=command):
+                self.assertIn(f'"{command}"', script)
+        deferred = guide[guide.index("## 7b."):guide.index("## 8.")]  # D32: not run by the script
+        for command in re.findall(r"python cli\.py ([a-z-]+)", deferred):
+            with self.subTest(deferred=command):
+                self.assertNotIn(f'"{command}"', script)
+        self.assertIn("finally", script)  # the worker is started again after a failure too
+        self.assertLess(script.index("finally"), script.index("docker compose start worker"))
+
     def test_data_copies_and_env_files_are_never_committed(self):
         ignored = (ROOT / ".gitignore").read_text(encoding="utf-8").splitlines()
         for pattern in (".env", ".env.*", "!.env.example", "data/", "/data-*/", "*.db"):

@@ -143,6 +143,36 @@ silver 层规则：标注器必须版本化（代码/提示词/模型 ID 的 has
 **生效 PR。** 本记录所在 PR 只确立协议；状态、导入、自复核、指标与标注工具在后续 PR 中逐项实现，
 实施进度见 [`IMPLEMENTATION_STATUS.md`](IMPLEMENTATION_STATUS.md)。
 
+### D32 历史回填只做轻量部分，旧 AI 评分记录的导入暂缓（2026-10-17）
+
+**背景。** 升级计划第 7 步要把 Mac 搬来的旧数据补成新结构。动手前在 Mac 上用 10-16 的生产备份（109,200 条）完整演练了一遍：
+
+| 步骤 | 用时（Mac） | 数据库 |
+|---|---|---|
+| 演练前 | | 0.53 GB |
+| `legacy-backfill`（条目→文档与原始证据） | 282 秒 | 1.13 GB |
+| `legacy-topic-backfill` | 19 秒 | 1.29 GB |
+| `legacy-event-project`（88,078 个候选事件） | 24 秒 | 1.59 GB |
+| `legacy-curation-run`（旧 AI 结果导入新分析结构） | 1,644 秒 | 约 4.9 GB |
+| `projection-builders-run` | 228 秒 | 5.06 GB |
+
+证据文件从 110 MB 增至 537 MB。`legacy-curation-run` 给 88,936 条旧条目各生成 4 个分析结果，每个配一份任务、尝试、授权和变更
+日志（analysis_runs 730 MB、change_log 487 MB、jobs 366 MB、analysis_results 349 MB 等），而这些结果服务的“新精选读取”开关是关着的，
+状态全是 `needs_review`，本身不是质量证据。
+
+**决定。** 第 7 步只做前四步、SEC 时间校正和审计（`deploy/windows/backfill.ps1`）；`legacy-curation-run` 与 `projection-builders-run`
+等到真要打开新精选读取时再做。
+
+**理由。** 数据库从 0.5 GB 涨到 5 GB 会让每晚备份和 Mac 每天拉取都变成约 5 GB；Windows C 盘只剩约 31 GB，两份夜间备份加两份升级前副本
+就要约 20 GB；每次启动的完整校验也要多几分钟。前四步（约 1 GB）让所有条目有了文档、原始证据、主题和候选事件，是按公司查证据（D31 M2）
+的基础，值得现在做。
+
+**演练还查出一处错误。** 同一篇文章的两条记录（同一链接带不带结尾斜杠、Google News 的重复转发）共用一个文档，事件投影只按
+`documents.legacy_item_id` 找文档，于是报“没有文档证据”而整步失败（10-16 的数据里 6 条）。现在按回填写下的
+`legacy_object_mappings` 找文档，见 `tests/test_event_candidates.py`。
+
+**回滚。** 不需要：两步暂缓的命令随时可以补跑，已经做完的会跳过。
+
 ### D31 投研平台：一个大系统、两个方向，Infohub 作全市场新闻与情绪层（2026-10-15）
 
 **背景。** 所有者要把 AI 半导体投研系统、因子实验室和 Infohub 合成一个大系统，Infohub 作为对新闻做情绪与影响分析的子系统，每个系统仍有自己的 App。

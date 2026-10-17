@@ -1,0 +1,98 @@
+{
+  "scope": "Rehearsal of WINDOWS_CUTOVER steps 7 and 8 on a copy of the 10-16 production bundle before running them on Windows (D32)",
+  "recorded_at": "2026-10-17T14:30:00Z",
+  "input": {
+    "bundle": "app.windows-production.20261016T193001.718962Z.bundle",
+    "items": 109200,
+    "schema_version": 59,
+    "database_bytes": 529326080,
+    "blob_bytes_approx": "110 MB"
+  },
+  "where": "Mac, branch claude/backfill-script (main 3e02985e605c + d6d87a22af69 fixes), Python 3.12, SQLite 3.53.1, network tasks off",
+  "full_plan": {
+    "steps_seconds": {
+      "legacy-backfill 1000": 290,
+      "legacy-topic-backfill 1000": 17,
+      "legacy-event-project": "failed after 6 s (see error)",
+      "routine-filings-mark --apply": 1,
+      "legacy-curation-run": 1644,
+      "projection-builders-run": 228
+    },
+    "error": "legacy story 38b8e4c4949b4911a9fade636c35cdd9 has item(s) without document evidence: [44568]; 6 story members share a document with an earlier item (trailing-slash URL, Google News re-post)",
+    "database_bytes_after": 5063696384,
+    "largest_tables_mb": {
+      "analysis_runs": 730.4,
+      "change_log": 486.9,
+      "jobs": 366.0,
+      "analysis_results": 349.3,
+      "job_attempts": 122.1,
+      "document_versions": 120.5,
+      "analysis_attempts": 112.4
+    },
+    "curation_outcomes": {
+      "needs_review": 355619,
+      "refused": 64,
+      "insufficient_evidence": 61
+    },
+    "audits": {
+      "db-verify": "current, integrity ok",
+      "raw-verify": "ok (134,621 records)",
+      "db-curation-audit": "no violations",
+      "db-projection-audit": "usable",
+      "db-event-audit": "blocked until the projection ran"
+    }
+  },
+  "event_projection_after_fix": {
+    "seconds": 223,
+    "events_created": 88078,
+    "links_created": 75583,
+    "db-event-audit": "ok, 0 violations",
+    "note": "run on the full-plan copy; 24 s on the light copy below"
+  },
+  "light_plan_d32": {
+    "steps": [
+      {
+        "command": "legacy-backfill 1000",
+        "seconds": 282,
+        "database_bytes_after": 1134239744
+      },
+      {
+        "command": "legacy-topic-backfill 1000",
+        "seconds": 19,
+        "database_bytes_after": 1294938112
+      },
+      {
+        "command": "legacy-event-project",
+        "seconds": 24,
+        "database_bytes_after": 1585459200
+      },
+      {
+        "command": "routine-filings-mark --apply",
+        "seconds": 0
+      },
+      {
+        "command": "db-verify",
+        "seconds": 7,
+        "result": "current, integrity ok"
+      },
+      {
+        "command": "raw-verify",
+        "seconds": 28,
+        "result": "ok"
+      },
+      {
+        "command": "evidence-verify",
+        "seconds": 27,
+        "result": "ok"
+      },
+      {
+        "command": "db-event-audit",
+        "seconds": 3,
+        "result": "ok"
+      }
+    ],
+    "blob_bytes_after_approx": "537 MB",
+    "not_rehearsed": "sec-acceptance-times --apply (needs SEC network access; rehearsed on 10-14 at about 4 minutes)"
+  },
+  "decision": "D32: run the light plan now (deploy/windows/backfill.ps1); defer legacy-curation-run and projection-builders-run"
+}
