@@ -130,10 +130,7 @@ document.querySelectorAll('[data-set-theme]').forEach(function(b){
   paint();
 })();
 (function(){
-  var mood = document.querySelector('.mood');
-  if (!mood) return;
-  var face = mood.querySelector('.mood-face'), eyes = mood.querySelector('.mood-eyes'),
-      bubble = mood.querySelector('.mood-bubble'), timer = null, frame = 0, target = null;
+  // The sidebar mood face. Handlers are delegated, so a face swapped in by the refresh keeps working.
   var lines = {
     great: ['今天利好扎堆，开心！', '好消息有点多，笑出声', '行情不错，奖励自己一杯奶茶'],
     good: ['今天整体偏暖', '好消息比坏消息多一点', '小确幸，还行还行'],
@@ -141,27 +138,74 @@ document.querySelectorAll('[data-set-theme]').forEach(function(b){
     worried: ['今天有点闹心', '坏消息略多，稳住', '多留意一下风险哦'],
     sad: ['今天利空太多了……', '呜呜，坏消息一大堆', '抱抱，明天会好的'],
     sleepy: ['还在攒数据，等等我', 'Zzz……情绪还没算出来']
-  }[mood.dataset.mood] || [];
+  };
+  var frame = 0, pointer = null, timer = null, refreshed = Date.now();
+  function say(mood, text) {
+    var bubble = mood.querySelector('.mood-bubble');
+    bubble.textContent = text; bubble.hidden = false;
+    clearTimeout(timer);
+    timer = setTimeout(function() { bubble.hidden = true; }, 3200);
+  }
+  function hop(mood) { mood.classList.remove('mood-hop'); void mood.offsetWidth; mood.classList.add('mood-hop'); }
   // The eyes follow the pointer, a few units at most, at most once a frame.
   document.addEventListener('mousemove', function(event) {
-    target = event; if (frame) return;
+    pointer = event; if (frame) return;
     frame = requestAnimationFrame(function() {
       frame = 0;
+      var mood = document.querySelector('.mood'), eyes = mood && mood.querySelector('.mood-eyes');
       if (!eyes) return;
-      var box = face.getBoundingClientRect(), dx = target.clientX - (box.left + box.width / 2),
-          dy = target.clientY - (box.top + box.height / 2), distance = Math.sqrt(dx * dx + dy * dy) || 1,
-          reach = Math.min(4, distance / 30);
+      var box = mood.querySelector('.mood-face').getBoundingClientRect(),
+          dx = pointer.clientX - (box.left + box.width / 2), dy = pointer.clientY - (box.top + box.height / 2),
+          distance = Math.sqrt(dx * dx + dy * dy) || 1, reach = Math.min(4, distance / 30);
       eyes.setAttribute('transform', 'translate(' + (dx / distance * reach).toFixed(2) + ' ' + (dy / distance * reach).toFixed(2) + ')');
     });
   });
-  face.addEventListener('click', function() {
-    mood.classList.remove('mood-hop'); void mood.offsetWidth; mood.classList.add('mood-hop');
-    if (!lines.length) return;
-    bubble.textContent = lines[Math.floor(Math.random() * lines.length)];
-    bubble.hidden = false;
-    clearTimeout(timer);
-    timer = setTimeout(function() { bubble.hidden = true; }, 2600);
+  document.addEventListener('click', function(event) {
+    var face = event.target.closest('.mood-face');
+    if (!face) return;
+    var mood = face.closest('.mood'), choices = lines[mood.dataset.mood] || [];
+    hop(mood);
+    if (choices.length) say(mood, choices[Math.floor(Math.random() * choices.length)]);
   });
+  // Every 5 minutes (and when the page comes back into view) the face is fetched again.
+  function refresh() {
+    var mood = document.querySelector('.mood');
+    if (!mood) return;
+    refreshed = Date.now();
+    fetch('/fragment/mood', {cache: 'no-store'}).then(function(r) { return r.ok ? r.text() : null; }).then(function(html) {
+      if (!html) return;
+      var holder = document.createElement('template'); holder.innerHTML = html.trim();
+      var next = holder.content.querySelector('.mood'), current = document.querySelector('.mood');
+      if (!next || !current) return;
+      var before = current.dataset.mood, label = current.querySelector('.mood-caption b').textContent;
+      current.replaceWith(next);
+      if (next.dataset.mood !== before) {
+        hop(next);
+        say(next, '心情变了：' + label + ' → ' + next.querySelector('.mood-caption b').textContent);
+      }
+    }).catch(function() {});
+  }
+  setInterval(function() { if (!document.hidden) refresh(); }, 300000);
+  document.addEventListener('visibilitychange', function() {
+    if (!document.hidden && Date.now() - refreshed > 300000) refresh();
+  });
+})();
+(function(){
+  // On the feed: a pill when new items arrived after the page was rendered.
+  var pill = document.querySelector('.fresh-pill');
+  if (!pill || !pill.dataset.since) return;
+  function check() {
+    if (document.hidden) return;
+    fetch('/api/fresh?since=' + encodeURIComponent(pill.dataset.since), {cache: 'no-store'})
+      .then(function(r) { return r.ok ? r.json() : null; }).then(function(data) {
+        if (!data || !data.new) return;
+        pill.textContent = '↑ 有 ' + (data.capped ? '999+' : data.new) + ' 条新动态，点击刷新';
+        pill.hidden = false;
+      }).catch(function() {});
+  }
+  pill.addEventListener('click', function() { location.reload(); });
+  setInterval(check, 120000);
+  document.addEventListener('visibilitychange', check);
 })();
 if ('serviceWorker' in navigator && (location.protocol === 'https:' || location.hostname === 'localhost')) {
   navigator.serviceWorker.register('/sw.js').catch(function () {});

@@ -851,6 +851,7 @@ def index(request: Request, channel: str = "all", company: str = "", event: str 
         companies=companies, events=events, clusters=_top_clusters(8, channel),
         page=page, has_next=has_next,
         last_update=_relative(last_fetch), overview=_home_overview(),
+        fresh_since=last_fetch if page == 1 else None,
     ))
 
 
@@ -2186,6 +2187,31 @@ def _mood_face() -> dict | None:
 
 
 templates.env.globals["mood_face"] = _mood_face
+
+
+@app.get("/fragment/mood", response_class=HTMLResponse, include_in_schema=False)
+def mood_fragment(request: Request):
+    """The face alone, so an open page can update it without a reload (every 5 minutes)."""
+    response = templates.TemplateResponse(request, "_mood.html", {})
+    response.headers["Cache-Control"] = "no-store"
+    return response
+
+
+FRESH_COUNT_CAP = 1000
+
+
+@app.get("/api/fresh", include_in_schema=False)
+def api_fresh(since: str = Query(..., min_length=10, max_length=40)):
+    """How many relevant items arrived after ``since`` (the newest fetch time the page showed)."""
+    try:
+        datetime.fromisoformat(since.replace("Z", "+00:00"))
+    except ValueError:
+        raise HTTPException(400, "since must be an ISO 8601 time") from None
+    with get_db() as db:
+        count = db.execute(
+            """SELECT COUNT(*) FROM (SELECT 1 FROM items WHERE fetched_at>? AND COALESCE(tmt,1)!=0 LIMIT ?)""",
+            (since, FRESH_COUNT_CAP)).fetchone()[0]
+    return JSONResponse({"new": count, "capped": count >= FRESH_COUNT_CAP}, headers={"Cache-Control": "no-store"})
 
 
 # D31 tier evaluation (docs/RUNBOOK.md "覆盖范围"): items, model usage and database size per day.

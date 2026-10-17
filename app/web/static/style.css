@@ -156,6 +156,13 @@ a:hover { color: var(--accent); }
   .mood-eye, .mood-tear, .mood-z, .mood-hop .mood-face svg { animation: none; }
 }
 @media (max-width: 900px) { .mood { display: none; } }
+.fresh-pill { position: fixed; top: 14px; left: calc(50% + 116px); transform: translateX(-50%); z-index: 40;
+              padding: 7px 16px; border: 0; border-radius: 999px; cursor: pointer; font-size: 13.5px; font-weight: 600;
+              background: var(--accent); color: var(--on-accent); box-shadow: 0 6px 20px rgba(0,0,0,.25);
+              animation: fresh-in .3s ease-out; }
+.fresh-pill:hover { filter: brightness(1.08); }
+@keyframes fresh-in { from { opacity: 0; transform: translate(-50%, -10px); } to { opacity: 1; transform: translateX(-50%); } }
+@media (max-width: 900px) { .fresh-pill { left: 50%; top: calc(64px + env(safe-area-inset-top)); } }
 
 /* ===== 主区域：在侧栏右边的空间里居中 ===== */
 .main { margin-left: 232px; padding: 30px 40px 60px; }
