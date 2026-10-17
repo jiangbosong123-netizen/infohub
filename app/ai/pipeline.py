@@ -239,7 +239,11 @@ def process_pending(limit: int = 20, parallel: int = 1) -> int:
     else:
         with ThreadPoolExecutor(max_workers=len(chunks), thread_name_prefix="ai-judge") as pool:
             outcomes = list(pool.map(_judge, chunks))
-    results = [result for judged, _ in outcomes for result in judged]
+    # Each answer may only name items its own request carried: ids run on across chunk boundaries,
+    # and a model that copies a neighbouring id must not overwrite another chunk's item.
+    row_chunks = [rows[start:start + batch] for start in range(0, len(rows), batch)]
+    results = [result for (judged, _), chunk in zip(outcomes, row_chunks)
+               for result in _valid_results(judged, chunk)]
     skipped = [item_id for _, refused in outcomes for item_id in refused]
     if skipped:  # refused by the content filter even alone: mark -1 so it never blocks the queue
         with get_db() as db:

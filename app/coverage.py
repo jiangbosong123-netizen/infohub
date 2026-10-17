@@ -174,30 +174,33 @@ def sync(level: int | None = None) -> dict:
     with get_db() as db:
         db.execute("BEGIN IMMEDIATE")
         planned = plan(db, level)
-        us_rows = db.execute("SELECT slug,ticker,cik,origin FROM companies WHERE market='US'").fetchall()
-        held = {int(row["cik"]): row for row in us_rows if row["cik"]}
+        rows = db.execute("SELECT slug,ticker,cik,origin,market FROM companies").fetchall()
+        watchlist = [row for row in rows if row["origin"] == "watchlist" and row["market"] == "US"]
+        watch_ciks = {int(row["cik"]) for row in watchlist if row["cik"]}
         # Watchlist companies get their CIK from the first SEC crawl, so also match them by ticker.
-        by_ticker = {row["ticker"]: row for row in us_rows if row["ticker"]}
+        watch_tickers = {row["ticker"] for row in watchlist if row["ticker"]}
+        # A coverage row is found only by its CIK slug: a ticker can pass to another company
+        # after a delisting, and that company needs a row of its own.
+        coverage_slugs = {row["slug"] for row in rows if row["origin"] == "coverage"}
         added = updated = 0
+        kept: list[str] = []
         for cik, company in planned.items():
-            existing = held.get(cik) or next(
-                (by_ticker[ticker] for ticker in [company["ticker"], *company["tickers"]] if ticker in by_ticker), None)
-            if existing is not None and existing["origin"] == "watchlist":
-                continue
+            if cik in watch_ciks or any(ticker in watch_tickers for ticker in [company["ticker"], *company["tickers"]]):
+                continue  # the watchlist row wins; a coverage row for the same company retires below
+            slug = coverage_slug(cik)
+            kept.append(slug)
             values = (company["name"], company["ticker"],
                       json.dumps(aliases(company["name"], company["ticker"]), ensure_ascii=False))
-            if existing is None:
+            if slug not in coverage_slugs:
                 db.execute("""INSERT INTO companies(slug,name,name_zh,ticker,code,market,cik,aliases,origin,covered)
                               VALUES(?,?,'',?,'','US',?,?,'coverage',1)""",
-                           (coverage_slug(cik), values[0], values[1], str(cik).zfill(10), values[2]))
+                           (slug, values[0], values[1], str(cik).zfill(10), values[2]))
                 added += 1
             else:
-                db.execute("UPDATE companies SET name=?,ticker=?,aliases=?,covered=1 WHERE slug=?",
-                           (*values, existing["slug"]))
+                db.execute("UPDATE companies SET name=?,ticker=?,aliases=?,covered=1 WHERE slug=?", (*values, slug))
                 updated += 1
-        planned_slugs = [coverage_slug(cik) for cik in planned]
         retired = db.execute(
             f"""UPDATE companies SET covered=0 WHERE origin='coverage' AND covered=1
-                AND slug NOT IN ({",".join("?" * len(planned_slugs)) or "''"})""", planned_slugs).rowcount
+                AND slug NOT IN ({",".join("?" * len(kept)) or "''"})""", kept).rowcount
     company_match.invalidate_cache()
     return {"tier": level, "planned": len(planned), "added": added, "updated": updated, "retired": retired}

@@ -109,6 +109,31 @@ class CoverageTests(unittest.TestCase):
         self.assertEqual(self.companies()["CHIP"]["covered"], 0)
         self.assertNotIn("nasdaq-cik1", {source["key"] for source in sources.all_sources()})
 
+    def test_a_company_moved_to_the_watchlist_retires_its_coverage_row(self):
+        coverage.sync(1)
+        with database.get_db() as db:  # the owner adds Chipworks to watchlist.yaml; no CIK until SEC runs
+            db.execute("""INSERT INTO companies(slug,name,ticker,market,aliases)
+                          VALUES('chipworks','Chipworks','CHIP','US','["Chipworks"]')""")
+        self.assertEqual(coverage.sync(1)["retired"], 1)
+        rows = self.companies()
+        self.assertEqual((rows["CHIP"]["slug"], rows["CHIP"]["origin"]), ("chipworks", "watchlist"))
+        with database.get_db() as db:
+            self.assertEqual(db.execute("SELECT covered FROM companies WHERE slug='cik1'").fetchone()[0], 0)
+
+    def test_a_reused_ticker_gets_a_row_for_its_new_company(self):
+        coverage.sync(1)
+        with database.get_db() as db:  # CHIP delists; a new company (CIK 77) lists under the same ticker
+            db.execute("DELETE FROM security_master WHERE cik=1")
+            db.execute("""INSERT INTO security_master(ticker,cik,name,display_name,exchange,market_cap,sector,industry,
+                                                      country,first_seen_at,updated_at)
+                          VALUES('CHIP',77,'NEWCHIP CORP','Newchip Inc.','NASDAQ',3e9,'Technology','Semiconductors',
+                                 'United States','2026-10-17','2026-10-17')""")
+        coverage.sync(1)
+        with database.get_db() as db:
+            rows = {row["slug"]: (row["name"], row["covered"]) for row in db.execute(
+                "SELECT slug,name,covered FROM companies WHERE ticker='CHIP'")}
+        self.assertEqual(rows, {"cik1": ("Chipworks Technology Inc.", 0), "cik77": ("Newchip Inc.", 1)})
+
     def test_aliases_are_strict_everywhere_and_looser_in_the_companys_own_feed(self):
         self.assertEqual(coverage.aliases("Intel Corporation", "INTC"), ["$INTC", "=Intel", "Intel Corporation"])
         self.assertEqual(coverage.aliases("Target Corporation", "TGT"), ["$TGT", "Target Corporation"])

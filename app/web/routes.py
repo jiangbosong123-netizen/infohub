@@ -517,7 +517,8 @@ def _system_snapshot() -> dict:
         if oldest_ready else None
     )
     # A job waiting behind a running job of its own kind (the next AI round, the next crawl) is
-    # queued, not stuck; a hung job shows as an expired lease instead.
+    # queued, not stuck. The worker renews a running job's lease while the process lives, so a hung
+    # job does not expire here; the self-check reports one running over two hours (stuck_jobs).
     running_kinds = {job["kind"] for job in running_jobs}
     oldest_blocked = min((value["oldest_at"] for kind, value in ready_by_kind.items()
                           if kind not in running_kinds), default=None)
