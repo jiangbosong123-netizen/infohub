@@ -1,7 +1,7 @@
 # One-command history backfill and audits on the Windows host (docs/WINDOWS_CUTOVER.md steps 7
 # and 8). Paste this one line into PowerShell:
 #
-#   cd ~\Server\infohub; git pull; powershell -ExecutionPolicy Bypass -File deploy\windows\backfill.ps1
+#   cd ~\Server\infohub; git pull; .\backfill.cmd
 #
 # The worker is paused while the backfill runs (it competes for the database write lock) and is
 # always started again at the end, also after a failure. The site stays up. Every step is safe to
@@ -12,6 +12,17 @@ Set-Location (Join-Path $env:USERPROFILE "Server\infohub")
 $log = Join-Path ([Environment]::GetFolderPath("Desktop")) "infohub-backfill.txt"
 "== infohub backfill $(Get-Date -Format s)" | Out-File -FilePath $log -Encoding utf8
 $env:APP_VERSION = (git rev-parse --short=12 HEAD).Trim()
+
+# The backfill runs this folder's code; the site must already run it (update.cmd first).
+try {
+    $running = (Invoke-RestMethod -Uri "http://127.0.0.1:8000/api/live" -TimeoutSec 10).version
+} catch {
+    $running = "not answering"
+}
+if ($running -ne $env:APP_VERSION) {
+    Write-Host "STOPPED: the site runs $running but this folder is $($env:APP_VERSION). Run .\update.cmd first." -ForegroundColor Red
+    exit 1
+}
 
 $steps = @(
     @("legacy-backfill", "1000"),
