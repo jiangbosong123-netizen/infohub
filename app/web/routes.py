@@ -2165,6 +2165,29 @@ async def api_v1_backup_receipt(name: str, request: Request):
     return JSONResponse(receipt)
 
 
+# The sidebar's mood face (app/mood.py), on every page: cached like the home overview.
+MOOD_TTL_SECONDS = 60
+_mood_cache: dict[str, tuple[float, dict | None]] = {}
+
+
+def _mood_face() -> dict | None:
+    key = str(database_module.DB_PATH)
+    cached = _mood_cache.get(key)
+    if cached and time.monotonic() - cached[0] < MOOD_TTL_SECONDS:
+        return cached[1]
+    from ..mood import summary
+    try:
+        with get_db() as db:
+            result = summary(db)
+    except sqlite3.Error:
+        result = None  # an older schema or a busy database: the page renders without the face
+    _mood_cache[key] = (time.monotonic(), result)
+    return result
+
+
+templates.env.globals["mood_face"] = _mood_face
+
+
 # D31 tier evaluation (docs/RUNBOOK.md "覆盖范围"): items, model usage and database size per day.
 COVERAGE_STATS_TTL_SECONDS = 300
 _coverage_stats_cache: dict[str, tuple[float, dict]] = {}

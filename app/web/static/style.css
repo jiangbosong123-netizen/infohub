@@ -100,6 +100,63 @@ a:hover { color: var(--accent); }
 .themeswitch button.on { color: var(--accent); border-color: var(--accent); }
 .sidefoot { font-size: 11.5px; color: var(--muted); padding: 0 10px; line-height: 1.6; }
 
+/* ===== 侧栏情绪小脸（app/mood.py）：过去 24 小时的新闻是好是坏 ===== */
+.mood { position: relative; margin: 10px 6px 4px; padding: 14px 10px 10px; text-align: center;
+        border: 1px solid var(--line); border-radius: 14px; background: var(--card2); }
+.mood-face { display: block; width: 92px; height: 92px; margin: 0 auto; padding: 0; border: 0;
+             background: none; cursor: pointer; border-radius: 50%; }
+.mood-face svg { width: 100%; height: 100%; overflow: visible; filter: drop-shadow(0 4px 10px rgba(0,0,0,.18)); }
+.mood-face:focus-visible { outline: 2px solid var(--accent); outline-offset: 4px; }
+.mood-skin { fill: var(--mood-fill); stroke: var(--mood-edge); stroke-width: 2; }
+.mood-eye { fill: #232733; transform-box: fill-box; transform-origin: center; animation: mood-blink 5.5s infinite; }
+.mood-glint { fill: #fff; }
+.mood-line { fill: none; stroke: #232733; stroke-width: 4; stroke-linecap: round; }
+.mood-mouth-open { fill: #232733; }
+.mood-cheek { fill: #ff7a8a; opacity: .35; }
+.mood-tear { fill: #5aa9ff; animation: mood-tear 2.4s ease-in infinite; }
+.mood-z { font: 700 13px var(--mono); fill: var(--muted); animation: mood-z 2.8s ease-in-out infinite; }
+.mood-z2 { font-size: 10px; animation-delay: .9s; }
+.mood-eyes { transition: transform .12s ease-out; }
+.mood-great { --mood-fill: #ffcf4d; --mood-edge: #f2b01e; }
+.mood-good { --mood-fill: #ffdc7a; --mood-edge: #f0c24a; }
+.mood-calm { --mood-fill: #eadfba; --mood-edge: #d6c896; }
+.mood-worried { --mood-fill: #f4d08f; --mood-edge: #dcae5e; }
+.mood-sad { --mood-fill: #a9cbff; --mood-edge: #7aa9ec; }
+.mood-sleepy { --mood-fill: #d9dde6; --mood-edge: #b8bfcc; }
+.mood-caption { margin-top: 6px; font-size: 12.5px; color: var(--muted); display: flex; gap: 6px; justify-content: center; }
+.mood-caption b { color: var(--ink); font-weight: 600; }
+.mood-great .mood-caption b, .mood-good .mood-caption b { color: var(--accent); }
+.mood-worried .mood-caption b, .mood-sad .mood-caption b { color: var(--red); }
+.mood-bubble { position: absolute; left: 50%; bottom: calc(100% - 6px); transform: translateX(-50%);
+               white-space: nowrap; padding: 5px 10px; border-radius: 10px; font-size: 12.5px;
+               background: var(--ink); color: var(--bg); box-shadow: var(--shadow); z-index: 31; }
+.mood-bubble::after { content: ""; position: absolute; left: 50%; top: 100%; margin-left: -5px;
+                      border: 5px solid transparent; border-top-color: var(--ink); }
+.mood-card { position: absolute; left: calc(100% + 10px); bottom: 0; width: 280px; padding: 12px 14px;
+             text-align: left; background: var(--card); border: 1px solid var(--line); border-radius: 12px;
+             box-shadow: 0 8px 28px rgba(0,0,0,.28); font-size: 13px; line-height: 1.55; z-index: 30;
+             opacity: 0; visibility: hidden; transform: translateX(-4px); transition: opacity .15s, transform .15s, visibility .15s; }
+.mood:hover .mood-card, .mood:focus-within .mood-card { opacity: 1; visibility: visible; transform: none; }
+.mood-card p { margin: 0 0 6px; color: var(--ink2); }
+.mood-total { color: var(--muted) !important; font-size: 12px; }
+.mood-counts { display: flex; gap: 10px; font-weight: 600; }
+.mood-card .up { color: var(--accent); }
+.mood-card .down { color: var(--red); }
+.mood-pick { display: block; margin: 6px 0; padding: 6px 8px; border-radius: 8px; background: var(--card2);
+             display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+.mood-pick:hover { color: var(--ink); }
+.mood-note { margin: 8px 0 0 !important; font-size: 11.5px; color: var(--muted) !important; }
+.mood-hop .mood-face svg { animation: mood-hop .55s cubic-bezier(.3,1.6,.5,1); }
+@keyframes mood-blink { 0%, 94%, 100% { transform: scaleY(1); } 97% { transform: scaleY(.1); } }
+@keyframes mood-tear { 0% { transform: translateY(0); opacity: 0; } 15% { opacity: 1; } 100% { transform: translateY(18px); opacity: 0; } }
+@keyframes mood-z { 0%, 100% { opacity: .2; transform: translateY(2px); } 50% { opacity: 1; transform: translateY(-3px); } }
+@keyframes mood-hop { 0% { transform: translateY(0) scale(1); } 40% { transform: translateY(-14px) scale(1.06, .96); }
+                      70% { transform: translateY(0) scale(.96, 1.04); } 100% { transform: none; } }
+@media (prefers-reduced-motion: reduce) {
+  .mood-eye, .mood-tear, .mood-z, .mood-hop .mood-face svg { animation: none; }
+}
+@media (max-width: 900px) { .mood { display: none; } }
+
 /* ===== 主区域：在侧栏右边的空间里居中 ===== */
 .main { margin-left: 232px; padding: 30px 40px 60px; }
 .main-in { max-width: 900px; margin: 0 auto; }

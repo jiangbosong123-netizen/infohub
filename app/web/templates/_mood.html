@@ -1,0 +1,48 @@
+{# The sidebar mood face (app/mood.py): the last 24 hours of news, good or bad, as a face. #}
+{% set mood = mood_face() %}
+{% if mood %}
+<div class="mood mood-{{ mood.level }}" data-mood="{{ mood.level }}">
+  <div class="mood-bubble" aria-live="polite" hidden></div>
+  <button type="button" class="mood-face" aria-label="今日情绪：{{ mood.label }}，点我互动">
+    <svg viewBox="0 0 100 100" aria-hidden="true">
+      <circle class="mood-skin" cx="50" cy="50" r="44"/>
+      {% if mood.level in ('great', 'good') %}
+      <circle class="mood-cheek" cx="27" cy="60" r="7"/><circle class="mood-cheek" cx="73" cy="60" r="7"/>
+      {% endif %}
+      {% if mood.level in ('worried', 'sad') %}
+      <path class="mood-line" d="M27 33 L41 28 M73 33 L59 28"/>
+      {% endif %}
+      <g class="mood-eyes">
+        {% if mood.level == 'sleepy' %}
+        <path class="mood-line" d="M29 44 Q36 49 43 44 M57 44 Q64 49 71 44"/>
+        {% else %}
+        <ellipse class="mood-eye" cx="36" cy="43" rx="5.5" ry="7"/>
+        <ellipse class="mood-eye" cx="64" cy="43" rx="5.5" ry="7"/>
+        <circle class="mood-glint" cx="38" cy="40" r="1.8"/><circle class="mood-glint" cx="66" cy="40" r="1.8"/>
+        {% endif %}
+      </g>
+      {% if mood.level == 'great' %}<path class="mood-mouth-open" d="M29 58 Q50 86 71 58 Z"/>
+      {% elif mood.level == 'good' %}<path class="mood-line" d="M32 62 Q50 77 68 62"/>
+      {% elif mood.level == 'calm' %}<path class="mood-line" d="M37 66 L63 66"/>
+      {% elif mood.level == 'worried' %}<path class="mood-line" d="M34 71 Q50 61 66 71"/>
+      {% elif mood.level == 'sad' %}<path class="mood-line" d="M32 73 Q50 58 68 73"/>
+      <path class="mood-tear" d="M31 52 Q27 60 31 63 Q35 60 31 52 Z"/>
+      {% else %}<ellipse class="mood-mouth-open" cx="50" cy="68" rx="5" ry="4"/>
+      <text class="mood-z" x="70" y="26">z</text><text class="mood-z mood-z2" x="79" y="16">z</text>
+      {% endif %}
+    </svg>
+  </button>
+  <div class="mood-caption"><span>今日情绪</span><b>{{ mood.label }}</b></div>
+  <div class="mood-card" role="tooltip">
+    {% if mood.level == 'sleepy' %}
+    <p>过去 24 小时只有 {{ mood.judged }} 条新闻带了利好/利空判断，攒够 20 条它就醒了。</p>
+    {% else %}
+    <p class="mood-total">过去 24 小时 · {{ mood.judged }} 条新闻</p>
+    <p class="mood-counts"><span class="up">利好 {{ mood.counts.good }}</span><span>中性 {{ mood.counts.calm }}</span><span class="down">利空 {{ mood.counts.bad }}</span></p>
+    {% if mood.best %}<a class="mood-pick up" href="{{ mood.best.url }}" target="_blank" rel="noopener" data-read-id="{{ mood.best.id }}">最利好 · {{ mood.best.title }}</a>{% endif %}
+    {% if mood.worst %}<a class="mood-pick down" href="{{ mood.worst.url }}" target="_blank" rel="noopener" data-read-id="{{ mood.worst.id }}">最利空 · {{ mood.worst.title }}</a>{% endif %}
+    {% endif %}
+    <p class="mood-note">按 AI 评分加权的粗略判断，仅供参考</p>
+  </div>
+</div>
+{% endif %}

@@ -33,9 +33,10 @@ SYSTEM_PROMPT = """你是科技与财经资讯编辑，为科技与财经信息�
 5. reason：一句话推荐理由（30-60 字），说明这条为什么值得看、事件的影响是什么。tmt 为 false 的条目给空字符串。
 6. event_type：仅当该条 channel 为 "stock" 时，从 [earnings,insider,buyback,ma,personnel,product,regulation,rating,offering,other] 选最贴切的一个；其余情况给 null。
 7. ai_cat：仅当该条 channel 为 "ai" 且 tmt 为 true 时，从 [model, product, industry, paper, opinion] 选最贴切的一个（大模型发布/更新=model，应用与硬件产品=product，行业格局/投融资/政策=industry，论文与技术突破=paper，观点/评论=opinion）；其余情况给 null。
+8. mood：整数 -2 到 2，这条消息对所涉公司、行业或市场是利空还是利好：明显利空 -2，偏利空 -1，中性或说不清 0，偏利好 1，明显利好 2。
 
 只输出 JSON 数组，不要任何其他文字：
-[{"id": 1, "title_zh": "…", "tmt": true, "score": 78, "summary_zh": "...", "reason": "...", "event_type": null, "ai_cat": null}]"""
+[{"id": 1, "title_zh": "…", "tmt": true, "score": 78, "summary_zh": "...", "reason": "...", "event_type": null, "ai_cat": null, "mood": 1}]"""
 
 
 def _extract_json(text: str):
@@ -128,6 +129,8 @@ def _reuse_judgements(db, rows) -> set[int]:
              row["event_type"] or earlier["event_type"], earlier["tmt"], earlier["reason"],
              earlier["ai_cat"], earlier["id"], row["id"]),
         )
+        db.execute("""INSERT OR REPLACE INTO item_moods(item_id,mood,judged_at)
+                      SELECT ?,mood,judged_at FROM item_moods WHERE item_id=?""", (row["id"], earlier["id"]))
         reused.add(row["id"])
     return reused
 
@@ -140,6 +143,15 @@ def _call_llm(payload: list[dict]) -> list:
         messages=[{"role": "system", "content": SYSTEM_PROMPT},
                   {"role": "user", "content": json.dumps(payload, ensure_ascii=False)}]), items=len(payload))
     return _extract_json(resp.choices[0].message.content or "")
+
+
+def _store_mood(db, item_id: int, mood) -> None:
+    """The model's view of whether an item is good or bad news (-2..2), for the portal's mood face.
+    A rough, unreviewed signal: it is not a tone result (D09, D23) and never feeds a publication."""
+    if type(mood) is not int or not -2 <= mood <= 2:
+        return
+    db.execute("INSERT OR REPLACE INTO item_moods(item_id,mood,judged_at) VALUES(?,?,?)",
+               (item_id, mood, datetime.now(timezone.utc).isoformat()))
 
 
 def _is_content_filter(exc: Exception) -> bool:
@@ -275,6 +287,7 @@ def process_pending(limit: int = 20, parallel: int = 1) -> int:
                  _text(r.get("reason"), 200),
                  _category(r, row),
                  item_id))
+            _store_mood(db, item_id, r.get("mood"))
             updated += 1
     return updated + len(reused)
 

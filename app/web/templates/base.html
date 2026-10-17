@@ -53,6 +53,7 @@
     <div class="navgroup">更多</div>
     <a href="https://github.com/jiangbosong123-netizen/infohub" target="_blank" rel="noopener">⌥ GitHub</a>
   </nav>
+  {% include "_mood.html" %}
   <div class="sidebottom">
     <div class="themeswitch">
       <button data-set-theme="dark" title="深色">◐</button>
@@ -127,6 +128,40 @@ document.querySelectorAll('[data-set-theme]').forEach(function(b){
   });
   window.InfoHubReading = { saved: saved, paint: paint };
   paint();
+})();
+(function(){
+  var mood = document.querySelector('.mood');
+  if (!mood) return;
+  var face = mood.querySelector('.mood-face'), eyes = mood.querySelector('.mood-eyes'),
+      bubble = mood.querySelector('.mood-bubble'), timer = null, frame = 0, target = null;
+  var lines = {
+    great: ['今天利好扎堆，开心！', '好消息有点多，笑出声', '行情不错，奖励自己一杯奶茶'],
+    good: ['今天整体偏暖', '好消息比坏消息多一点', '小确幸，还行还行'],
+    calm: ['今天风平浪静', '多空打平，淡定', '没什么大事，适合专心干活'],
+    worried: ['今天有点闹心', '坏消息略多，稳住', '多留意一下风险哦'],
+    sad: ['今天利空太多了……', '呜呜，坏消息一大堆', '抱抱，明天会好的'],
+    sleepy: ['还在攒数据，等等我', 'Zzz……情绪还没算出来']
+  }[mood.dataset.mood] || [];
+  // The eyes follow the pointer, a few units at most, at most once a frame.
+  document.addEventListener('mousemove', function(event) {
+    target = event; if (frame) return;
+    frame = requestAnimationFrame(function() {
+      frame = 0;
+      if (!eyes) return;
+      var box = face.getBoundingClientRect(), dx = target.clientX - (box.left + box.width / 2),
+          dy = target.clientY - (box.top + box.height / 2), distance = Math.sqrt(dx * dx + dy * dy) || 1,
+          reach = Math.min(4, distance / 30);
+      eyes.setAttribute('transform', 'translate(' + (dx / distance * reach).toFixed(2) + ' ' + (dy / distance * reach).toFixed(2) + ')');
+    });
+  });
+  face.addEventListener('click', function() {
+    mood.classList.remove('mood-hop'); void mood.offsetWidth; mood.classList.add('mood-hop');
+    if (!lines.length) return;
+    bubble.textContent = lines[Math.floor(Math.random() * lines.length)];
+    bubble.hidden = false;
+    clearTimeout(timer);
+    timer = setTimeout(function() { bubble.hidden = true; }, 2600);
+  });
 })();
 if ('serviceWorker' in navigator && (location.protocol === 'https:' || location.hostname === 'localhost')) {
   navigator.serviceWorker.register('/sw.js').catch(function () {});
