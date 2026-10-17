@@ -406,6 +406,8 @@ HOST_DISK_PATH = Path(os.environ["INFOHUB_HOST_DISK_PATH"]) if os.environ.get("I
 COVERAGE_TIER = _integer(os.environ, "INFOHUB_COVERAGE_TIER", 0, 0, 3)
 # D25/D30: the owner's Mac pulls the newest nightly bundle over /api/v1/backups (off until enabled).
 API_BACKUPS_ENABLED = _boolean(os.environ, "INFOHUB_API_BACKUPS_ENABLED", False)
+# D31 M2: /api/v1/signals/news for consumers with a read:signals key (off until enabled).
+API_SIGNALS_ENABLED = _boolean(os.environ, "INFOHUB_API_SIGNALS_ENABLED", False)
 # D27: fetch article text for recent title-only items (worker only; off until the owner enables it).
 ARTICLE_TEXT_ENABLED = _boolean(os.environ, "INFOHUB_ARTICLE_TEXT_ENABLED", False)
 ARTICLE_TEXT_WAIT_MINUTES = _integer(os.environ, "ARTICLE_TEXT_WAIT_MINUTES", 30, 0, 1440)

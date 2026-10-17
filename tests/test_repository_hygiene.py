@@ -69,6 +69,12 @@ class RepositoryHygieneTests(unittest.TestCase):
         self.assertIn("finally", script)  # the worker is started again after a failure too
         self.assertLess(script.index("finally"), script.index("docker compose start worker"))
 
+    def test_the_signals_launcher_runs_its_script(self):
+        self.assertIn(r'-File "%~dp0deploy\windows\signals.ps1"', (ROOT / "signals.cmd").read_text(encoding="ascii"))
+        script = (ROOT / "deploy" / "windows" / "signals.ps1").read_text(encoding="ascii")
+        self.assertIn("signals-key ai-research", script)
+        self.assertNotIn("Write-Host $token", script)  # the key is never printed
+
     def test_windows_launchers_keep_crlf_line_endings(self):
         self.assertIn("*.cmd text eol=crlf", (ROOT / ".gitattributes").read_text(encoding="ascii"))
         for launcher in ROOT.glob("*.cmd"):

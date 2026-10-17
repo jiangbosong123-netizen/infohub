@@ -79,6 +79,7 @@
   python cli.py report-publish-reviewed REVIEW_ID  # 发布已人工批准的模型日报（maintenance only；同上）
   python cli.py api-admin ACTION [ARGS]  # 本机管理 API 消费者和密钥（只在签发时输出明文）
   python cli.py offsite-key            # 给 Mac 异地备份签发只读备份的密钥（只输出密钥本身，旧密钥作废）
+  python cli.py signals-key CONSUMER   # 给消费者（如 ai-research）签发 read:signals 密钥（只输出密钥本身，旧密钥作废）
   python cli.py security-master-refresh  # 联网刷新全美上市公司表（SEC 代码表 + Nasdaq 市值与行业）
   python cli.py coverage-preview [TIER] # 只读：某一档会覆盖哪些公司（默认当前档），以及没对上的覆盖申请
 """
@@ -1277,6 +1278,13 @@ def main() -> None:
         verify_database(config.DB_PATH, require_current=True)
         with get_db() as db:
             print(issue_offsite_key(db, actor=f"local-cli:{getpass.getuser()}"))
+    elif cmd == "signals-key" and len(sys.argv) == 3:
+        import getpass
+        from app.db_admin import verify_database
+        from app.news_signals import issue_signals_key
+        verify_database(config.DB_PATH, require_current=True)
+        with get_db() as db:
+            print(issue_signals_key(db, sys.argv[2], actor=f"local-cli:{getpass.getuser()}"))
     else:
         print(__doc__)
         sys.exit(1)
