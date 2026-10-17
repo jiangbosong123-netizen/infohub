@@ -187,6 +187,12 @@ docker compose run --rm --no-deps migrate python cli.py coverage-preview   # 只
 
 退回 0 不会删任何数据：退出的公司保留在库里（`covered=0`），它们的新闻源自动停用。
 
+### 按公司和主题查新闻（D31 M2 第一步）
+
+`GET /api/v1/signals/news`：消费者带自己的 CIK 名单查公司新闻，或按行业、宏观主题查（规则 `app/market_themes.py`），
+可按 `as_of` 严格时点查询。开关 `INFOHUB_API_SIGNALS_ENABLED`，密钥权限 `read:signals`。一行开通并把投研系统的密钥发到 Mac：
+`cd ~\Server\infohub; git pull; .\signals.cmd`。参数、字段和投研系统那边的接法见 [投研系统接入](consumers/AI_RESEARCH.md)。
+
 ### 异地备份到 Mac（D25、D30）
 
 Windows 上的运行库和全部备份都在同一个 Docker 卷里。Mac 每天从私网 HTTPS 接口拉最新的夜间备份包，自己逐个核对后只保留最新一份

@@ -559,6 +559,7 @@ def _system_snapshot() -> dict:
             "api_events_enabled": config.API_EVENTS_ENABLED,
             "api_analyses_enabled": config.API_ANALYSES_ENABLED,
             "api_evidence_enabled": config.API_EVIDENCE_ENABLED,
+            "api_signals_enabled": config.API_SIGNALS_ENABLED,
             "api_sync_enabled": config.API_SYNC_ENABLED,
             "topic_read_enabled": TOPIC_READ_ENABLED,
             "sqlite_version": sqlite3.sqlite_version,
@@ -2072,6 +2073,7 @@ def _unready_snapshot(exc: Exception) -> dict:
             "api_events_enabled": config.API_EVENTS_ENABLED,
             "api_analyses_enabled": config.API_ANALYSES_ENABLED,
             "api_evidence_enabled": config.API_EVIDENCE_ENABLED,
+            "api_signals_enabled": config.API_SIGNALS_ENABLED,
             "api_sync_enabled": config.API_SYNC_ENABLED,
         },
         "readiness": {
@@ -2120,6 +2122,46 @@ def api_ready():
 
 # Off-site copy for the owner's Mac (D25): newest nightly bundle, its tar stream, and the receipt
 # the Mac posts after verifying every hash. Operational, so not part of the published contract.
+_NEWS_PARAMS = {"scope", "cik", "theme", "since", "as_of", "min_score", "limit", "after", "include_routine"}
+
+
+@app.get("/api/v1/signals/news", include_in_schema=False)
+def api_v1_signals_news(request: Request):
+    """News by company (CIK list) or by industry/macro theme, point in time (app/news_signals.py)."""
+    from ..news_signals import NewsQueryError, query_news
+    request_id = request.state.request_id
+    if not config.API_SIGNALS_ENABLED:
+        return v1_error(503, "not_ready", request_id)
+    if not request.state.api_principal.allows("read:signals"):
+        return v1_error(403, "insufficient_scope", request_id)
+    params = request.query_params
+    if (set(params) - _NEWS_PARAMS
+            or any(len(params.getlist(name)) != 1 for name in params if name not in ("cik", "theme"))
+            or "since" not in params):
+        return v1_error(422, "invalid_parameter", request_id)
+    try:
+        limit = int(params.get("limit", "200"))
+        min_score = int(params["min_score"]) if "min_score" in params else None
+        include_routine = {"true": True, "false": False}[params.get("include_routine", "false")]
+    except (ValueError, KeyError):
+        return v1_error(422, "invalid_parameter", request_id)
+    cik_values = [value for raw in params.getlist("cik") for value in raw.split(",") if value]
+    theme_values = [value for raw in params.getlist("theme") for value in raw.split(",") if value]
+    scope = params.get("scope", "company" if cik_values else "")
+    try:
+        with get_db() as db:
+            db.execute("BEGIN")  # one snapshot for the whole page
+            result = query_news(
+                db, scope=scope, ciks=cik_values, themes=theme_values, since=params["since"],
+                as_of=params.get("as_of"), min_score=min_score, limit=limit, after=params.get("after"),
+                include_routine=include_routine)
+    except NewsQueryError:
+        return v1_error(422, "invalid_parameter", request_id)
+    except (sqlite3.Error, OSError):
+        return v1_error(503, "not_ready", request_id)
+    return JSONResponse(result, headers={"Cache-Control": "no-store"})
+
+
 @app.get("/api/v1/backups/latest", include_in_schema=False)
 def api_v1_backup_latest(request: Request):
     request_id = request.state.request_id
