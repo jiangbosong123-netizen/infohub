@@ -3,7 +3,7 @@
 Standard library only, so the Mac's own /usr/bin/python3 (3.9) runs it from launchd:
 
     python3 offsite_pull.py --origin https://windows-server.<tailnet>.ts.net \\
-        --token-file ~/.infohub/offsite.token --dest ~/InfohubBackups
+        --token-file ~/.infohub/offsite.token --dest ~/Documents/InfoHub/InfohubBackups
 
 1. Asks /api/v1/backups/latest which bundle is newest. Nothing to do if this Mac already holds
    it; if the host is off or unreachable it exits with 75 and launchd simply tries next time.

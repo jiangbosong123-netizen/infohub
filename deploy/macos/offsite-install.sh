@@ -5,7 +5,8 @@
 #
 # The token file comes from `python cli.py offsite-key` on the Windows host. It is copied to
 # ~/.infohub/offsite.token (mode 600) together with offsite_pull.py. A LaunchAgent then runs the
-# pull at 12:30 and 21:30 (launchd catches up after sleep) into ~/InfohubBackups, keeping one
+# pull at 12:30 and 21:30 (launchd catches up after sleep) into ~/Documents/InfoHub/InfohubBackups
+# (Finder: 文稿/InfoHub), keeping one
 # verified bundle (about 5 GB). Run it again to replace the token or the script; remove it with:
 #
 #   launchctl bootout gui/$(id -u)/com.infohub.offsite-pull
@@ -25,11 +26,19 @@ esac
 
 LABEL="com.infohub.offsite-pull"
 STATE="$HOME/.infohub"
-DEST="$HOME/InfohubBackups"
+DEST="$HOME/Documents/InfoHub/InfohubBackups"
+OLD_DEST="$HOME/InfohubBackups"  # the folder before 2026-10-18
 LOG="$HOME/Library/Logs/infohub-offsite.log"
 PLIST="$HOME/Library/LaunchAgents/$LABEL.plist"
 HERE="$(cd "$(dirname "$0")" && pwd)"
 
+# No pull may run while the backups move.
+launchctl bootout "gui/$(id -u)/$LABEL" 2>/dev/null || true
+if [ -d "$OLD_DEST" ] && [ ! -e "$DEST" ]; then
+  mkdir -p "$(dirname "$DEST")"
+  mv "$OLD_DEST" "$DEST"
+  echo "moved $OLD_DEST to $DEST"
+fi
 mkdir -p "$STATE" "$DEST" "$HOME/Library/LaunchAgents" "$HOME/Library/Logs"
 chmod 700 "$STATE"
 install -m 600 "$TOKEN_SOURCE" "$STATE/offsite.token"
