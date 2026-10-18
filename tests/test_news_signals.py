@@ -62,9 +62,13 @@ class NewsSignalsTests(unittest.TestCase):
                            [(self.ids["cut"],), (self.ids["repost"],)])
         for mocked in (patch("app.web.routes.get_db", lambda: database.get_db(self.path)),
                        patch("app.web.v1_auth.get_db", lambda: database.get_db(self.path)),
+                       patch.object(database, "DB_PATH", self.path), patch.object(config, "DB_PATH", self.path),
                        patch.object(config, "API_SIGNALS_ENABLED", True)):
             mocked.start()
             self.addCleanup(mocked.stop)
+        from app import company_match  # headline_ciks reads the company aliases
+        company_match.invalidate_cache()
+        self.addCleanup(company_match.invalidate_cache)
         self.client = TestClient(app)
 
     def get(self, token=None, **params):
@@ -91,6 +95,21 @@ class NewsSignalsTests(unittest.TestCase):
         self.assertEqual((first["ciks"], first["importance"], first["mood"], first["themes"]), ([MU], 80, -2, ["memory"]))
         self.assertEqual(body["unknown_ciks"], ["0000000999"])
         self.assertIn("Micron Technology · SEC 内部人持股变动", self.titles(self.get(cik=MU, include_routine="true")))
+
+    def test_the_headline_says_which_companies_the_story_is_about(self):
+        from app import company_match
+        with database.get_db(self.path) as db:
+            db.execute("UPDATE companies SET aliases='[\"Micron\"]' WHERE id=1")
+            db.execute("UPDATE companies SET aliases='[\"Nvidia\"]' WHERE id=2")
+            item_id = db.execute(
+                """INSERT INTO items(source_id,url,title,channel,published_at,fetched_at,companies,score,tmt)
+                   VALUES(1,'https://e.test/both','Micron raises prices for AI buyers','stock',?,?,
+                          '["micron","nvidia"]',60,1)""",
+                ((T + timedelta(minutes=45)).isoformat(), (T + timedelta(minutes=45)).isoformat())).lastrowid
+            db.executemany("INSERT INTO item_companies(item_id,company_id) VALUES(?,?)", [(item_id, 1), (item_id, 2)])
+        company_match.invalidate_cache()
+        data = {item["id"]: item for item in self.get(cik=[MU, NVDA]).json()["data"]}
+        self.assertEqual((data[item_id]["ciks"], data[item_id]["headline_ciks"]), ([MU, NVDA], [MU]))
 
     def test_a_refused_item_has_no_judgement(self):
         with database.get_db(self.path) as db:  # the content filter refused it: score -1
