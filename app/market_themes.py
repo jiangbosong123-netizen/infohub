@@ -9,13 +9,15 @@ English words match whole words only, case-insensitively. Themes may overlap.
 
 import re
 
-THEMES_VERSION = "market-themes-v1"
+# v2 (10-18): chip smuggling counts as export controls ("台湾拟将走私英伟达芯片至中国定为犯罪" had no theme).
+THEMES_VERSION = "market-themes-v2"
 
 # key: (scope, Chinese label, Chinese phrases, English words or phrases)
 _RULES = {
     "export_controls": ("industry", "出口管制与芯片限制",
-                        ["出口管制", "出口限制", "实体清单", "芯片禁令", "芯片出口", "技术封锁"],
-                        ["export control", "export controls", "entity list", "chip ban", "export curbs", "bis rule"]),
+                        ["出口管制", "出口限制", "实体清单", "芯片禁令", "芯片出口", "技术封锁", "走私"],
+                        ["export control", "export controls", "entity list", "chip ban", "export curbs", "bis rule",
+                         "smuggling", "smuggle", "smuggled"]),
     "ai_capex": ("industry", "AI 资本开支",
                  ["资本开支", "资本支出", "算力投资", "数据中心投资", "算力采购"],
                  ["capex", "capital expenditure", "capital spending", "hyperscaler", "ai spending", "ai infrastructure"]),

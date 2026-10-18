@@ -22,7 +22,7 @@ Infohub 不往那个仓库写东西；这份说明就是交给那边的全部信
 
 时间窗口：公司最多 31 天，行业和宏观最多 7 天。错误参数返回 422；没开或数据库忙返回 503，按缺口记录、下次再取。
 
-主题（`market-themes-v1`，规则见 `app/market_themes.py`）：
+主题（`market-themes-v2`，规则见 `app/market_themes.py`；v2 起芯片走私算出口管制）：
 - 行业：`export_controls` 出口管制与芯片限制、`ai_capex` AI 资本开支、`capacity_supply` 产能与供应链、`memory` 存储芯片、
   `equipment_materials` 半导体设备与材料、`datacenter_power` 数据中心与电力、`end_demand` 终端需求、`industry_data` 行业数据；
 - 宏观：`rates` 货币政策与利率、`inflation_jobs` 通胀与就业、`markets` 大盘与指数、`bonds_fx` 国债与汇率、`trade_geopolitics` 贸易与地缘。
@@ -31,7 +31,7 @@ Infohub 不往那个仓库写东西；这份说明就是交给那边的全部信
 
 ```json
 {"scope": "company", "since": "...", "as_of": "...", "point_in_time": false, "min_score": 0,
- "algorithm": "news-signals-v1", "themes_version": "market-themes-v1", "unknown_ciks": [],
+ "algorithm": "news-signals-v1", "themes_version": "market-themes-v2", "unknown_ciks": [],
  "next_after": null,
  "data": [{"id": 123, "available_at": "2026-10-18T09:12:03.1+00:00", "published_at": "...",
            "title": "...", "title_zh": "...", "url": "...", "publisher": "Reuters", "source": "Google News · 美光",
@@ -42,6 +42,7 @@ Infohub 不往那个仓库写东西；这份说明就是交给那边的全部信
 
 - `available_at`：Infohub 第一次看到这条的时间。**回测和“防未来函数”只能用它**；`published_at` 只作显示。
 - `importance`：AI 重要性评分 0–100；`mood`：AI 判断的利空到利好，−2 到 2。两者都是没有人工复核的粗略判断。
+  `refused` 为真表示模型的内容审查拒绝判断这一条，此时两项都为空（10-18 以前这类条目返回过 `importance: -1`）。
 - `judged_at`：AI 给出上面两项的时间（2026-10-18 以前的条目没有记录）。给了 `as_of` 时，只有 `judged_at ≤ as_of` 的判断
   才返回，否则两项为空——那一刻还不知道。
 - `independence`：`official` 公司或监管方本人发布；`report` 同一件事的第一篇；`repost` 后来的转载。计数时同一个

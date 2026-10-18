@@ -169,7 +169,7 @@
 - **以后**：新闻要影响评分，先在投研系统按它的规矩预注册、检验，通过后由所有者决定。
 - **谁维护**：名单、主题和门槛写在投研系统自己的配置里；Infohub 只给每条新闻打通用标签（哪家公司、哪个主题、
   宏观与否、重要性、利好利空、第一次看到的时间）。改标准只改投研系统的配置。
-- 接口：`GET /api/v1/signals/news`，主题规则 `app/market_themes.py`（`market-themes-v1`），对接说明见
+- 接口：`GET /api/v1/signals/news`，主题规则 `app/market_themes.py`（`market-themes-v2`），对接说明见
   [投研系统接入](../consumers/AI_RESEARCH.md)。这是 3.3 证据查询的第一版：字段是 Infohub 已有的标签；
   3.2 的公司级证据判断（强度、影响时长、原文引用等）要所有者先盲标约 200 条，留在 M2 后半段。
 

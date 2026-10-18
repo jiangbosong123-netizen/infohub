@@ -173,7 +173,9 @@ def _item(row, strict: bool, end: datetime, floor: int, include_routine: bool) -
     if routine and not include_routine:
         return None
     judged_at = row["judged_at"]
-    known = row["score"] is not None and (
+    # score -1: the model's content filter refused the item; there is no judgement to give.
+    refused = row["score"] is not None and row["score"] < 0
+    known = row["score"] is not None and not refused and (
         not strict or (judged_at is not None and datetime.fromisoformat(judged_at) <= end))
     importance = row["score"] if known else None
     if floor and (importance is None or importance < floor):
@@ -186,7 +188,7 @@ def _item(row, strict: bool, end: datetime, floor: int, include_routine: bool) -
         "official": bool(row["official"]), "story_id": row["story_id"], "routine": routine,
         "event_type": row["event_type"] or None, "channel": row["channel"],
         "importance": importance, "mood": row["mood"] if known else None,
-        "judged_at": judged_at if known else None, "_summary": row["summary"],
+        "judged_at": judged_at if known else None, "refused": refused, "_summary": row["summary"],
     }
 
 
