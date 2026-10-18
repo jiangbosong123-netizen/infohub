@@ -197,7 +197,7 @@ docker compose run --rm --no-deps migrate python cli.py coverage-preview   # 只
 ### 异地备份到 Mac（D25、D30）
 
 Windows 上的运行库和全部备份都在同一个 Docker 卷里。Mac 每天从私网 HTTPS 接口拉最新的夜间备份包，自己逐个核对后只保留最新一份
-（2026-10-15 第一份约 430 MB，补完历史数据后预计约 5 GB；放在 `~/InfohubBackups`）。
+（2026-10-15 第一份约 430 MB，补完历史数据后预计约 5 GB；放在 `~/Documents/InfoHub/InfohubBackups`，10-18 前是 `~/InfohubBackups`，重跑安装脚本会自动搬过去）。
 
 - **怎么拉**：`deploy/macos/offsite_pull.py`，只用 Mac 自带的 `/usr/bin/python3`，由 LaunchAgent 每天 12:30 和 21:30 运行（Windows 的夜间备份在北京时间 03:30 开始，即 UTC 19:30；原来的 20:30 在英国夏令时正好同一分钟，晚上那次总拉到前一晚的，所以推后一小时）；Mac 睡着时错过的
   醒来后补跑一次。
@@ -209,7 +209,7 @@ Windows 上的运行库和全部备份都在同一个 Docker 卷里。Mac 每天
   - 接口默认关闭，开关是 `INFOHUB_API_BACKUPS_ENABLED=true`；
   - 只认 `read:backups` 权限的密钥，`python cli.py offsite-key` 签发，有效期一年，新签发会作废旧的；
   - 回报超过 7 天，或开启一周后还从没回报过，自检报 `offsite_stale`。
-- **每次的结果**：`~/InfohubBackups/status.json`，日志在 `~/Library/Logs/infohub-offsite.log`。`result` 的取值：
+- **每次的结果**：`~/Documents/InfoHub/InfohubBackups/status.json`，日志在 `~/Library/Logs/infohub-offsite.log`。`result` 的取值：
   - `up_to_date`：已是最新；
   - `pulled`：拉到并核对通过；
   - `unreachable`：Windows 关机或不在线，下次再试；
@@ -239,7 +239,7 @@ launchctl kickstart gui/$(id -u)/com.infohub.offsite-pull
 ```
 
 第一次拉到后做一次隔离恢复演练（存储方式变更后必须做，见 `docs/spec/OPERATIONS.md` 3.2）：在 Mac 的开发环境用
-`db-bundle-restore` 把 `~/InfohubBackups/<名称>` 恢复到新的临时目录，再用 `db-bundle-smoke` 验收门户读路径。
+`db-bundle-restore` 把 `~/Documents/InfoHub/InfohubBackups/<名称>` 恢复到新的临时目录，再用 `db-bundle-smoke` 验收门户读路径。
 
 **停用**：`launchctl bootout gui/$(id -u)/com.infohub.offsite-pull`，删除 `~/Library/LaunchAgents/com.infohub.offsite-pull.plist`；
 Windows 上把开关改回 `false`，或用 `python cli.py api-admin key-revoke <key_id>` 作废密钥。
