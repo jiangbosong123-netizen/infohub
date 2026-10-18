@@ -155,6 +155,7 @@ docker compose up -d                                   # migrate 会再校验一
 ### 覆盖范围（D31）
 
 - **默认：** Infohub 只采 `config/watchlist.yaml` 里的公司。设了 `INFOHUB_COVERAGE_TIER` 之后，再按市场规则加采一档公司（`config/coverage.yaml`，设计见 [平台设计](spec/PLATFORM_DESIGN.md) 第四节）。
+- **什么时候生效：** 覆盖任务每天跑一次。改了档位或 `config/coverage.yaml`（比如多申请了一批 CIK），更新后 worker 一启动就跑一次，不用等到第二天（10-18 起）。
 - **新加进来的公司**（`companies.origin = coverage`）：
   - 只接 SEC 公告和 Nasdaq 个股新闻源，一小时一轮；个股源连续两轮没有新内容就隔两小时、四轮就隔四小时再问，有新内容立刻回到一小时（10-16/17 一天 2,948 次请求只换来 25 条新内容）；
   - 不建主题页，不用 Google News 逐家搜；

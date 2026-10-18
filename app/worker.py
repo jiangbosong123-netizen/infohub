@@ -120,11 +120,14 @@ def register_default_schedules(now: datetime | None = None) -> None:
             db.execute("""UPDATE schedules SET enabled=0,updated_at=?
                           WHERE id='curation-hot:refresh' AND enabled=1""", (utc_now(),))
     if config.COVERAGE_TIER >= 1:
-        # The tier is in the payload, so changing it makes the schedule due at the next start.
+        # The tier and coverage.yaml are in the payload, so changing either makes the schedule due
+        # at the next start. On 10-18 a deploy adding 226 requested CIKs would otherwise have
+        # waited for the next daily run.
+        from . import coverage
         upsert_interval_schedule(
             schedule_id="coverage:daily", kind="coverage", next_due_at=current,
             interval_seconds=86_400, priority=32, max_attempts=3,
-            payload={"tier": config.COVERAGE_TIER},
+            payload={"tier": config.COVERAGE_TIER, "config": coverage.fingerprint()},
         )
     else:
         from .database import get_db
