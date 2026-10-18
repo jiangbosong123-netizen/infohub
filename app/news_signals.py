@@ -156,8 +156,18 @@ def query_news(db, *, scope: str, ciks: list[str], themes: list[str], since: str
         else:
             item.pop("_summary")
     last = picked[-1] if picked else None
+    coverage = {}
+    if company_ids:
+        rows = db.execute(
+            f"""SELECT c.cik, p.started_at, p.basis FROM company_coverage_periods p JOIN companies c ON c.id=p.company_id
+                WHERE p.ended_at IS NULL AND p.company_id IN ({",".join("?" * len(company_ids))})""",
+            list(company_ids)).fetchall()
+        coverage = {row["cik"]: {"covered_since": row["started_at"], "basis": row["basis"]} for row in rows}
+    gaps = [{"from": row["started_at"], "to": row["ended_at"], "reason": row["reason"]}
+            for row in db.execute("SELECT started_at, ended_at, reason FROM collection_gaps ORDER BY started_at")]
     return {
         "scope": scope, "since": start.isoformat(), "as_of": end.isoformat(), "point_in_time": strict,
+        "coverage": coverage, "collection_gaps": gaps,
         "min_score": floor, "algorithm": ALGORITHM, "themes_version": market_themes.THEMES_VERSION,
         "unknown_ciks": unknown, "data": picked,
         "next_after": f"{last['available_at']}~{last['id']}" if more and last else None,

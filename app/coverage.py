@@ -168,6 +168,23 @@ def coverage_slug(cik: int) -> str:
     return f"cik{int(cik)}"
 
 
+def _record_periods(db) -> None:
+    """Open a collection period for each company now collected and close it when coverage ends
+    (company_coverage_periods, migration 61), so consumers can tell "no news" from "not collected"."""
+    from datetime import datetime, timezone
+    now = datetime.now(timezone.utc).isoformat()
+    db.execute(
+        """INSERT INTO company_coverage_periods(company_id,started_at,basis)
+           SELECT c.id, ?, 'recorded' FROM companies c
+           WHERE (c.origin='watchlist' OR c.covered=1)
+             AND NOT EXISTS (SELECT 1 FROM company_coverage_periods p WHERE p.company_id=c.id AND p.ended_at IS NULL)""",
+        (now,))
+    db.execute(
+        """UPDATE company_coverage_periods SET ended_at=?
+           WHERE ended_at IS NULL AND company_id IN (SELECT id FROM companies WHERE origin='coverage' AND covered=0)""",
+        (now,))
+
+
 def sync(level: int | None = None) -> dict:
     """Write the plan into ``companies``; watchlist rows win for companies they already hold."""
     level = tier() if level is None else level
@@ -202,5 +219,6 @@ def sync(level: int | None = None) -> dict:
         retired = db.execute(
             f"""UPDATE companies SET covered=0 WHERE origin='coverage' AND covered=1
                 AND slug NOT IN ({",".join("?" * len(kept)) or "''"})""", kept).rowcount
+        _record_periods(db)
     company_match.invalidate_cache()
     return {"tier": level, "planned": len(planned), "added": added, "updated": updated, "retired": retired}

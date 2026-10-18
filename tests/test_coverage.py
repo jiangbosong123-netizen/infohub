@@ -185,6 +185,24 @@ class CoverageTests(unittest.TestCase):
         self.assertEqual(report["added"], 6)
         self.assertEqual([row[0] for row in missing], [])  # a filing for cik1 can now be stored
 
+    def test_collection_periods_open_and_close_with_coverage(self):
+        def periods():
+            with database.get_db() as db:
+                return {(row["slug"], row["open"]) for row in db.execute(
+                    """SELECT c.slug, p.ended_at IS NULL AS open FROM company_coverage_periods p
+                       JOIN companies c ON c.id=p.company_id""")}
+        coverage.sync(1)
+        self.assertIn(("cik1", 1), periods())
+        self.assertIn(("nvidia", 1), periods())  # watchlist companies are collected too
+        coverage.sync(0)
+        self.assertIn(("cik1", 0), periods())
+        self.assertIn(("nvidia", 1), periods())
+        coverage.sync(1)  # covered again: a new period, the old one stays closed
+        with database.get_db() as db:
+            rows = db.execute("""SELECT p.ended_at IS NULL FROM company_coverage_periods p JOIN companies c ON c.id=p.company_id
+                                 WHERE c.slug='cik1' ORDER BY p.started_at""").fetchall()
+        self.assertEqual([row[0] for row in rows], [0, 1])
+
     def test_the_security_master_refuses_a_suspiciously_short_list(self):
         with self.assertRaisesRegex(RuntimeError, "refusing"):
             security_master.store_listings(LISTINGS)

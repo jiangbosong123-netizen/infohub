@@ -4129,6 +4129,68 @@ def _item_moods(db: sqlite3.Connection) -> None:
     _execute_script(db, ITEM_MOODS_SQL)
 
 
+# When InfoHub collected what (D31): a consumer's baseline must tell "no news" from "not
+# collected yet" or "collection was down".
+COLLECTION_PERIODS_SQL = """
+CREATE TABLE company_coverage_periods (
+    company_id INTEGER NOT NULL REFERENCES companies(id) ON DELETE CASCADE,
+    started_at TEXT NOT NULL,
+    ended_at TEXT,
+    basis TEXT NOT NULL CHECK(basis IN ('recorded','first_feed_fetch','first_item','dataset_start')),
+    PRIMARY KEY(company_id, started_at),
+    CHECK(ended_at IS NULL OR ended_at > started_at)
+);
+CREATE INDEX idx_company_coverage_open ON company_coverage_periods(company_id) WHERE ended_at IS NULL;
+CREATE TABLE collection_gaps (
+    started_at TEXT PRIMARY KEY,
+    ended_at TEXT NOT NULL CHECK(ended_at > started_at),
+    reason TEXT NOT NULL
+);
+"""
+# Measured on the production dataset from fetch_log and items (10-17 bundle): no source ran
+# between these times. The Mac era before 2026-10-02 kept no fetch log, so its sleeps are unknown.
+PRODUCTION_DATASET_ID = "dataset_7281edcc9b8b41dbbbe77bd54e82f235"
+PRODUCTION_COLLECTION_GAPS = (
+    ("2026-10-03T16:02:18Z", "2026-10-14T22:04:42Z", "Mac 停采，迁到 Windows 前的停机"),
+    ("2026-10-14T22:12:52Z", "2026-10-15T00:04:49Z", "数据搬进 Docker 命名卷"),
+    ("2026-10-15T00:19:57Z", "2026-10-15T14:58:17Z", "Windows 夜间关机"),
+)
+
+
+def _collection_periods(db: sqlite3.Connection) -> None:
+    _execute_script(db, COLLECTION_PERIODS_SQL)
+    dataset = db.execute("SELECT dataset_id FROM dataset_state WHERE singleton=1").fetchone()
+    if dataset and dataset[0] == PRODUCTION_DATASET_ID:
+        db.executemany("INSERT INTO collection_gaps(started_at,ended_at,reason) VALUES(?,?,?)",
+                       PRODUCTION_COLLECTION_GAPS)
+    now = datetime.now(timezone.utc).isoformat()
+    dataset_start = db.execute("SELECT MIN(fetched_at) FROM items").fetchone()[0]
+    companies = db.execute(
+        "SELECT id, slug, origin FROM companies WHERE origin='watchlist' OR covered=1").fetchall()
+    for company_id, slug, origin in companies:
+        feed = f"nasdaq-{slug}" if origin == "coverage" else f"googlenews-{slug}"
+        # fetch_log keeps 14 days, items everything: the earlier of the feed's first run and first item.
+        candidates = [value for (value,) in (
+            db.execute("""SELECT MIN(f.ran_at) FROM fetch_log f JOIN sources s ON s.id=f.source_id
+                          WHERE s.key=?""", (feed,)).fetchone(),
+            db.execute("""SELECT MIN(i.fetched_at) FROM items i JOIN sources s ON s.id=i.source_id
+                          WHERE s.key=?""", (feed,)).fetchone()) if value]
+        first_feed = min(candidates, key=lambda value: datetime.fromisoformat(value)) if candidates else None
+        first_item = db.execute(
+            """SELECT MIN(i.fetched_at) FROM item_companies ic JOIN items i ON i.id=ic.item_id
+               WHERE ic.company_id=?""", (company_id,)).fetchone()[0]
+        if first_feed:
+            started, basis = first_feed, "first_feed_fetch"
+        elif first_item:
+            started, basis = first_item, "first_item"
+        elif origin == "watchlist" and dataset_start:
+            started, basis = dataset_start, "dataset_start"
+        else:
+            started, basis = now, "recorded"
+        db.execute("""INSERT INTO company_coverage_periods(company_id,started_at,basis) VALUES(?,?,?)""",
+                   (company_id, started, basis))
+
+
 # Migration 1 freezes the exact legacy schema at main@88a2a1e. Future schema
 # changes must append a new Migration instead of editing this definition.
 MIGRATIONS = (
@@ -4329,6 +4391,8 @@ MIGRATIONS = (
     Migration(58, "daily model usage and database size", DAILY_METRICS_SQL, _daily_metrics),
     Migration(59, "daily model failures by kind", AI_FAILURES_SQL, _ai_failures),
     Migration(60, "the scoring model's mood per item", ITEM_MOODS_SQL, _item_moods),
+    Migration(61, "when each company and the whole collection were collected", COLLECTION_PERIODS_SQL,
+              _collection_periods),
 )
 CURRENT_SCHEMA_VERSION = MIGRATIONS[-1].version
 REQUIRED_MIGRATION_COLUMNS = {

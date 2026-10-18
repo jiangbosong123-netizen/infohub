@@ -111,6 +111,17 @@ class NewsSignalsTests(unittest.TestCase):
         data = {item["id"]: item for item in self.get(cik=[MU, NVDA]).json()["data"]}
         self.assertEqual((data[item_id]["ciks"], data[item_id]["headline_ciks"]), ([MU, NVDA], [MU]))
 
+    def test_each_cik_says_since_when_it_is_collected(self):
+        with database.get_db(self.path) as db:
+            db.execute("""INSERT INTO company_coverage_periods(company_id,started_at,basis)
+                          VALUES(1,'2026-10-15T15:59:42+00:00','first_feed_fetch')""")
+            db.execute("""INSERT INTO collection_gaps(started_at,ended_at,reason)
+                          VALUES('2026-10-03T16:02:18Z','2026-10-14T22:04:42Z','停机')""")
+        body = self.get(cik=[MU, NVDA]).json()
+        self.assertEqual(body["coverage"], {MU: {"covered_since": "2026-10-15T15:59:42+00:00", "basis": "first_feed_fetch"}})
+        self.assertEqual(body["collection_gaps"], [{"from": "2026-10-03T16:02:18Z", "to": "2026-10-14T22:04:42Z",
+                                                    "reason": "停机"}])
+
     def test_a_refused_item_has_no_judgement(self):
         with database.get_db(self.path) as db:  # the content filter refused it: score -1
             item_id = db.execute(

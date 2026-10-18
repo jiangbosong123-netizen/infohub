@@ -31,6 +31,8 @@ Infohub 不往那个仓库写东西；这份说明就是交给那边的全部信
 
 ```json
 {"scope": "company", "since": "...", "as_of": "...", "point_in_time": false, "min_score": 0,
+ "coverage": {"0000723125": {"covered_since": "2026-10-15T15:59:42+00:00", "basis": "first_feed_fetch"}},
+ "collection_gaps": [{"from": "2026-10-03T16:02:18Z", "to": "2026-10-14T22:04:42Z", "reason": "..."}],
  "algorithm": "news-signals-v1", "themes_version": "market-themes-v2", "unknown_ciks": [],
  "next_after": null,
  "data": [{"id": 123, "available_at": "2026-10-18T09:12:03.1+00:00", "published_at": "...",
@@ -49,6 +51,11 @@ Infohub 不往那个仓库写东西；这份说明就是交给那边的全部信
   `story_id` 只算一次，与模块 4 的“只算原始来源和独立研究”对应。
 - `headline_ciks`：`ciks` 里在标题本身被点名的那些（按公司别名、简称和代码识别）。在里面说明新闻是讲这家公司的；
   只在 `ciks` 里、不在这里，多半是正文里顺带提到（2026-10-18 应投研系统要求加）。
+- `coverage`（只在 `company` 范围）：每个请求的 CIK 从什么时候开始采，`{"covered_since": UTC 时间, "basis": 依据}`。依据是
+  `first_feed_fetch`（这家公司自己的新闻源第一次抓取，2026-10-18 以前的公司按此回填）或 `recorded`（加入时记下）。
+  在 `covered_since` 之前没有新闻，说明的是“还没在采”，不是“没有新闻”。
+- `collection_gaps`：整个 Infohub 停采的时段 `[{"from", "to", "reason"}]`，任何公司在这些时段里都可能缺新闻。
+  2026-10-02 以前（Mac 时期）没有抓取日志，那时 Mac 偶尔睡眠造成的空档无法还原，不在列表里。
 - `unknown_ciks`：Infohub 还没在采的公司。要加，在 Infohub 的 `config/coverage.yaml` 的 `ai-research` 申请里加 CIK。
 
 ## 按投研系统自己的规矩接
