@@ -199,17 +199,23 @@ def _attach(db, items: list[dict]) -> None:
     ids = [item["id"] for item in items]
     marks = ",".join("?" * len(ids))
     ciks: dict[int, list[str]] = {}
-    for row in db.execute(f"""SELECT ic.item_id, c.cik FROM item_companies ic JOIN companies c ON c.id=ic.company_id
+    slugs: dict[int, list[tuple[str, str]]] = {}
+    for row in db.execute(f"""SELECT ic.item_id, c.cik, c.slug FROM item_companies ic JOIN companies c ON c.id=ic.company_id
                               WHERE ic.item_id IN ({marks}) AND c.cik!='' ORDER BY c.cik""", ids):
         ciks.setdefault(row["item_id"], []).append(row["cik"])
+        slugs.setdefault(row["item_id"], []).append((row["cik"], row["slug"]))
     stories = sorted({item["story_id"] for item in items if item["story_id"]})
     first: dict[str, int] = {}
     if stories:
         first = {row[0]: row[1] for row in db.execute(
             f"""SELECT story_id, MIN(item_id) FROM story_items WHERE story_id IN ({",".join("?" * len(stories))})
                 GROUP BY story_id""", stories)}
+    from .company_match import mentions_in_own_feed
     for item in items:
         item["ciks"] = ciks.get(item["id"], [])
+        # The companies named in the headline itself: the story is about them, not a passing mention.
+        headline = "\n".join(value for value in (item["title"], item["title_zh"]) if value)
+        item["headline_ciks"] = [cik for cik, slug in slugs.get(item["id"], []) if mentions_in_own_feed(slug, headline)]
         if item["official"]:
             item["independence"] = "official"
         elif item["story_id"] and first.get(item["story_id"]) != item["id"]:

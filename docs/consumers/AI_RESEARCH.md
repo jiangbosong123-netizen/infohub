@@ -36,7 +36,7 @@ Infohub 不往那个仓库写东西；这份说明就是交给那边的全部信
  "data": [{"id": 123, "available_at": "2026-10-18T09:12:03.1+00:00", "published_at": "...",
            "title": "...", "title_zh": "...", "url": "...", "publisher": "Reuters", "source": "Google News · 美光",
            "official": false, "independence": "report", "story_id": "...", "routine": false,
-           "ciks": ["0000723125"], "themes": ["memory"], "event_type": "earnings", "channel": "stock",
+           "ciks": ["0000723125"], "headline_ciks": ["0000723125"], "themes": ["memory"], "event_type": "earnings", "channel": "stock",
            "importance": 80, "mood": -2, "judged_at": "2026-10-18T09:15:40+00:00"}]}
 ```
 
@@ -47,6 +47,8 @@ Infohub 不往那个仓库写东西；这份说明就是交给那边的全部信
   才返回，否则两项为空——那一刻还不知道。
 - `independence`：`official` 公司或监管方本人发布；`report` 同一件事的第一篇；`repost` 后来的转载。计数时同一个
   `story_id` 只算一次，与模块 4 的“只算原始来源和独立研究”对应。
+- `headline_ciks`：`ciks` 里在标题本身被点名的那些（按公司别名、简称和代码识别）。在里面说明新闻是讲这家公司的；
+  只在 `ciks` 里、不在这里，多半是正文里顺带提到（2026-10-18 应投研系统要求加）。
 - `unknown_ciks`：Infohub 还没在采的公司。要加，在 Infohub 的 `config/coverage.yaml` 的 `ai-research` 申请里加 CIK。
 
 ## 按投研系统自己的规矩接
