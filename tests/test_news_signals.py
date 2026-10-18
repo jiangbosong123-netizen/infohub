@@ -92,6 +92,24 @@ class NewsSignalsTests(unittest.TestCase):
         self.assertEqual(body["unknown_ciks"], ["0000000999"])
         self.assertIn("Micron Technology · SEC 内部人持股变动", self.titles(self.get(cik=MU, include_routine="true")))
 
+    def test_a_refused_item_has_no_judgement(self):
+        with database.get_db(self.path) as db:  # the content filter refused it: score -1
+            item_id = db.execute(
+                """INSERT INTO items(source_id,url,title,channel,published_at,fetched_at,companies,score,tmt)
+                   VALUES(1,'https://e.test/refused','Micron and the sensitive story','stock',?,?,'["micron"]',-1,1)""",
+                ((T + timedelta(minutes=40)).isoformat(), (T + timedelta(minutes=40)).isoformat())).lastrowid
+            db.execute("INSERT INTO item_companies(item_id,company_id) VALUES(?,1)", (item_id,))
+        refused = [item for item in self.get(cik=MU).json()["data"] if item["id"] == item_id]
+        self.assertEqual([(item["importance"], item["mood"], item["refused"]) for item in refused], [(None, None, True)])
+        self.assertNotIn("Micron and the sensitive story", self.titles(self.get(cik=MU, min_score=1)))
+
+    def test_chip_smuggling_counts_as_export_controls(self):
+        from app import market_themes
+        self.assertEqual(market_themes.classify("台湾拟将走私英伟达芯片至中国定为犯罪"), ["export_controls"])
+        self.assertEqual(market_themes.classify("Smuggling Nvidia Chips Into China Is About to Become a Crime"),
+                         ["export_controls"])
+        self.assertEqual(market_themes.classify("海关查获走私香烟"), [])  # no chip word: not about chips
+
     def test_industry_and_macro_news_come_by_theme_above_their_floor(self):
         self.assertEqual(self.titles(self.get(scope="macro")), ["美联储宣布降息25个基点"])
         industry = self.get(scope="industry", theme="capacity_supply").json()
