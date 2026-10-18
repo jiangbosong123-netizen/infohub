@@ -173,6 +173,18 @@ class CoverageTests(unittest.TestCase):
         worker.register_default_schedules()
         self.assertEqual(schedule()["enabled"], 0)
 
+    def test_the_coverage_job_gives_new_companies_a_stable_identity(self):
+        with patch.object(security_master, "fetch_listings", return_value=LISTINGS), \
+                patch.object(security_master, "MIN_LISTINGS", 1), \
+                patch.object(security_master, "refresh_industry_codes", return_value={}), \
+                patch.object(config, "COVERAGE_TIER", 1):
+            report = worker._coverage()
+        with database.get_db() as db:
+            missing = db.execute("""SELECT c.slug FROM companies c LEFT JOIN legacy_company_entities m
+                                    ON m.company_id=c.id WHERE m.company_id IS NULL""").fetchall()
+        self.assertEqual(report["added"], 6)
+        self.assertEqual([row[0] for row in missing], [])  # a filing for cik1 can now be stored
+
     def test_the_security_master_refuses_a_suspiciously_short_list(self):
         with self.assertRaisesRegex(RuntimeError, "refusing"):
             security_master.store_listings(LISTINGS)

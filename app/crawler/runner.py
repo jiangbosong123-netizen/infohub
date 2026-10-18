@@ -333,6 +333,13 @@ def _record(key: str, ok: bool, new: int, message: str, partial: bool = False,
                 """UPDATE sources SET last_run_at=?, last_success_at=?, fail_count=0,
                                       last_error=NULL WHERE key=?""",
                 (_now(), _now(), key))
+            if key.startswith(QUIET_BACKOFF_PREFIXES):
+                db.execute(
+                    """UPDATE sources SET state=json_set(CASE WHEN json_valid(state) THEN state ELSE '{}' END,
+                           '$.quiet_runs', CASE WHEN ?>0 THEN 0
+                               ELSE COALESCE(json_extract(CASE WHEN json_valid(state) THEN state END,'$.quiet_runs'),0)+1 END)
+                       WHERE key=?""",
+                    (new, key))
         else:
             db.execute(
                 """UPDATE sources SET last_run_at=?, fail_count=fail_count+1,
@@ -348,6 +355,19 @@ def retry_interval(interval_minutes: int, fail_count: int) -> int:
     return max(interval_minutes, min(interval_minutes * 2 ** min(fail_count, 8), 360))
 
 
+# Per-company coverage feeds that listed nothing new for a while are asked less often: every two
+# empty runs double the wait, up to four hours, and the first new entry resets it. On 10-16/17 the
+# 134 Nasdaq feeds were fetched 2,948 times in a day for 25 new entries; 115 listed nothing.
+QUIET_BACKOFF_PREFIXES = ("nasdaq-",)
+QUIET_CAP_MINUTES = 240
+
+
+def quiet_interval(key: str, interval_minutes: int, quiet_runs: int) -> int:
+    if not key.startswith(QUIET_BACKOFF_PREFIXES) or quiet_runs < 2:
+        return interval_minutes
+    return max(interval_minutes, min(interval_minutes * 2 ** min(quiet_runs // 2, 8), QUIET_CAP_MINUTES))
+
+
 def run_due_sources() -> dict:
     """跑所有到期的常规源（reconcile 层单独调度），完成后重建热点聚类。"""
     now = datetime.now(timezone.utc)
@@ -356,15 +376,20 @@ def run_due_sources() -> dict:
         if s.get("tier") == "reconcile":
             continue
         with get_db() as db:
-            row = db.execute("SELECT enabled, last_run_at, fail_count, interval_minutes FROM sources WHERE key=?",
-                             (s["key"],)).fetchone()
+            row = db.execute(
+                """SELECT enabled, last_run_at, fail_count, interval_minutes,
+                          COALESCE(json_extract(CASE WHEN json_valid(state) THEN state END,'$.quiet_runs'),0) AS quiet_runs
+                   FROM sources WHERE key=?""",
+                (s["key"],)).fetchone()
         if not row or not row["enabled"]:
             continue
         if http.host_paused_until(s.get("url", "")) is not None:
             continue  # the host asked us to wait; run again once the pause is over
         if row["last_run_at"]:
             last = datetime.fromisoformat(row["last_run_at"])
-            if now < last + timedelta(minutes=retry_interval(row["interval_minutes"], row["fail_count"])):
+            wait = max(retry_interval(row["interval_minutes"], row["fail_count"]),
+                       quiet_interval(s["key"], row["interval_minutes"], row["quiet_runs"]))
+            if now < last + timedelta(minutes=wait):
                 continue
         due.append(s)
 

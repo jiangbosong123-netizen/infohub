@@ -66,6 +66,45 @@ class CrawlerHealthTests(unittest.TestCase):
         response=TestClient(app).get('/health')
         self.assertEqual(response.context['sources'][0]['status'],'partial')
 
+    def test_a_quiet_coverage_feed_is_asked_less_often_until_it_lists_something(self):
+        self.assertEqual(runner.quiet_interval('nasdaq-cik1', 60, 0), 60)
+        self.assertEqual(runner.quiet_interval('nasdaq-cik1', 60, 2), 120)
+        self.assertEqual(runner.quiet_interval('nasdaq-cik1', 60, 4), 240)
+        self.assertEqual(runner.quiet_interval('nasdaq-cik1', 60, 30), 240)  # capped at four hours
+        self.assertEqual(runner.quiet_interval('nvidia-newsroom', 60, 30), 60)  # only coverage feeds
+        with database.get_db() as db:
+            db.execute("INSERT INTO sources(key,name,channel,type,interval_minutes) VALUES('nasdaq-cik1','N','stock','rss',60)")
+
+        def quiet_runs():
+            with database.get_db() as db:
+                return db.execute("SELECT json_extract(state,'$.quiet_runs') FROM sources WHERE key='nasdaq-cik1'").fetchone()[0]
+        for _ in range(3):
+            runner._record('nasdaq-cik1', True, 0, '')
+        self.assertEqual(quiet_runs(), 3)
+        runner._record('nasdaq-cik1', True, 2, '')
+        self.assertEqual(quiet_runs(), 0)
+        runner._record('nasdaq-cik1', False, 0, 'timeout')  # a failure is not quiet
+        self.assertEqual(quiet_runs(), 0)
+
+    def test_a_quiet_coverage_feed_is_not_due_within_its_longer_wait(self):
+        from datetime import datetime, timedelta, timezone
+        source = dict(key='nasdaq-cik9', name='N', channel='stock', type='rss', tier='media',
+                      url='https://www.nasdaq.com/feed/rssoutbound?symbol=X', interval_minutes=60)
+        seventy = (datetime.now(timezone.utc) - timedelta(minutes=70)).isoformat()
+        with database.get_db() as db:
+            db.execute("""INSERT INTO sources(key,name,channel,type,interval_minutes,last_run_at,state)
+                          VALUES('nasdaq-cik9','N','stock','rss',60,?,'{"quiet_runs": 2}')""", (seventy,))
+        ran = []
+        with patch.object(runner, 'all_sources', return_value=[source]), \
+                patch.object(runner, 'run_source', side_effect=lambda s: ran.append(s['key']) or (0, True, '')), \
+                patch('app.ranking.rebuild_clusters'):
+            runner.run_due_sources()
+            self.assertEqual(ran, [])  # two empty runs: waits 120 minutes, not 60
+            with database.get_db() as db:
+                db.execute("""UPDATE sources SET state='{"quiet_runs": 0}' WHERE key='nasdaq-cik9'""")
+            runner.run_due_sources()
+        self.assertEqual(ran, ['nasdaq-cik9'])
+
     def test_full_failure_backs_off_and_success_clears(self):
         runner._record('google-news',False,0,'offline')
         with database.get_db() as db:
