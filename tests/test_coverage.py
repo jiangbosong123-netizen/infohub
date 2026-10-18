@@ -13,7 +13,7 @@ SETTINGS = {
             "technology_industries": ["Electrical Products"]},
         2: {"name": "top 2", "top_market_cap": 2},
     },
-    "requests": {"research": {"ciks": [7, 12, 99]}},
+    "requests": {"research": {"ciks": [7, 12, 15, 99]}},
 }
 
 
@@ -32,6 +32,10 @@ LISTINGS = [
     listing("BIGG", 6, 7e11, industry="Retail"),
     listing("SPAC", 8, 9e12, industry="Blank Checks"),                   # never covered
     listing("REQS", 7, 2e8, industry="Auto Parts"),                      # only by request
+    dict(ticker="TXET", cik=15, name="TEXAS ENERGY LP", display_name=None, exchange="TXSE", market_cap=None,
+         sector=None, industry=None, country=None),                       # requested, Texas exchange only
+    dict(ticker="TXET-PI", cik=15, name="TEXAS ENERGY LP", display_name=None, exchange="TXSE", market_cap=None,
+         sector=None, industry=None, country=None),
     listing("OTCX", 9, 9e9, exchange="OTC"),                             # not listed on NYSE/Nasdaq
     listing("NVDA", 10, 4e12, name="NVIDIA Corporation"),                # a watchlist company
     listing("SUPR", 11, 2e10, name="Supermicron Inc."),
@@ -80,7 +84,8 @@ class CoverageTests(unittest.TestCase):
         # SUPRP is the preferred line of SUPR; GOOGL extends GOOG, both are Alphabet.
         self.assertEqual(self.plan(1), {"CHIP": ["tier 1"], "PWRX": ["tier 1"], "NVDA": ["tier 1"],
                                         "SUPR": ["tier 1"], "MINE": ["tier 1"], "PREF": ["tier 1"],
-                                        "REQS": ["request research"], "GOOG": ["request research"]})
+                                        "REQS": ["request research"], "GOOG": ["request research"],
+                                        "TXET": ["request research"]})  # any exchange, base ticker
         two = self.plan(2)
         self.assertEqual(two["MEGA"], ["tier 2"])  # one company, its largest share class
         self.assertNotIn("MEGB", two)
@@ -90,7 +95,7 @@ class CoverageTests(unittest.TestCase):
             self.assertEqual(coverage.unresolved_requests(db), {"research": [99]})
 
     def test_sync_adds_coverage_companies_keeps_the_watchlist_and_retires_quietly(self):
-        self.assertEqual(coverage.sync(1), {"tier": 1, "planned": 8, "added": 6, "updated": 0, "retired": 0})
+        self.assertEqual(coverage.sync(1), {"tier": 1, "planned": 9, "added": 7, "updated": 0, "retired": 0})
         rows = self.companies()
         self.assertEqual(rows["NVDA"]["origin"], "watchlist")  # matched by ticker, not duplicated
         self.assertEqual(rows["GOOGL"]["origin"], "watchlist")  # matched by the company's other ticker
@@ -105,7 +110,7 @@ class CoverageTests(unittest.TestCase):
         self.assertIn("nasdaq-cik1", keys)
         self.assertIn("googlenews-nvidia", keys)
         self.assertNotIn("googlenews-cik1", keys)  # no per-company Google search for coverage companies
-        self.assertEqual(coverage.sync(0)["retired"], 6)
+        self.assertEqual(coverage.sync(0)["retired"], 7)
         self.assertEqual(self.companies()["CHIP"]["covered"], 0)
         self.assertNotIn("nasdaq-cik1", {source["key"] for source in sources.all_sources()})
 
@@ -182,7 +187,7 @@ class CoverageTests(unittest.TestCase):
         with database.get_db() as db:
             missing = db.execute("""SELECT c.slug FROM companies c LEFT JOIN legacy_company_entities m
                                     ON m.company_id=c.id WHERE m.company_id IS NULL""").fetchall()
-        self.assertEqual(report["added"], 6)
+        self.assertEqual(report["added"], 7)
         self.assertEqual([row[0] for row in missing], [])  # a filing for cik1 can now be stored
 
     def test_collection_periods_open_and_close_with_coverage(self):

@@ -148,18 +148,41 @@ def plan(db, level: int, settings: dict | None = None) -> dict[int, dict]:
                             or (company["industry"] in technology and company["sector"] == "Technology"))]
         for company in members:
             company["reasons"].append(f"tier {number}")
+    # A request names its companies outright, so it is not held to the tiers' NYSE/Nasdaq and market
+    # cap filters: Energy Transfer (CIK 1276187) moved to the Texas Stock Exchange and has no
+    # screener row, yet SEC files and Nasdaq feeds still work for it.
+    others = None
     for consumer, request in settings["requests"].items():
         for cik in request.get("ciks") or []:
             company = by_cik.get(int(cik))
-            if company is not None:
-                company["reasons"].append(f"request {consumer}")
+            if company is None:
+                others = _any_listing(db) if others is None else others
+                if int(cik) not in others:
+                    continue
+                company = by_cik[int(cik)] = {**others[int(cik)], "reasons": []}
+            company["reasons"].append(f"request {consumer}")
     return {cik: company for cik, company in by_cik.items() if company["reasons"]}
 
 
+def _any_listing(db) -> dict[int, dict]:
+    """One row per CIK from every exchange, the base ticker first (BRK-B after BRK, ET before ET-PI)."""
+    rows = db.execute(
+        """SELECT ticker,cik,COALESCE(display_name,name) AS name,market_cap,sector,industry FROM security_master
+           ORDER BY cik, length(ticker), ticker""").fetchall()
+    found: dict[int, dict] = {}
+    tickers: dict[int, list[str]] = {}
+    for row in rows:
+        tickers.setdefault(row["cik"], []).append(row["ticker"])
+        found.setdefault(row["cik"], dict(row))
+    for cik, company in found.items():
+        company["tickers"] = tickers[cik]
+    return found
+
+
 def unresolved_requests(db, settings: dict | None = None) -> dict[str, list[int]]:
-    """Requested CIKs with no listed company in the security master (delisted, renamed, typo)."""
+    """Requested CIKs SEC lists on no exchange at all (delisted, replaced, typo)."""
     settings = settings or load()
-    listed = {row["cik"] for row in _listed(db)}
+    listed = set(_any_listing(db))
     return {consumer: missing for consumer, request in settings["requests"].items()
             if (missing := [int(cik) for cik in request.get("ciks") or [] if int(cik) not in listed])}
 
