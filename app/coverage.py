@@ -65,6 +65,14 @@ def load(path: Path = COVERAGE_PATH) -> dict:
     return {"tiers": tiers, "requests": data.get("requests") or {}}
 
 
+def fingerprint(path: Path | None = None) -> str:
+    """A short hash of the tiers and requests: the worker puts it in the coverage schedule so a
+    changed coverage.yaml is applied at the next start, not at the next daily run (up to 24 h later)."""
+    import hashlib
+    text = json.dumps(load(path or COVERAGE_PATH), sort_keys=True, ensure_ascii=False, default=str)
+    return hashlib.sha256(text.encode("utf-8")).hexdigest()[:16]
+
+
 def short_name(name: str) -> str:
     """'Teradyne Inc.' -> 'Teradyne'; 'Eaton Corporation PLC' -> 'Eaton'."""
     previous, current = None, name.strip()

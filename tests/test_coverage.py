@@ -174,9 +174,25 @@ class CoverageTests(unittest.TestCase):
         self.assertIsNone(schedule())
         with patch.object(config, "COVERAGE_TIER", 1):
             worker.register_default_schedules()
-        self.assertEqual((schedule()["enabled"], json.loads(schedule()["payload_json"])), (1, {"tier": 1}))
+        self.assertEqual((schedule()["enabled"], json.loads(schedule()["payload_json"])),
+                         (1, {"tier": 1, "config": coverage.fingerprint()}))
         worker.register_default_schedules()
         self.assertEqual(schedule()["enabled"], 0)
+
+    def test_a_changed_coverage_file_makes_the_coverage_job_due_at_the_next_start(self):
+        def next_due():
+            with database.get_db() as db:
+                return db.execute("SELECT next_due_at FROM schedules WHERE id='coverage:daily'").fetchone()[0]
+        with patch.object(config, "COVERAGE_TIER", 1):
+            worker.register_default_schedules()
+            with database.get_db() as db:
+                db.execute("UPDATE schedules SET next_due_at='2099-01-01T00:00:00Z' WHERE id='coverage:daily'")
+            worker.register_default_schedules()
+            self.assertTrue(next_due().startswith("2099"))  # nothing changed: the daily time stands
+            more = {**SETTINGS, "requests": {**SETTINGS["requests"], "study": {"ciks": [1, 2]}}}
+            with patch.object(coverage, "load", return_value=more):
+                worker.register_default_schedules()
+            self.assertLess(next_due(), "2099")  # a new request runs at this start
 
     def test_the_coverage_job_gives_new_companies_a_stable_identity(self):
         with patch.object(security_master, "fetch_listings", return_value=LISTINGS), \
