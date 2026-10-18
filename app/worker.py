@@ -316,6 +316,12 @@ def _coverage() -> dict:
     from .database import get_db
     report = security_master.store_listings(security_master.fetch_listings())
     report.update(coverage.sync())
+    # A company new to coverage needs its stable identity before its first SEC filing can be
+    # stored. Only init_db synced it before: on 10-16 a company added by this job had 3 filings
+    # refused 87 runs in a row (SecProjectionError) until the next deploy.
+    from .catalog import sync_identity_catalog
+    with get_db() as db:
+        report["catalog_companies"] = sync_identity_catalog(db).companies_seen
     with get_db() as db:
         ciks = [int(row[0]) for row in db.execute(
             "SELECT cik FROM companies WHERE origin='coverage' AND covered=1 AND cik!=''")]

@@ -156,7 +156,7 @@ docker compose up -d                                   # migrate 会再校验一
 
 - **默认：** Infohub 只采 `config/watchlist.yaml` 里的公司。设了 `INFOHUB_COVERAGE_TIER` 之后，再按市场规则加采一档公司（`config/coverage.yaml`，设计见 [平台设计](spec/PLATFORM_DESIGN.md) 第四节）。
 - **新加进来的公司**（`companies.origin = coverage`）：
-  - 只接 SEC 公告和 Nasdaq 个股新闻源，一小时一轮；
+  - 只接 SEC 公告和 Nasdaq 个股新闻源，一小时一轮；个股源连续两轮没有新内容就隔两小时、四轮就隔四小时再问，有新内容立刻回到一小时（10-16/17 一天 2,948 次请求只换来 25 条新内容）；
   - 不建主题页，不用 Google News 逐家搜；
   - 个股源只收提到这家公司的条目。
 - **一家公司用哪个代码：** 用它的普通股。代码是同公司另一个代码加后缀的（SMCIP 之于 SMCI，HBANL 之于 HBAN），
@@ -165,7 +165,7 @@ docker compose up -d                                   # migrate 会再校验一
 - **公司识别：**
   - 在任何新闻里，都认 `$代码`、法定名称和简称。单个词的简称区分大小写（`Intel` 算，`intel` 不算），日常词（Target、Benchmark 等）不单独算。
   - 在公司自己的个股源里，代码和简称也算。
-- **刷新：** worker 每天跑一次 `coverage` 任务：刷新全美上市公司表（SEC 代码表 + Nasdaq 市值与行业）、按当前档同步公司、为新公司取 SIC（每次最多 100 家）、登记新闻源。改了档位重启后会立刻跑一次。
+- **刷新：** worker 每天跑一次 `coverage` 任务：刷新全美上市公司表（SEC 代码表 + Nasdaq 市值与行业）、按当前档同步公司、给新公司登记身份（存 SEC 公告要用；10-16 漏了这步，一家新公司的 3 份公告被拒了 21 小时）、为新公司取 SIC（每次最多 100 家）、登记新闻源。改了档位重启后会立刻跑一次。
 
 开启或换档（Windows）：
 
