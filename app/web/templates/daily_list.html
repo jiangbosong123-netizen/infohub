@@ -7,7 +7,11 @@
 {% endif %}
 <ul class="dailies">
   {% for r in reports %}
-  <li><a href="/daily/{{ r.date }}">{{ r.date }}</a><span class="src">{{ r.source_label }} · {{ r.created_rel }} 生成</span></li>
+  {% if r.gap %}
+  <li class="daily-gap">{{ r.gap }} 没有日报</li>
+  {% else %}
+  <li><a class="daily-link" href="/daily/{{ r.date }}"><span class="daily-date">{{ r.date }} <small>{{ r.weekday }}</small></span>{% if r.lead %}<span class="daily-lead">{{ r.lead }}</span>{% endif %}</a><span class="src">{{ r.source_label }} · {{ r.created_rel }} 生成</span></li>
+  {% endif %}
   {% endfor %}
 </ul>
 {% endblock %}

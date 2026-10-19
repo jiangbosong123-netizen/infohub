@@ -45,7 +45,21 @@ class ReportReadCutoverTests(unittest.TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertIn("legacy report", response.text)
         self.assertNotIn("New source", response.text)
-        self.assertIn("旧版日报", listing.text)
+        # Without versioned reports these are simply the reports, not an "old version".
+        self.assertIn("模型生成", listing.text)
+        self.assertNotIn("旧版日报", listing.text + response.text)
+
+    def test_the_list_shows_each_lead_sentence_weekday_and_missing_days(self):
+        with database.get_db() as db:
+            db.execute("UPDATE daily_reports SET content=? WHERE date='2026-09-18'",
+                       ("# 行业日报\n\n**台积电**财报超预期，AI 需求延续。\n\n## 股市\n- 12:52 台积电利润大增",))
+            db.execute("INSERT INTO daily_reports(date,content,created_at) VALUES('2026-09-14','older','2026-09-15T07:00:00Z')")
+        with patch.object(routes, "REPORT_READ_ENABLED", False):
+            listing = self.client.get("/daily").text
+        self.assertIn("台积电财报超预期，AI 需求延续。", listing)
+        self.assertIn("周五", listing)  # 2026-09-18
+        self.assertIn("09-15 至 09-17 没有日报", listing)
+        self.assertLess(listing.index("2026-09-18"), listing.index("09-15 至 09-17"))
 
     def test_enabled_reads_version_with_citation_and_legacy_fallback(self):
         with database.get_db() as db:

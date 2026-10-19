@@ -934,20 +934,51 @@ def hot(request: Request):
     return templates.TemplateResponse(request, "hot.html", dict(clusters=_top_clusters(50)))
 
 
+WEEKDAYS = "一二三四五六日"
+
+
+def _report_lead(markdown: str, limit: int = 110) -> str:
+    """The report's opening sentence (its first plain paragraph) for the list page."""
+    import re
+    for line in (markdown or "").splitlines():
+        text = line.strip()
+        # Headings, quotes, tables and list items; "**bold**" opening a paragraph is still text.
+        if not text or text.startswith(("#", ">", "|")) or re.match(r"([-*+]\s|\d+[.、])", text):
+            continue
+        text = re.sub(r"[*_`]+", "", text)
+        return text if len(text) <= limit else text[:limit - 1] + "…"
+    return ""
+
+
+def _daily_rows(reports: dict) -> list[dict]:
+    """Newest first, with a weekday, and a note where whole days have no report."""
+    rows, previous = [], None
+    for _, row in sorted(reports.items(), reverse=True):
+        day = datetime.strptime(row["date"], "%Y-%m-%d").date()
+        if previous is not None and (previous - day).days > 1:
+            first, last = day + timedelta(days=1), previous - timedelta(days=1)
+            span = first.strftime("%m-%d") + ("" if first == last else " 至 " + last.strftime("%m-%d"))
+            rows.append({"gap": span})
+        rows.append(dict(row, weekday="周" + WEEKDAYS[day.weekday()], created_rel=_relative(row["created_at"])))
+        previous = day
+    return rows
+
+
 @app.get("/daily", response_class=HTMLResponse)
 def daily_list(request: Request):
     with get_db() as db:
-        legacy = db.execute("SELECT date, created_at FROM daily_reports ORDER BY date DESC").fetchall()
+        legacy = db.execute("""SELECT date, created_at, substr(content, 1, 1500) AS head
+                               FROM daily_reports ORDER BY date DESC""").fetchall()
+        # "旧版" only means something next to versioned reports; alone these are simply the reports.
+        label = "旧版日报" if REPORT_READ_ENABLED else "模型生成"
         reports = {row["date"]: {"date": row["date"], "created_at": row["created_at"],
-                                 "source_label": "旧版日报"} for row in legacy}
+                                 "source_label": label, "lead": _report_lead(row["head"])} for row in legacy}
         if REPORT_READ_ENABLED:
             for row in published_calendar_dates(db):
-                reports[row["date"]] = {"date": row["date"], "created_at": row["created_at"],
+                reports[row["date"]] = {"date": row["date"], "created_at": row["created_at"], "lead": "",
                                         "source_label": f"版本 {row['version']} · "
                                                         + ("模型生成" if row["mode"] == "llm" else "结构化摘要")}
-    return templates.TemplateResponse(request, "daily_list.html", dict(
-        reports=[dict(row, created_rel=_relative(row["created_at"]))
-                 for _, row in sorted(reports.items(), reverse=True)]))
+    return templates.TemplateResponse(request, "daily_list.html", dict(reports=_daily_rows(reports)))
 
 
 @app.get("/daily/{date}", response_class=HTMLResponse)
@@ -964,7 +995,7 @@ def daily_detail(request: Request, date: str):
     if report is None and legacy is None:
         return RedirectResponse("/daily", status_code=302)
     if report is None:
-        content, source_label = legacy["content"], "旧版日报"
+        content, source_label = legacy["content"], ("旧版日报" if REPORT_READ_ENABLED else "模型生成")
     else:
         content = report["content"]
         source_label = f"版本 {report['version']} · " + ("模型生成" if report["mode"] == "llm" else "结构化摘要")
