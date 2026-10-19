@@ -392,7 +392,15 @@ details.day > summary .cnt { color: var(--muted); font-weight: 400; }
   padding: 15px 18px; margin-bottom: 10px; display: flex; justify-content: space-between;
   box-shadow: var(--shadow);
 }
-.dailies a { font-weight: 600; }
+.dailies li { align-items: flex-start; gap: 16px; }
+.dailies .src { flex: none; white-space: nowrap; color: var(--muted); font-size: 12px; font-weight: 400; }
+.daily-link { display: flex; flex-direction: column; gap: 6px; min-width: 0; color: inherit; }
+.daily-date { font-weight: 600; }
+.daily-date small { color: var(--muted); font-weight: 400; margin-left: 4px; }
+.daily-link:hover .daily-date { color: var(--accent); }
+.daily-lead { color: var(--ink2); font-size: 13px; line-height: 1.6; }
+.dailies li.daily-gap { background: none; border: 1px dashed var(--line); box-shadow: none; color: var(--muted);
+  font-size: 12px; justify-content: center; padding: 8px 18px; }
 .report .md { background: var(--card); border: 1px solid var(--line); border-radius: 12px; padding: 22px 26px; box-shadow: var(--shadow); }
 .md h1, .md h2 { border-bottom: 1px solid var(--line); padding-bottom: 6px; }
 .md h2 { font-size: 16px; }
