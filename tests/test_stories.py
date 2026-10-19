@@ -52,6 +52,19 @@ class StoryTests(unittest.TestCase):
         self.assertEqual(self.story_id(one),sid)
         self.assertEqual(self.client.get('/story/'+sid).status_code,200)
 
+    def test_a_big_story_shows_the_newest_five_in_full_and_the_rest_as_lines(self):
+        ids = [self.item('OpenAI announces a new coding platform for developers', url=f'https://example.com/n{n}',
+                         summary=f'Summary {n}') for n in range(7)]
+        refresh_derived()
+        sid = self.story_id(ids[0])
+        self.assertTrue(all(self.story_id(i) == sid for i in ids))
+        html = self.client.get('/story/' + sid).text
+        self.assertEqual(html.count('<article class="story-report">'), 5)
+        self.assertEqual(html.count('class="story-report story-line"'), 2)
+        self.assertIn('其余 2 篇只列标题', html)
+        for n in range(7):  # every summary is still on the page, folded or not
+            self.assertIn(f'Summary {n}', html)
+
     def test_cross_language_translation_and_redirect(self):
         one=self.item('OpenAI releases a new coding platform for developers')
         two=self.item('OpenAI 发布全新开发者编程平台')

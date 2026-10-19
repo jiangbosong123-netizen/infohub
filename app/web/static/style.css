@@ -490,6 +490,16 @@ a:focus-visible, button:focus-visible, select:focus-visible { outline: 2px solid
 .story-report-time { display: flex; gap: 12px; flex-wrap: wrap; align-items: center; color: var(--muted); font-size: 12px; }
 .story-report h2 { font-size: 17px; margin: 12px 0; }
 .story-report p { font-size: 14px; color: var(--ink2); }
+.story-more-note { color: var(--muted); font-size: 12px; margin: 4px 0 12px; }
+.story-report.story-line { margin-bottom: 8px; padding: 10px 16px; }
+.story-report.story-line::before { top: 17px; }
+.story-line > summary { display: flex; gap: 12px; align-items: baseline; cursor: pointer; list-style: none; font-size: 13px; }
+.story-line > summary::-webkit-details-marker { display: none; }
+.story-line > summary time, .story-line-src { flex: none; color: var(--muted); font-size: 12px; }
+.story-line-title { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 600; }
+.story-line[open] .story-line-title { white-space: normal; }
+.story-line[open] > summary { margin-bottom: 8px; }
+.story-line > .more { font-size: 12px; }
 .provenance { margin-top: 14px; font-size: 12px; color: var(--muted); }
 .provenance summary { cursor: pointer; }
 .provenance dt { color: var(--ink); margin-top: 10px; }

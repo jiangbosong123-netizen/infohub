@@ -8,18 +8,32 @@
 </header>
 <section class="event-brief"><div><span class="eyebrow">首次报道</span><p>{{ first_label }}</p></div><div><span class="eyebrow">最新进展</span><p>{{ last_label }}</p></div><div><span class="eyebrow">报道来源</span><p>{{ sources|join('、') or '待核实' }}{% if unknown %} · {{ unknown }} 条发布方待核实{% endif %}</p></div></section>
 <div class="section-title"><h2>报道时间线</h2><span>最新在前 · 保留各方原始报道</span></div>
-<div class="story-timeline">
-{% for r in reports %}
-<article class="story-report">
-  <div class="story-report-time"><time>{{ r.published_label }}</time><span>{{ r.publisher }}</span>{% if r.official %}<span class="badge official">官方一手</span>{% endif %}{% if r.curation_needs_review %}<span class="badge">AI 待复核</span>{% endif %}</div>
-  <h2><a href="{{ r.url }}" target="_blank" rel="noopener noreferrer">{{ r.title_display }} ↗</a></h2>
+{% macro report_body(r) %}
   {% if r.summary %}<p>{{ r.summary }}</p>{% endif %}
   {% if r.reason %}<div class="t-reason"><b>推荐理由</b>：{{ r.reason }}</div>{% endif %}
   <details class="provenance"><summary>查看原文信息与归并依据</summary>
     <dl><dt>原始标题</dt><dd>{{ r.title }}</dd><dt>原始摘要</dt><dd>{{ r.raw_summary if r.raw_summary is not none else '这条历史记录未保留原始摘要，请以原文为准。' }}</dd>{% if r.article_opening %}<dt>原文开头</dt><dd>{{ r.article_opening }}…（自动抓取，仅供参考，以原文为准）</dd>{% endif %}<dt>采集入口</dt><dd>{{ r.source_name }}</dd><dt>归并依据</dt><dd>标题与实体规则 · {{ r.match_reason }} · 匹配值 {{ '%.2f'|format(r.match_score) }}（不代表事实可信度）</dd></dl>
     <a class="more" href="{{ r.url }}" target="_blank" rel="noopener noreferrer">打开原始报道 ↗</a>
   </details>
+{% endmacro %}
+{# A big story repeats one headline dozens of times: the newest few in full, the rest one line each. #}
+{% set full_count = 5 if page == 1 else 0 %}
+<div class="story-timeline">
+{% for r in reports %}
+{% if loop.index <= full_count %}
+<article class="story-report">
+  <div class="story-report-time"><time>{{ r.published_label }}</time><span>{{ r.publisher }}</span>{% if r.official %}<span class="badge official">官方一手</span>{% endif %}{% if r.curation_needs_review %}<span class="badge">AI 待复核</span>{% endif %}</div>
+  <h2><a href="{{ r.url }}" target="_blank" rel="noopener noreferrer">{{ r.title_display }} ↗</a></h2>
+  {{ report_body(r) }}
 </article>
+{% else %}
+{% if loop.index == full_count + 1 and full_count %}<p class="story-more-note">其余 {{ reports|length - full_count }} 篇{% if has_next %}（本页）{% endif %}只列标题，点开看摘要与原文信息</p>{% endif %}
+<details class="story-report story-line">
+  <summary><time>{{ r.published_label }}</time><span class="story-line-src">{{ r.publisher }}</span>{% if r.official %}<span class="badge official">官方一手</span>{% endif %}<span class="story-line-title">{{ r.title_display }}</span></summary>
+  <a class="more" href="{{ r.url }}" target="_blank" rel="noopener noreferrer">打开原文 ↗</a>
+  {{ report_body(r) }}
+</details>
+{% endif %}
 {% endfor %}
 </div>
 <nav class="pager">{% if page>1 %}<a href="/story/{{ story.id }}?page={{ page-1 }}">← 上一页</a>{% endif %}{% if has_next %}<a href="/story/{{ story.id }}?page={{ page+1 }}">下一页 →</a>{% endif %}</nav>
