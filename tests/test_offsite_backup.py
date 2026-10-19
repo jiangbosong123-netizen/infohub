@@ -115,6 +115,16 @@ class OffsiteBackupTests(unittest.TestCase):
         self.assertEqual(result["removed"], [self.bundle.name])
         self.assertEqual([entry.name for entry in destination.iterdir() if entry.is_dir()], [newer.name])
 
+    def test_a_failed_cleanup_still_reports_the_verified_copy(self):
+        # 10-19: macOS let the launchd job write the bundle but not list the folder afterwards.
+        destination = self.root / "mac"
+        with patch.object(self.puller, "_request", side_effect=self.route), \
+                patch.object(self.puller, "_bundles", side_effect=PermissionError("Operation not permitted")):
+            with self.assertRaises(PermissionError):
+                self.puller.pull("https://windows-server.example.ts.net", self.token, destination)
+        self.assertTrue((destination / self.bundle.name).is_dir())
+        self.assertEqual(offsite_backup.read_receipt()["name"], self.bundle.name)
+
     def test_the_api_needs_the_flag_the_scope_and_a_published_name(self):
         self.assertEqual(self.client.get("/api/v1/backups/latest").status_code, 401)
         self.assertEqual(self.get("/api/v1/backups/latest", self.issue({"read:items"})).status_code, 403)
