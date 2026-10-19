@@ -21,6 +21,7 @@ import re
 from datetime import datetime, timedelta, timezone
 
 from . import market_themes
+from .ai.text_quality import usable
 
 ALGORITHM = "news-signals-v1"
 SCOPES = ("company", "industry", "macro")
@@ -193,7 +194,9 @@ def _item(row, strict: bool, end: datetime, floor: int, include_routine: bool) -
     publisher = extra.get("publisher") if isinstance(extra, dict) else None
     return {
         "id": row["id"], "available_at": row["fetched_at"], "published_at": row["published_at"],
-        "title": row["title"], "title_zh": row["title_zh"] or None, "url": row["url"],
+        "title": row["title"], "url": row["url"],
+        # "-" marks a title the model would not translate; garbled model text is never handed out.
+        "title_zh": row["title_zh"] if row["title_zh"] not in (None, "", "-") and usable(row["title_zh"]) else None,
         "publisher": publisher or row["source_name"], "source": row["source_name"],
         "official": bool(row["official"]), "story_id": row["story_id"], "routine": routine,
         "event_type": row["event_type"] or None, "channel": row["channel"],

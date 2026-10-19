@@ -10,6 +10,8 @@ never published through the API, never used for decisions.
 
 from datetime import datetime, timedelta, timezone
 
+from .provenance import display_title
+
 WINDOW = timedelta(hours=24)
 MIN_ITEMS = 20  # fewer judged items than this: the face is still asleep
 # (lower bound of the weighted average, level), from the happiest down.
@@ -22,7 +24,7 @@ def summary(db, now: datetime | None = None) -> dict:
     current = now or datetime.now(timezone.utc)
     since = (current - WINDOW).isoformat()
     rows = db.execute(
-        """SELECT i.id, COALESCE(NULLIF(i.title_zh,''), i.title) AS title, i.url, i.score, m.mood
+        """SELECT i.id, i.title, i.title_zh, i.url, i.score, m.mood
            FROM items i JOIN item_moods m ON m.item_id=i.id
            WHERE i.fetched_at>=? AND i.score>=0 AND COALESCE(i.tmt,1)!=0""",
         (since,)).fetchall()
@@ -40,7 +42,7 @@ def summary(db, now: datetime | None = None) -> dict:
         if not picked:
             return None
         best = max(picked, key=lambda row: (abs(row["mood"]), row["score"], row["id"]))
-        return {"id": best["id"], "title": best["title"], "url": best["url"], "score": best["score"],
+        return {"id": best["id"], "title": display_title(dict(best)), "url": best["url"], "score": best["score"],
                 "mood": best["mood"]}
 
     return {"level": level, "label": LABELS[level], "value": round(value, 2), "judged": len(rows),

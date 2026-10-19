@@ -63,7 +63,7 @@ def _collect(date_str: str) -> dict:
     out_items = []
     for r in items:
         d = dict(r)
-        d["title"] = r["title_zh"] if r["title_zh"] and r["title_zh"] != "-" else r["title"]  # 优先中文标题
+        d["title"] = display_title(d)  # 优先中文标题；乱码的译名用原标题
         d.pop("title_zh", None)
         d["time"] = datetime.fromisoformat(r["published_at"]).astimezone(config.APP_TZ).strftime("%H:%M")
         out_items.append(d)
@@ -157,22 +157,101 @@ def generate_daily(date_str: str | None = None, *, overwrite: bool = True) -> st
     return date_str
 
 
+# 10-18/09-29: the model copied 200-400 character Google News links into the report, dropped one
+# ("…算力?oc=5)") and wrote garbled words next to them (霸主# 地位). It now cites a short ref and the
+# links are filled in here; a report with garbled lines is written again at a lower temperature.
+REPORT_TEMPERATURES = (0.4, 0.2, 0.1)
+_REF_LINK = re.compile(r"\[([^\]\n]+)\]\(\s*([nc]\d+)\s*\)")
+_ANY_LINK = re.compile(r"\]\(([^)\s]*)\)")
+
+
+def _prompt_material(data: dict) -> tuple[dict, dict]:
+    """What the model sees (no URLs, no raw extras) and the ref -> URL map."""
+    from .text_quality import usable
+    refs, items, clusters = {}, [], []
+    for number, it in enumerate(data["items"], 1):
+        ref = f"n{number}"
+        refs[ref] = it["url"]
+        summary = it["summary"] if usable(it["summary"]) else ""  # never feed a garbled summary back
+        items.append(dict(ref=ref, time=it["time"], channel=it["channel"], title=it["title"],
+                          summary=(summary or "")[:160], score=it["score"], source=it["source_name"],
+                          event_type=it["event_type"] or None, official=bool(it["official"])))
+    for number, c in enumerate(data["clusters"], 1):
+        ref = f"c{number}"
+        refs[ref] = c["url"]
+        clusters.append(dict(ref=ref, title=c["title"], channel=c["channel"], source_count=c["source_count"]))
+    return dict(items=items, clusters=clusters), refs
+
+
+def _resolve_refs(text: str, refs: dict) -> str:
+    def link(match):
+        url = refs.get(match.group(2))
+        return _md_link(match.group(1), url) if url else match.group(1)
+    return _REF_LINK.sub(link, text)
+
+
+def _plain(line: str) -> str:
+    return html.unescape(re.sub(r"<[^>]+>", "", md.markdown(line)))
+
+
+def garbled_lines(text: str, urls: set | None = None) -> list[int]:
+    """Indexes of report lines whose visible text is garbled (text_quality), or whose link is not
+    one of ``urls`` (a link the model wrote itself, possibly mistyped)."""
+    from .text_quality import usable
+    bad = []
+    for index, line in enumerate(text.splitlines()):
+        if not line.strip():
+            continue
+        targets = _ANY_LINK.findall(line)
+        if not usable(_plain(line)) or (urls is not None and any(t not in urls for t in targets)):
+            bad.append(index)
+    return bad
+
+
+def drop_garbled_lines(text: str) -> str:
+    """The report without its garbled lines (for reports stored before 10-19)."""
+    bad = set(garbled_lines(text))
+    return "\n".join(line for index, line in enumerate(text.splitlines()) if index not in bad)
+
+
 def _llm_report(date_str: str, data: dict) -> str:
     from openai import OpenAI
+    from .usage import call, record_garbled
     client = OpenAI(base_url=config.LLM_BASE_URL, api_key=config.LLM_API_KEY, timeout=180)
+    material, refs = _prompt_material(data)
+    urls = set(refs.values())
     prompt = (
         f"根据以下 {date_str} 的原始素材写一份中文行业日报（Markdown）。"
         "结构：一句话总览；三个板块（股市·科技企业 / AI / 机器人），每板块挑最重要的若干条，"
-        "每条格式为「**HH:MM** 标题 — 一句话点评（说明为什么重要）」，时间用素材里的 time 字段，"
-        "标题直接用素材里的中文标题，并使用对应 url 字段作为 Markdown 来源链接。不得捏造素材之外的结论；最后加「值得关注」一节列 2-3 个后续观察点。"
+        "每条格式为「- **HH:MM** [标题](ref) — 一句话点评（说明为什么重要）」，时间用素材里的 time 字段，"
+        "标题直接用素材里的中文标题，ref 原样写素材里的 ref 字段（如 n12），不要写网址。"
+        "不得捏造素材之外的结论；最后加「值得关注」一节列 2-3 个后续观察点。"
         "语言精炼，别堆砌，总长 800 字以内。\n\n素材：\n"
-        + json.dumps(data, ensure_ascii=False))
-    from .usage import call
-    resp = call("daily_report", lambda: client.chat.completions.create(
-        model=config.LLM_MODEL, temperature=0.4,
-        messages=[{"role": "user", "content": prompt}]))
-    text = resp.choices[0].message.content or ""
-    return text.strip() or _digest_fallback(date_str, data)
+        + json.dumps(material, ensure_ascii=False))
+    best = None
+    for temperature in REPORT_TEMPERATURES:
+        resp = call("daily_report", lambda: client.chat.completions.create(
+            model=config.LLM_MODEL, temperature=temperature,
+            messages=[{"role": "user", "content": prompt}]))
+        text = _resolve_refs((resp.choices[0].message.content or "").strip(), refs)
+        if not text:
+            continue
+        bad = garbled_lines(text, urls)
+        with get_db() as db:
+            record_garbled(db, "daily_report", len(bad))
+        if not bad:
+            return text
+        log.warning("日报有 %d 行乱码或错误链接，重写（temperature=%s）", len(bad), temperature)
+        if best is None or len(bad) < len(best[1]):
+            best = (text, bad)
+    if best is not None:
+        # Three tries all had a bad line: keep the cleanest one without its bad lines, as long as
+        # it still lists news; otherwise the structured digest.
+        text, bad = best
+        kept = "\n".join(line for index, line in enumerate(text.splitlines()) if index not in set(bad))
+        if re.search(r"^\s*[-*] ", kept, re.M):
+            return kept
+    return _digest_fallback(date_str, data)
 
 
 # Reports never need images; an image from a feed or a model would load from a stranger's server.
@@ -181,3 +260,8 @@ _REPORT_TAGS = nh3.ALLOWED_TAGS - {"img"}
 
 def render_markdown(text: str) -> str:
     return nh3.clean(md.markdown(text, extensions=["tables", "fenced_code"]), tags=_REPORT_TAGS)
+
+
+def render_report(text: str) -> str:
+    """A stored report as HTML, without any garbled line (reports written before 10-19)."""
+    return render_markdown(drop_garbled_lines(text))

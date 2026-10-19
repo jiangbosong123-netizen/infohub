@@ -76,5 +76,6 @@ def publisher(row) -> tuple[str, str, bool]:
 
 
 def display_title(row) -> str:
+    from .ai.text_quality import usable
     translated = row.get('title_zh')
-    return translated if translated and translated != '-' else row['title']
+    return translated if translated and translated != '-' and usable(translated) else row['title']
