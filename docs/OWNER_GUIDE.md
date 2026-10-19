@@ -117,7 +117,7 @@ docker compose exec worker python cli.py self-check
 - 不要开启 Tailscale Funnel，不要在防火墙或路由器上开放 8000 端口。
 - 不要把 `.env`、心跳地址或 API key 发到聊天、截图或公开仓库里。
 - Windows 上的备份都在同一块硬盘（而且在同一个 Docker 卷）里，只防误操作；防硬盘损坏或 Docker 被重置靠 Mac 上的异地备份
-  （访达里的 `文稿/InfoHub/InfohubBackups`，约 5 GB，每天自动更新，开启方法见[运维手册](RUNBOOK.md)“异地备份到 Mac”）。不要删掉这个文件夹。
+  （访达里的 `文稿/InfoHub/InfohubBackups` 快捷方式，约 5 GB，每天自动更新，开启方法见[运维手册](RUNBOOK.md)“异地备份到 Mac”）。不要删掉这个文件夹。
 
 ## 8. 需要你保管的东西
 

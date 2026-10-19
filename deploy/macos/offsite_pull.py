@@ -3,7 +3,7 @@
 Standard library only, so the Mac's own /usr/bin/python3 (3.9) runs it from launchd:
 
     python3 offsite_pull.py --origin https://windows-server.<tailnet>.ts.net \\
-        --token-file ~/.infohub/offsite.token --dest ~/Documents/InfoHub/InfohubBackups
+        --token-file ~/.infohub/offsite.token --dest "~/Library/Application Support/InfoHub/Backups"
 
 1. Asks /api/v1/backups/latest which bundle is newest. Nothing to do if this Mac already holds
    it; if the host is off or unreachable it exits with 75 and launchd simply tries next time.
@@ -183,13 +183,15 @@ def pull(origin: str, token: str, dest: Path, keep: int = 1, timeout: float = 30
     finally:
         if stage.exists():
             shutil.rmtree(stage)
+    # The verified copy is in place: tell the host before tidying up, so a failed cleanup (as on
+    # 10-19) cannot hide a good copy from the host's offsite_stale check.
+    body = json.dumps({"database_sha256": expected}).encode("ascii")
+    with _request(f"{origin}/api/v1/backups/{name}/receipt", token, data=body, timeout=timeout) as response:
+        response.read()
     removed = []
     for old in _bundles(dest)[:-keep]:
         shutil.rmtree(old)
         removed.append(old.name)
-    body = json.dumps({"database_sha256": expected}).encode("ascii")
-    with _request(f"{origin}/api/v1/backups/{name}/receipt", token, data=body, timeout=timeout) as response:
-        response.read()
     return {"result": "pulled", "name": name, "files": files, "removed": removed, **checked}
 
 

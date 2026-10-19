@@ -5,8 +5,8 @@
 #
 # The token file comes from `python cli.py offsite-key` on the Windows host. It is copied to
 # ~/.infohub/offsite.token (mode 600) together with offsite_pull.py. A LaunchAgent then runs the
-# pull at 12:30 and 21:30 (launchd catches up after sleep) into ~/Documents/InfoHub/InfohubBackups
-# (Finder: 文稿/InfoHub), keeping one
+# pull at 12:30 and 21:30 (launchd catches up after sleep) into ~/Library/Application Support/InfoHub/Backups,
+# shown in Finder as 文稿/InfoHub/InfohubBackups, keeping one
 # verified bundle (about 5 GB). Run it again to replace the token or the script; remove it with:
 #
 #   launchctl bootout gui/$(id -u)/com.infohub.offsite-pull
@@ -26,18 +26,27 @@ esac
 
 LABEL="com.infohub.offsite-pull"
 STATE="$HOME/.infohub"
-DEST="$HOME/Documents/InfoHub/InfohubBackups"
-OLD_DEST="$HOME/InfohubBackups"  # the folder before 2026-10-18
+# Not under Documents: macOS privacy protection lets a launchd job create files there but not list
+# the folder, so the 10-19 pull verified its bundle and then failed (PermissionError) before
+# removing the old one, writing status.json and sending the receipt. A link shows it in Documents.
+DEST="$HOME/Library/Application Support/InfoHub/Backups"
+LINK="$HOME/Documents/InfoHub/InfohubBackups"
 LOG="$HOME/Library/Logs/infohub-offsite.log"
 PLIST="$HOME/Library/LaunchAgents/$LABEL.plist"
 HERE="$(cd "$(dirname "$0")" && pwd)"
 
 # No pull may run while the backups move.
 launchctl bootout "gui/$(id -u)/$LABEL" 2>/dev/null || true
-if [ -d "$OLD_DEST" ] && [ ! -e "$DEST" ]; then
-  mkdir -p "$(dirname "$DEST")"
-  mv "$OLD_DEST" "$DEST"
-  echo "moved $OLD_DEST to $DEST"
+# Earlier homes of the backups: ~/InfohubBackups (until 10-18), then the Documents folder (10-18/19).
+for OLD_DEST in "$HOME/InfohubBackups" "$LINK"; do
+  if [ -d "$OLD_DEST" ] && [ ! -L "$OLD_DEST" ] && [ ! -e "$DEST" ]; then
+    mkdir -p "$(dirname "$DEST")"
+    mv "$OLD_DEST" "$DEST"
+    echo "moved $OLD_DEST to $DEST"
+  fi
+done
+if [ -d "$(dirname "$LINK")" ] && [ ! -e "$LINK" ] && [ ! -L "$LINK" ]; then
+  ln -s "$DEST" "$LINK" && echo "linked $LINK"
 fi
 mkdir -p "$STATE" "$DEST" "$HOME/Library/LaunchAgents" "$HOME/Library/Logs"
 chmod 700 "$STATE"
