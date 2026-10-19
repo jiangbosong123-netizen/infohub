@@ -12,7 +12,8 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from pydantic import ValidationError
 
-from ..ai.daily import EVENT_NAMES, render_markdown
+from ..ai.daily import EVENT_NAMES, render_report
+from ..ai.text_quality import usable
 from .. import config
 from ..api_catalog import (
     CatalogNotFound,
@@ -946,6 +947,8 @@ def _report_lead(markdown: str, limit: int = 110) -> str:
         if not text or text.startswith(("#", ">", "|")) or re.match(r"([-*+]\s|\d+[.、])", text):
             continue
         text = re.sub(r"[*_`]+", "", text)
+        if not usable(text):
+            continue  # a garbled overview is not shown (text_quality)
         return text if len(text) <= limit else text[:limit - 1] + "…"
     return ""
 
@@ -1000,7 +1003,7 @@ def daily_detail(request: Request, date: str):
         content = report["content"]
         source_label = f"版本 {report['version']} · " + ("模型生成" if report["mode"] == "llm" else "结构化摘要")
     return templates.TemplateResponse(request, "daily_detail.html",
-                                      dict(date=date, html=render_markdown(content),
+                                      dict(date=date, html=render_report(content),
                                            source_label=source_label, notice=notice, report=report))
 
 

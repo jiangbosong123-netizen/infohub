@@ -66,6 +66,16 @@ def record(task: str, response=None, *, items: int = 0, failed: bool = False,
         log.warning("could not record model usage: %s", type(exc).__name__)
 
 
+def record_garbled(db, task: str, fields: int) -> None:
+    """Count model text dropped as garbled (app/ai/text_quality.py) on the caller's connection,
+    so /api/coverage shows how often it happens; kind "garbled" in ai_failures_daily."""
+    if fields <= 0:
+        return
+    db.execute("""INSERT INTO ai_failures_daily(day,task,kind,calls) VALUES(?,?,'garbled',?)
+                  ON CONFLICT(day,task,kind) DO UPDATE SET calls=calls+excluded.calls""",
+               (datetime.now(config.APP_TZ).strftime("%Y-%m-%d"), task, int(fields)))
+
+
 def call(task: str, create, *, items: int = 0):
     """Run ``create()`` (one chat completion) and record it, failed or not."""
     try:

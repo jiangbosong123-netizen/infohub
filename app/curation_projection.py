@@ -79,8 +79,26 @@ def published_curation(db: sqlite3.Connection, item_ids: Iterable[int]) -> dict[
     return projected
 
 
+def hide_garbled(item: dict) -> dict:
+    """Never show garbled model text (app/ai/text_quality.py), including fields stored before
+    10-19: the original title, the feed's own summary, or no reason is shown instead."""
+    from .ai.text_quality import usable
+    if not usable(item.get("title_zh")):
+        item["title_zh"] = ""
+    if "summary" in item and not usable(item["summary"]):
+        raw = item.get("raw_summary")
+        item["summary"] = raw if isinstance(raw, str) and usable(raw) else ""
+    if "reason" in item and not usable(item["reason"]):
+        item["reason"] = ""
+    return item
+
+
 def display_curation(row: dict, tasks: dict[str, dict] | None) -> dict:
     """Overlay current publications while retaining legacy values without a pointer."""
+    return hide_garbled(_overlay_curation(row, tasks))
+
+
+def _overlay_curation(row: dict, tasks: dict[str, dict] | None) -> dict:
     item = dict(row)
     item["curation_needs_review"] = False
     if not tasks:

@@ -4114,6 +4114,27 @@ def _ai_failures(db: sqlite3.Connection) -> None:
     _execute_script(db, AI_FAILURES_SQL)
 
 
+# Model text dropped as garbled (app/ai/text_quality.py, 10-19) is counted as its own failure kind.
+# SQLite cannot change a CHECK constraint in place, so the table is rebuilt with its rows.
+AI_FAILURES_GARBLED_SQL = """
+CREATE TABLE ai_failures_daily_v62 (
+    day TEXT NOT NULL CHECK(length(day) = 10),
+    task TEXT NOT NULL CHECK(length(task) BETWEEN 1 AND 40),
+    kind TEXT NOT NULL CHECK(kind IN ('content_filter','rate_limited','quota','timeout','connection',
+                                      'auth','server','other','garbled')),
+    calls INTEGER NOT NULL DEFAULT 0 CHECK(calls >= 0),
+    PRIMARY KEY(day, task, kind)
+);
+INSERT INTO ai_failures_daily_v62(day,task,kind,calls) SELECT day,task,kind,calls FROM ai_failures_daily;
+DROP TABLE ai_failures_daily;
+ALTER TABLE ai_failures_daily_v62 RENAME TO ai_failures_daily;
+"""
+
+
+def _ai_failures_garbled(db: sqlite3.Connection) -> None:
+    _execute_script(db, AI_FAILURES_GARBLED_SQL)
+
+
 # The scoring model's good-or-bad-news call per item (-2..2) for the portal's mood face. A side
 # table, so items, its triggers and the legacy hashes stay as they are.
 ITEM_MOODS_SQL = """
@@ -4393,6 +4414,7 @@ MIGRATIONS = (
     Migration(60, "the scoring model's mood per item", ITEM_MOODS_SQL, _item_moods),
     Migration(61, "when each company and the whole collection were collected", COLLECTION_PERIODS_SQL,
               _collection_periods),
+    Migration(62, "count garbled model text as a failure kind", AI_FAILURES_GARBLED_SQL, _ai_failures_garbled),
 )
 CURRENT_SCHEMA_VERSION = MIGRATIONS[-1].version
 REQUIRED_MIGRATION_COLUMNS = {

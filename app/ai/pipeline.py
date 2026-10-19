@@ -18,6 +18,8 @@ from ..database import get_db
 from ..redaction import redact
 from ..stories import is_stock_move_title
 from . import usage
+from .text_quality import problem, usable
+from .usage import record_garbled
 
 log = logging.getLogger(__name__)
 
@@ -51,6 +53,14 @@ def _extract_json(text: str):
 
 def _text(value, limit: int) -> str:
     return value.strip()[:limit] if isinstance(value, str) else ""
+
+
+def _clean(value: str, dropped: list) -> str:
+    """The model's text, or "" when it looks garbled (text_quality); counts what it drops."""
+    if value and not usable(value):
+        dropped.append(problem(value))
+        return ""
+    return value
 
 
 def _valid_results(results, rows):
@@ -125,8 +135,11 @@ def _reuse_judgements(db, rows) -> set[int]:
                       extra=json_set(CASE WHEN json_valid(extra) THEN extra ELSE '{}' END,
                                      '$.ai_reused_from', ?)
                WHERE id=? AND score IS NULL""",
-            (earlier["score"], earlier["summary"] or row["summary"], earlier["title_zh"],
-             row["event_type"] or earlier["event_type"], earlier["tmt"], earlier["reason"],
+            (earlier["score"],
+             (earlier["summary"] if usable(earlier["summary"]) else "") or row["summary"],
+             earlier["title_zh"] if usable(earlier["title_zh"]) else "",
+             row["event_type"] or earlier["event_type"], earlier["tmt"],
+             earlier["reason"] if usable(earlier["reason"]) else "",
              earlier["ai_cat"], earlier["id"], row["id"]),
         )
         db.execute("""INSERT OR REPLACE INTO item_moods(item_id,mood,judged_at)
@@ -263,6 +276,7 @@ def process_pending(limit: int = 20, parallel: int = 1) -> int:
                 db.execute("UPDATE items SET score=-1 WHERE id=?", (item_id,))
 
     updated = 0
+    dropped: list = []
     with get_db() as db:
         for r in _valid_results(results, rows):
             if type(r.get("tmt")) is not bool or type(r.get("score")) is not int:
@@ -272,8 +286,10 @@ def process_pending(limit: int = 20, parallel: int = 1) -> int:
                 score = max(0, min(100, int(r["score"])))
             except (KeyError, TypeError, ValueError):
                 continue
-            summary = _text(r.get("summary_zh"), 500)
-            title_zh = _text(r.get("title_zh"), 120)
+            # A garbled field is dropped: the feed's summary stays, an empty title_zh is translated
+            # again by backfill_titles, and the card shows no reason.
+            summary = _clean(_text(r.get("summary_zh"), 500), dropped)
+            title_zh = _clean(_text(r.get("title_zh"), 120), dropped)
             event = r.get("event_type")
             row = next(x for x in rows if x["id"] == item_id)
             etype = (event if isinstance(event, str) and event in VALID_EVENTS else "") if row["channel"] == "stock" else ""
@@ -284,11 +300,12 @@ def process_pending(limit: int = 20, parallel: int = 1) -> int:
                                       tmt=?, reason=?, ai_cat=? WHERE id=?""",
                 (score, summary or row["summary"], title_zh, etype,
                  _keep_tmt(r, row, score),
-                 _text(r.get("reason"), 200),
+                 _clean(_text(r.get("reason"), 200), dropped),
                  _category(r, row),
                  item_id))
             _store_mood(db, item_id, r.get("mood"))
             updated += 1
+        record_garbled(db, "score", len(dropped))
     return updated + len(reused)
 
 
@@ -335,6 +352,7 @@ def backfill_tmt(days: int = 0, max_batches: int = 60) -> int:
             else:
                 log.warning("TMT 补判定失败: %s", redact(str(exc)))
                 break
+        dropped: list = []
         with get_db() as db:
             for r in _valid_results(results, rows):
                 try:
@@ -349,10 +367,11 @@ def backfill_tmt(days: int = 0, max_batches: int = 60) -> int:
                 # 官方文件始终保留；公司关联条目除非 LLM 判否且评分很低（多为同名误匹配）
                 tmt = _keep_tmt(r, row, row["score"] if row["score"] is not None and row["score"] >= 0 else None)
                 db.execute("UPDATE items SET tmt=?, reason=?, ai_cat=? WHERE id=?",
-                           (tmt, _text(r.get("reason"), 200),
+                           (tmt, _clean(_text(r.get("reason"), 200), dropped),
                             _category(r, row),
                             item_id))
                 total += 1
+            record_garbled(db, "tmt", len(dropped))
     return total
 
 
@@ -408,6 +427,7 @@ def backfill_titles(days: int = 4, max_batches: int = 40) -> int:
             else:
                 log.warning("标题补翻失败: %s", redact(str(exc)))
                 break
+        dropped: list = []
         with get_db() as db:
             for r in _valid_results(results, rows):
                 try:
@@ -415,9 +435,14 @@ def backfill_titles(days: int = 4, max_batches: int = 40) -> int:
                     title_zh = _text(r.get("title_zh"), 120)
                 except (KeyError, TypeError, ValueError):
                     continue
+                if title_zh and not usable(title_zh):
+                    # This is the second try (the first came with the score): keep the original title.
+                    dropped.append(problem(title_zh))
+                    title_zh = "-"
                 if title_zh:
                     db.execute("UPDATE items SET title_zh=? WHERE id=?", (title_zh, item_id))
                     total += 1
+            record_garbled(db, "title", len(dropped))
     return total
 
 

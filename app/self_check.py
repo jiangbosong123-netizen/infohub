@@ -81,7 +81,9 @@ def _ai_failure_hint(db, now: datetime) -> str:
     """Today's failed model requests by cause, so the alert says why (an empty balance, a revoked key)."""
     try:
         rows = db.execute(
-            "SELECT kind, SUM(calls) AS n FROM ai_failures_daily WHERE day=? GROUP BY kind ORDER BY n DESC",
+            # Garbled text (dropped fields) is not a failed request.
+            """SELECT kind, SUM(calls) AS n FROM ai_failures_daily WHERE day=? AND kind!='garbled'
+               GROUP BY kind ORDER BY n DESC""",
             (now.astimezone(config.APP_TZ).strftime("%Y-%m-%d"),)).fetchall()
     except sqlite3.Error:
         return ""
