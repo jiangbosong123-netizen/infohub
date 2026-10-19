@@ -105,6 +105,33 @@ class CrawlerHealthTests(unittest.TestCase):
             runner.run_due_sources()
         self.assertEqual(ran, ['nasdaq-cik9'])
 
+    def test_a_quiet_feed_within_its_longer_wait_is_not_stale(self):
+        from datetime import datetime, timedelta, timezone
+        three_hours = (datetime.now(timezone.utc) - timedelta(minutes=190)).isoformat()
+        with database.get_db() as db:
+            db.execute("DELETE FROM sources")
+            for key, state in (('nasdaq-cik1', '{"quiet_runs": 4}'), ('nasdaq-cik2', '{}'),
+                               ('vendor-feed', '{"quiet_runs": 4}')):
+                db.execute("""INSERT INTO sources(key,name,channel,type,interval_minutes,last_run_at,last_success_at,state)
+                              VALUES(?,?,'stock','rss',60,?,?,?)""", (key, key, three_hours, three_hours, state))
+        client = TestClient(app)
+        page = client.get('/health')
+        context = page.context
+        status = {s['key']: (s['status'], s['effective_interval'])
+                  for s in context['sources'] + context['stock_feeds']}
+        # Asked every 240 minutes, 190 is on time; the others are asked every 60 and are late.
+        self.assertEqual(status, {'nasdaq-cik1': ('ok', 240), 'nasdaq-cik2': ('stale', 60),
+                                  'vendor-feed': ('stale', 60)})
+        self.assertEqual(client.get('/api/health').json()['sources']['issues'], 2)
+        # The per-company feeds fold into their own section; their problems stay in view.
+        self.assertEqual([s['key'] for s in context['sources']], ['vendor-feed'])
+        summary = context['stock_summary']
+        self.assertEqual((summary['total'], summary['ok'], summary['slowed'], [s['key'] for s in summary['problems']]),
+                         (2, 1, 1, ['nasdaq-cik2']))
+        self.assertIn('个股新闻源', page.text)
+        self.assertIn('有信息源失败或延迟', page.text)
+        self.assertNotIn('source_failures_or_staleness', page.text)
+
     def test_full_failure_backs_off_and_success_clears(self):
         runner._record('google-news',False,0,'offline')
         with database.get_db() as db:

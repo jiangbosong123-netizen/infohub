@@ -414,14 +414,37 @@ def _relative(iso: str | None) -> str:
     return f"{hours // 24} 天前"
 
 
+def _effective_interval(row) -> int:
+    """The interval the crawler really uses: a quiet Nasdaq feed is asked every 2-4 hours (#267)."""
+    from ..crawler.runner import quiet_interval
+    keys = row.keys()
+    if "quiet_runs" in keys:
+        quiet = row["quiet_runs"] or 0
+    else:  # a full sources row: read it from the state JSON
+        try:
+            quiet = int(json.loads(row["state"] or "{}").get("quiet_runs") or 0) if "state" in keys else 0
+        except (TypeError, ValueError, AttributeError):
+            quiet = 0
+    return quiet_interval(row["key"], row["interval_minutes"], quiet)
+
+
+PIPELINE_ISSUE_LABELS = {
+    "source_failures_or_staleness": "有信息源失败或延迟",
+    "sources_silent": "有信息源长时间没有新内容",
+    "durable_job_failures": "后台任务失败",
+    "durable_job_backlog_stale": "后台任务积压",
+}
+
+
 def _source_status(row, now: datetime | None = None,
                    activity: SourceActivity | None = None) -> str:
     status = "bad" if row["fail_count"] else ("ok" if row["last_success_at"] else "never")
     if row["last_error"] and not row["fail_count"]:
         status = "partial"
     now = now or datetime.now(timezone.utc)
+    # On 10-18 the 60-minute interval marked 131 quiet feeds (asked every 4 hours) stale.
     if (status == "ok" and now - _fmt_dt(row["last_success_at"])
-            > timedelta(minutes=max(15, row["interval_minutes"] * 3))):
+            > timedelta(minutes=max(15, _effective_interval(row) * 3))):
         status = "stale"
     if status == "ok" and activity is not None and activity.silent(now):
         status = "silent"  # fetched fine, but nothing new for far longer than usual
@@ -442,7 +465,8 @@ def _system_snapshot() -> dict:
         derived_pending = db.execute("SELECT COUNT(*) FROM derived_dirty").fetchone()[0]
         reports = db.execute(
             "SELECT COUNT(*) AS total, MAX(date) AS latest FROM daily_reports").fetchone()
-        source_rows = db.execute("""SELECT id,fail_count,last_success_at,last_error,interval_minutes
+        source_rows = db.execute("""SELECT id,key,fail_count,last_success_at,last_error,interval_minutes,
+            COALESCE(json_extract(CASE WHEN json_valid(state) THEN state END,'$.quiet_runs'),0) AS quiet_runs
             FROM sources WHERE enabled=1""").fetchall()
         activity = source_activity(db, [row["id"] for row in source_rows])
         last_fetch = db.execute("SELECT MAX(ran_at) FROM fetch_log").fetchone()[0]
@@ -1035,7 +1059,8 @@ def health(request: Request):
     with get_db() as db:
         rows = db.execute(
             """SELECT id, key, name, channel, tier, type, url, enabled, interval_minutes,
-                      fail_count, last_success_at, last_run_at, last_error
+                      fail_count, last_success_at, last_run_at, last_error,
+                      COALESCE(json_extract(CASE WHEN json_valid(state) THEN state END,'$.quiet_runs'),0) AS quiet_runs
                FROM sources WHERE enabled=1
                ORDER BY CASE tier WHEN 'official' THEN 0 WHEN 'media' THEN 1
                WHEN 'info' THEN 2 ELSE 3 END, channel, name""").fetchall()
@@ -1049,13 +1074,25 @@ def health(request: Request):
         status = _source_status(r, now, seen)
         sources.append(dict(
             r, last_success_rel=_relative(r["last_success_at"]), status=status,
+            effective_interval=_effective_interval(r),
             last_new_rel=_relative(seen.last_new_at.isoformat()) if seen else "暂无",
             quiet_limit_hours=(round(seen.quiet_limit.total_seconds() / 3600)
                                if seen and seen.quiet_limit else None),
         ))
     system = _system_snapshot()
+    # One Nasdaq feed per covered company (356 on 10-19) would bury the rest of the table: they get
+    # a summary, their problems stay visible, and the full list folds away.
+    from ..crawler.runner import QUIET_BACKOFF_PREFIXES
+    stock_feeds = [s for s in sources if s["key"].startswith(QUIET_BACKOFF_PREFIXES)]
+    stock_summary = dict(total=len(stock_feeds),
+                         ok=sum(s["status"] == "ok" for s in stock_feeds),
+                         slowed=sum(s["status"] == "ok" and s["effective_interval"] != s["interval_minutes"]
+                                    for s in stock_feeds),
+                         problems=[s for s in stock_feeds if s["status"] != "ok"])
     return templates.TemplateResponse(request, "health.html", dict(
-        sources=sources, counts=counts, system=system,
+        sources=[s for s in sources if not s["key"].startswith(QUIET_BACKOFF_PREFIXES)],
+        stock_feeds=stock_feeds, stock_summary=stock_summary,
+        pipeline_labels=PIPELINE_ISSUE_LABELS, counts=counts, system=system,
         now=datetime.now(APP_TZ).strftime("%Y-%m-%d %H:%M")))
 
 
