@@ -22,7 +22,8 @@
     <div class="t-sub">
       <button type="button" class="save-button" data-save-id="{{ it.id }}" aria-pressed="false">☆ 稍后读</button>
       {% if it.story_count > 1 %}<a class="more" href="/story/{{ it.cluster_id }}">查看事件 · {{ it.story_count }} 篇报道{% if it.extra_sources > 0 %} · 另有 {{ it.extra_sources }} 家发布方{% endif %}</a>{% endif %}
-      {% for t in it.topics %}<a class="chip sm" href="/topics/{{ t.slug }}">{{ t.name }}</a>{% endfor %}
+      {% set company_slugs = it.companies | map(attribute='slug') | list %}
+      {% for t in it.topics if t.slug not in company_slugs %}<a class="chip sm" href="/topics/{{ t.slug }}">{{ t.name }}</a>{% endfor %}
       {% if it.ai_cat %}<a class="more" href="/?channel=ai&amp;cat={{ it.ai_cat }}&amp;mode={{ mode }}">{{ {'model':'模型','product':'产品','industry':'行业','paper':'论文','opinion':'观点'}.get(it.ai_cat, '') }}相关</a>{% endif %}
     </div>
   </div>

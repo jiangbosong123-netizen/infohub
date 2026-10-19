@@ -406,6 +406,11 @@ table.health th, table.health td { padding: 8px 10px; border-bottom: 1px solid v
 table.health th { color: var(--muted); font-weight: 600; font-size: 12px; }
 table.health tr.bad td { background: rgba(244,112,103,.08); }
 table.health .err { color: var(--red); font-size: 12px; max-width: 240px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+table.health td:not(.srcname):not(.err) { white-space: nowrap; }
+.health-section { font-size: 16px; margin: 28px 0 10px; }
+.health-section small { color: var(--muted); font-size: 13px; font-weight: 400; margin-left: 8px; }
+.health-section .metric-warn { color: var(--gold); font-weight: 600; }
+.health-all > summary { cursor: pointer; color: var(--muted); font-size: 13px; margin: 10px 0; }
 .health-summary { display: grid; grid-template-columns: repeat(3,minmax(0,1fr)); gap: 12px; margin: 0 0 20px; }
 .health-metric { display: flex; flex-direction: column; gap: 5px; padding: 16px 18px; border: 1px solid var(--line); border-radius: 12px; background: var(--card); }
 .health-metric span, .health-metric small { color: var(--muted); font-size: 12px; }
