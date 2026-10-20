@@ -4135,6 +4135,40 @@ def _ai_failures_garbled(db: sqlite3.Connection) -> None:
     _execute_script(db, AI_FAILURES_GARBLED_SQL)
 
 
+# 10-20: company aliases that also name something else (app/alias_senses.py). Data only: items
+# linked to AMD, Apple or Meta by an alias that means the eye disease, the fruit or a
+# meta-analysis lose that link. An item left with no company and a score under 31 was kept only
+# for the link, so it is hidden like any other off-topic item. Official items and links that came
+# from a company's own feed rather than its name are kept.
+OTHER_SENSE_LINKS_SQL = """
+-- data migration: unlink amd, apple and meta where alias_senses.company_sense (v1) says another sense
+"""
+OTHER_SENSE_SLUGS = ("amd", "apple", "meta")
+
+
+def _unlink_other_senses(db: sqlite3.Connection) -> None:
+    from .company_match import alias_names_company, alias_pattern
+    for company_id, slug, aliases in db.execute(
+            f"""SELECT id, slug, aliases FROM companies
+                WHERE slug IN ({','.join('?' * len(OTHER_SENSE_SLUGS))})""", OTHER_SENSE_SLUGS).fetchall():
+        patterns = [(alias, alias_pattern(alias)) for alias in json.loads(aliases or "[]") if alias]
+        rows = db.execute(
+            """SELECT i.id, i.title, i.raw_summary, i.summary, i.companies, i.score FROM items i
+               WHERE i.official=0 AND EXISTS (SELECT 1 FROM json_each(CASE WHEN json_valid(i.companies)
+                     THEN i.companies ELSE '[]' END) WHERE value=?)""", (slug,)).fetchall()
+        for item_id, title, raw, summary, companies, score in rows:
+            text = f"{title or ''} {raw if raw is not None else summary or ''}"
+            named = [alias for alias, pattern in patterns if pattern.search(text)]
+            if not named or any(alias_names_company(alias, pattern, text) for alias, pattern in patterns):
+                continue  # linked by its feed, or the name does mean the company
+            remaining = [value for value in json.loads(companies) if value != slug]
+            db.execute("UPDATE items SET companies=? WHERE id=?",
+                       (json.dumps(remaining, ensure_ascii=False), item_id))
+            db.execute("DELETE FROM item_companies WHERE item_id=? AND company_id=?", (item_id, company_id))
+            if not remaining and score is not None and 0 <= score < 31:
+                db.execute("UPDATE items SET tmt=0 WHERE id=?", (item_id,))
+
+
 # The scoring model's good-or-bad-news call per item (-2..2) for the portal's mood face. A side
 # table, so items, its triggers and the legacy hashes stay as they are.
 ITEM_MOODS_SQL = """
@@ -4415,6 +4449,7 @@ MIGRATIONS = (
     Migration(61, "when each company and the whole collection were collected", COLLECTION_PERIODS_SQL,
               _collection_periods),
     Migration(62, "count garbled model text as a failure kind", AI_FAILURES_GARBLED_SQL, _ai_failures_garbled),
+    Migration(63, "unlink company aliases that meant something else", OTHER_SENSE_LINKS_SQL, _unlink_other_senses),
 )
 CURRENT_SCHEMA_VERSION = MIGRATIONS[-1].version
 REQUIRED_MIGRATION_COLUMNS = {

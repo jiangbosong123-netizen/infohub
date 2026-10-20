@@ -5,26 +5,33 @@ import json
 import re
 from functools import lru_cache
 
+from .alias_senses import company_sense
 from .database import get_db
 
 
+def alias_pattern(alias: str) -> re.Pattern:
+    if alias.startswith("=") and len(alias) > 1:  # 覆盖范围公司的单词简称：区分大小写（D31）
+        return re.compile(rf"(?<![A-Za-z0-9]){re.escape(alias[1:])}(?![A-Za-z0-9])")
+    if re.fullmatch(r"[\x20-\x7e]+", alias):  # 纯 ASCII → 词边界匹配
+        return re.compile(rf"(?<![A-Za-z0-9]){re.escape(alias)}(?![A-Za-z0-9])", re.IGNORECASE)
+    return re.compile(re.escape(alias), re.IGNORECASE)  # 中文等 → 子串匹配
+
+
+def alias_names_company(alias: str, pattern: re.Pattern, text: str) -> bool:
+    """The alias is in the text and means the company there (not wet AMD, not an apple orchard)."""
+    return bool(pattern.search(text)) and company_sense(alias.lstrip("="), text)
+
+
 @lru_cache(maxsize=1)
-def _load_matchers() -> list[tuple[str, re.Pattern]]:
-    """返回 [(company_slug, compiled_pattern)]。公司清单由 init-db 写入 DB，这里加缓存。"""
+def _load_matchers() -> list[tuple[str, str, re.Pattern]]:
+    """返回 [(company_slug, alias, compiled_pattern)]。公司清单由 init-db 写入 DB，这里加缓存。"""
     matchers = []
     with get_db() as db:
         rows = db.execute("SELECT slug, aliases FROM companies").fetchall()
     for row in rows:
         for alias in json.loads(row["aliases"]):
-            if not alias:
-                continue
-            if alias.startswith("=") and len(alias) > 1:  # 覆盖范围公司的单词简称：区分大小写（D31）
-                pattern = re.compile(rf"(?<![A-Za-z0-9]){re.escape(alias[1:])}(?![A-Za-z0-9])")
-            elif re.fullmatch(r"[\x20-\x7e]+", alias):  # 纯 ASCII → 词边界匹配
-                pattern = re.compile(rf"(?<![A-Za-z0-9]){re.escape(alias)}(?![A-Za-z0-9])", re.IGNORECASE)
-            else:  # 中文等 → 子串匹配
-                pattern = re.compile(re.escape(alias), re.IGNORECASE)
-            matchers.append((row["slug"], pattern))
+            if alias:
+                matchers.append((row["slug"], alias, alias_pattern(alias)))
     return matchers
 
 
@@ -59,7 +66,7 @@ def match_companies(text: str) -> list[str]:
     if not text:
         return []
     hits: list[str] = []
-    for slug, pattern in _load_matchers():
-        if pattern.search(text) and slug not in hits:
+    for slug, alias, pattern in _load_matchers():
+        if slug not in hits and alias_names_company(alias, pattern, text):
             hits.append(slug)
     return hits

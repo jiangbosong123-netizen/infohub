@@ -6,6 +6,7 @@ import re
 
 import yaml
 
+from .alias_senses import company_sense
 from .config import BASE_DIR
 
 GROUPS = [('company', '公司与模型', '跟踪关注的公司、模型与产品'),
@@ -59,7 +60,8 @@ def assign_topics(db, row, definitions):
     # Prefer original evidence. Do not classify using an AI recommendation.
     text = row['title'] + '\n' + (row.get('raw_summary') or '')
     for slug, rules, patterns in definitions:
-        evidence = [word for word, pattern in patterns if pattern.search(text)]
+        # A company alias that means something else here (wet AMD, an apple orchard) is no evidence.
+        evidence = [word for word, pattern in patterns if pattern.search(text) and company_sense(word, text)]
         if row.get('ai_cat') and row['ai_cat'] in rules['categories']:
             evidence.append('分类:' + row['ai_cat'])
         if row.get('event_type') and row['event_type'] in rules['events']:
