@@ -23,8 +23,8 @@ _EYE = re.compile(r"\b(?:wet|dry|neovascular|exudative|atrophic)[- ]AMD\b|\bnAMD
 _APPLE = re.compile(_WORD.format("(?:Apple|APPLE)"))
 _FRUIT = re.compile(r"(?<!-to-)\bapples\b(?!-to-)|orchard|cider|crab ?apple|\bBig Apple\b|"
                     r"\b(?:candy|caramel|toffee) apples?\b|"
-                    r"\bapple (?:pie|picking|festival|fest|harvest|trees?|variet\w*|growers?|crops?|juice|butter|"
-                    r"sauce|season|farm\w*)\b", re.IGNORECASE)
+                    r"\bapple (?:pie|picking|festival|fest|harvest|tree|variet\w*|grower|crop|juice|butter|"
+                    r"sauce|season|farm\w*)s?\b", re.IGNORECASE)  # plurals too: "Fried Apple Pies" (10-20)
 # Product names settle it for the company, whatever else the text says (Apple TV+ streaming "It's the
 # Great Pumpkin", an iOS story with an apple-picking joke).
 _APPLE_PRODUCTS = re.compile(r"\biPhone|\biPad|\bMac(?:Book|OS|s)?\b|\b(?:iOS|watchOS|visionOS)\b|Vision Pro|"

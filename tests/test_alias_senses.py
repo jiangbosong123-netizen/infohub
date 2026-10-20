@@ -16,6 +16,8 @@ OTHER_SENSES = [
     ("Apple", "Seymour holds 51st Apple Festival as longtime attendees pass down its legacy"),
     ("Apple", "UAV-Based Canopy Mapping Reveals Hidden Nitrogen Layers in Apple Orchards"),
     ("Apple", "Fox News 'Antisemitism Exposed' Newsletter: Bibi in the Big Apple"),
+    ("Apple", "Fried Apple Pies.png"),
+    ("Apple", "Three Apple Festivals worth the drive this weekend"),
     ("苹果", "苹果期货主力合约大涨，红富士收购价走高"),
     ("Meta", "Network meta-analysis ranks neoadjuvant options in cisplatin-eligible MIBC"),
     ("Meta", "Video Games That Get Kids Moving Work as Well as Traditional Sports, Landmark Meta-analysis Finds"),
