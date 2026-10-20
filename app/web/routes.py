@@ -1124,6 +1124,7 @@ def health(request: Request):
                                     for s in stock_feeds),
                          problems=[s for s in stock_feeds if s["status"] != "ok"])
     return templates.TemplateResponse(request, "health.html", dict(
+        disk=_disk_outlook(),
         sources=[s for s in sources if not s["key"].startswith(QUIET_BACKOFF_PREFIXES)],
         stock_feeds=stock_feeds, stock_summary=stock_summary,
         pipeline_labels=PIPELINE_ISSUE_LABELS, counts=counts, system=system,
@@ -2300,6 +2301,47 @@ def _mood_face() -> dict | None:
 
 
 templates.env.globals["mood_face"] = _mood_face
+
+# The external heartbeat that would page the owner is not configured (D25 left it to the owner), so a
+# problem the self-check finds is also shown on top of every page: the portal is what they open.
+SELF_CHECK_STALE_AFTER = timedelta(hours=3)
+
+
+def _system_alerts() -> list[str]:
+    result = recorded_self_check()
+    if not result:
+        return []
+    alerts = [problem.get("detail") or problem.get("code") for problem in result.get("problems") or []
+              if isinstance(problem, dict)]
+    try:
+        age = datetime.now(timezone.utc) - _fmt_dt(result["checked_at"])
+    except (KeyError, TypeError, ValueError):
+        return alerts
+    if age > SELF_CHECK_STALE_AFTER:
+        alerts.append(f"系统自检已 {int(age.total_seconds() // 3600)} 小时没有更新，后台可能停了")
+    return alerts
+
+
+templates.env.globals["system_alerts"] = _system_alerts
+
+
+def _disk_outlook() -> dict | None:
+    """Free disk space and, at the database's typical daily growth, roughly how long until the
+    alert line. Growth is the median of the last 14 recorded days, so a one-off import (10-17:
+    +1.1 GB) does not set the pace."""
+    result = recorded_self_check() or {}
+    disk = result.get("disk")
+    if not isinstance(disk, dict) or "free_mb" not in disk:
+        return None
+    with get_db() as db:
+        sizes = [row[0] for row in db.execute(
+            "SELECT bytes FROM database_size_daily ORDER BY day DESC LIMIT 15")][::-1]
+    growth = sorted(later - earlier for earlier, later in zip(sizes, sizes[1:]) if later >= earlier)
+    per_day_mb = growth[len(growth) // 2] / (1024 * 1024) if growth else None
+    days_left = None
+    if per_day_mb and per_day_mb > 0:
+        days_left = max(0, int((disk["free_mb"] - disk.get("alert_mb", 0)) / per_day_mb))
+    return dict(disk, per_day_mb=round(per_day_mb, 1) if per_day_mb else None, days_left=days_left)
 
 
 @app.get("/fragment/mood", response_class=HTMLResponse, include_in_schema=False)

@@ -220,9 +220,63 @@ class HeartbeatReportTests(unittest.TestCase):
                 "pipeline": {"status": "ok", "issues": []}, "version": "v", "worker": {}, "sources": {},
                 "jobs": {}, "ingest": {}, "items": {}, "reports": {}, "checked_at": "t"}):
             page = routes.api_pipeline()
-        self.assertEqual(page["self_check"], {"checked_at": "2026-10-09T12:00:00.000000Z",
-                                              "problems": [{"code": "disk_low", "detail": "只剩 9 MB"}]})
+        self.assertEqual({key: page["self_check"][key] for key in ("checked_at", "problems")},
+                         {"checked_at": "2026-10-09T12:00:00.000000Z",
+                          "problems": [{"code": "disk_low", "detail": "只剩 9 MB"}]})
+        self.assertIn("free_mb", page["self_check"]["disk"])  # free space goes along for the health page
 
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class PortalAlertTests(unittest.TestCase):
+    """The heartbeat is not configured on the owner's host, so the portal itself shows problems."""
+
+    def setUp(self):
+        temporary = tempfile.TemporaryDirectory()
+        self.addCleanup(temporary.cleanup)
+        self.root = Path(temporary.name)
+        for target, name, value in (
+            (database, "DB_PATH", self.root / "app.db"), (config, "DB_PATH", self.root / "app.db"),
+            (config, "BLOB_PATH", self.root / "blobs"), (config, "BACKUP_PATH", self.root / "backups"),
+            (config, "RUNTIME_PATH", self.root / "runtime"), (config, "ALERT_DISK_FREE_MB", 10_240),
+            (config, "HOST_DISK_PATH", None),
+        ):
+            item = patch.object(target, name, value)
+            item.start()
+            self.addCleanup(item.stop)
+        database.init_schema()
+        from fastapi.testclient import TestClient
+        self.client = TestClient(routes.app)
+
+    def test_a_problem_shows_on_every_page_until_it_is_gone(self):
+        GB = 1024 ** 3
+        with patch.object(shutil, "disk_usage", return_value=Usage(900 * GB, 892 * GB, 8 * GB)):
+            self_check.record([Problem("disk_low", "Windows 主机磁盘只剩 8192 MB（告警线 10240 MB）")])
+        for path in ("/", "/daily", "/health"):
+            page = self.client.get(path).text
+            self.assertIn('class="alert-banner"', page)
+            self.assertIn("只剩 8192 MB", page)
+        self.assertEqual(recorded()["disk"]["free_mb"], 8192)
+        self_check.record([])
+        self.assertNotIn('class="alert-banner"', self.client.get("/").text)
+
+    def test_a_check_that_stopped_updating_is_itself_a_problem(self):
+        self_check.record([], checked_at=datetime.now(timezone.utc) - timedelta(hours=5))
+        self.assertIn("系统自检已 5 小时没有更新", self.client.get("/").text)
+
+    def test_the_health_page_says_how_long_the_disk_lasts(self):
+        GB, MB = 1024 ** 3, 1024 ** 2
+        with patch.object(shutil, "disk_usage", return_value=Usage(900 * GB, 870 * GB, 30 * GB)):
+            self_check.record([])
+        with database.get_db() as db:
+            size = 1_000 * MB
+            for day, growth in enumerate((80, 20, 1_100, 80, 82, 21, 80)):  # one import day does not set the pace
+                size += growth * MB
+                db.execute("INSERT INTO database_size_daily(day,bytes,items,recorded_at) VALUES(?,?,0,'x')",
+                           (f"2026-10-{11 + day:02d}", size))
+        page = self.client.get("/health").text
+        self.assertIn("30.0 GB", page)
+        self.assertIn("数据库每天约 +80 MB", page)
+        self.assertIn("约 256 天到告警线 10 GB", page)  # (30720 - 10240) / 80
