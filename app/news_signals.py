@@ -202,6 +202,9 @@ def _item(row, strict: bool, end: datetime, floor: int, include_routine: bool) -
         "event_type": row["event_type"] or None, "channel": row["channel"],
         "importance": importance, "mood": row["mood"] if known else None,
         "judged_at": judged_at if known else None, "refused": refused, "_summary": row["summary"],
+        # score-v1 before score-v2 was deployed, score-v2 after; "rule" for routine filings.
+        "judge_prompt_version": (("rule" if extra.get("ai_rule") else extra.get("judge_prompt") or "score-v1")
+                                 if known and isinstance(extra, dict) else None),
     }
 
 

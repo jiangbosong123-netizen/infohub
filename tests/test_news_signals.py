@@ -122,6 +122,19 @@ class NewsSignalsTests(unittest.TestCase):
         self.assertEqual(body["collection_gaps"], [{"from": "2026-10-03T16:02:18Z", "to": "2026-10-14T22:04:42Z",
                                                     "reason": "停机"}])
 
+    def test_each_judgement_says_which_rules_made_it(self):
+        with database.get_db(self.path) as db:
+            db.execute("""UPDATE items SET extra=json_set(extra,'$.judge_prompt','score-v2') WHERE id=?""",
+                       (self.ids["repost"],))
+            db.execute("""UPDATE items SET extra=json_set(extra,'$.ai_rule','routine') WHERE id=?""",
+                       (self.ids["form4"],))
+        data = {item["id"]: item["judge_prompt_version"]
+                for item in self.get(cik=MU, include_routine="true").json()["data"]}
+        self.assertEqual((data[self.ids["cut"]], data[self.ids["repost"]], data[self.ids["form4"]]),
+                         ("score-v1", "score-v2", "rule"))
+        strict = self.get(cik=MU, as_of=(T + timedelta(minutes=2)).isoformat()).json()["data"]
+        self.assertEqual([item["judge_prompt_version"] for item in strict], [None])  # judged later
+
     def test_a_refused_item_has_no_judgement(self):
         with database.get_db(self.path) as db:  # the content filter refused it: score -1
             item_id = db.execute(

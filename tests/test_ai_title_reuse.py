@@ -61,6 +61,7 @@ class TitleReuseTests(unittest.TestCase):
         self.assertEqual((row["score"], row["tmt"], row["title_zh"], row["summary"], row["reason"], row["ai_cat"]),
                          (77, 1, "OpenAI 推出企业编程智能体", "摘要", "理由", "product"))
         self.assertEqual(json.loads(row["extra"])["ai_reused_from"], earlier)
+        self.assertEqual(json.loads(row["extra"])["judge_prompt"], "score-v1")  # the earlier item's rules
 
     def test_only_the_same_article_is_reused(self):
         self.judged()
