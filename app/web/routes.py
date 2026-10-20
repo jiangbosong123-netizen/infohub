@@ -152,6 +152,7 @@ from ..report_query import published_calendar_dates, published_calendar_report
 from ..provenance import publisher, display_title
 from ..crawler.article_text import excerpts as article_excerpts
 from ..runtime_health import read_worker_heartbeat
+from ..hot_pairs import same_event_groups
 from ..self_check import recorded as recorded_self_check
 from ..source_activity import SourceActivity, source_activity
 from ..timeutil import format_utc, parse_utc
@@ -786,12 +787,13 @@ def _top_clusters(limit: int = 10, channel: str = "all", topic: str = "", days: 
         filters.append(f"""EXISTS(SELECT 1 FROM story_items si
                            CROSS JOIN items i ON i.id=si.item_id {curation_join}
                            WHERE si.story_id=st.id AND {visible})""")
+    fetched = min(limit * 2, 100)  # room for entries folded into a better-ranked one
     with get_db() as db:
         db.execute("BEGIN")  # Read projection readiness and rows from one snapshot.
         use_curated = CURATION_HOT_ENABLED and hot_metrics_usable(db)
         if use_curated:
             rows = curated_top_clusters(
-                db, limit=limit, channel=channel, topic=topic, cutoff=cutoff,
+                db, limit=fetched, channel=channel, topic=topic, cutoff=cutoff,
             )
         else:
             rows = db.execute(
@@ -799,12 +801,24 @@ def _top_clusters(limit: int = 10, channel: str = "all", topic: str = "", days: 
                    WHERE st.redirect_to IS NULL AND st.item_count>0 AND st.last_at>=?
                    {''.join(' AND ' + check for check in filters)}
                    ORDER BY (st.source_count>=2) DESC,st.heat DESC,st.id LIMIT ?""",
-                (cutoff, *filter_params, limit)).fetchall()
+                (cutoff, *filter_params, fetched)).fetchall()
         names = {r["slug"]: dict(r) for r in db.execute("SELECT slug,name,name_zh FROM companies")}
+        groups = same_event_groups(db, [r["id"] for r in rows])
+    # Stories the model judged to report one event (app/hot_pairs.py) take one place, under the
+    # better-ranked one; the others are listed with it.
+    kept, related = [], {}
+    for r in rows:
+        first = groups.get(r["id"], r["id"])
+        if first != r["id"] and first in related:
+            related[first].append(dict(id=r["id"], title=r["title"], item_count=r["item_count"]))
+            continue
+        related[r["id"]] = []
+        kept.append(r)
     out = []
-    for rank,r in enumerate(rows,1):
+    for rank,r in enumerate(kept[:limit],1):
         value = dict(r)
         value.update(rank=rank,heat=int(r['heat']*100),metrics_pending=CURATION_HOT_ENABLED and not use_curated,
+                     related=related[r["id"]],
                      companies=[dict(slug=s,label=(names.get(s) or {}).get('name_zh')
                      or (names.get(s) or {}).get('name') or s) for s in json.loads(r['company_slugs'])])
         out.append(value)

@@ -768,7 +768,7 @@ def enqueue_due_schedules(
 # builders alone add about 4,300 a day once enabled) that nothing else refers to.
 ROUTINE_JOB_KINDS = (
     "crawl", "ai", "reconcile", "report", "prune",
-    "curation-search", "curation-hot", "topic-statistics", "backup", "article-text",
+    "curation-search", "curation-hot", "topic-statistics", "backup", "article-text", "hot-pairs",
 )
 
 

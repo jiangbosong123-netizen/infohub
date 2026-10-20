@@ -68,7 +68,7 @@ class WorkerRuntimeTests(unittest.TestCase):
                 row["id"]: row["next_due_at"]
                 for row in db.execute("SELECT id,next_due_at FROM schedules")
             }
-        self.assertEqual(len(first), 6)
+        self.assertEqual(len(first), 7)  # six core schedules and hot-pairs:refresh (on by default)
         register_default_schedules(T0 + timedelta(minutes=1))
         with database.get_db() as db:
             second = {
@@ -95,7 +95,7 @@ class WorkerRuntimeTests(unittest.TestCase):
             register_default_schedules(T0 + timedelta(days=1))  # e.g. a deploy changed the hour
         calls = []
         handlers = {kind: (lambda kind=kind: calls.append(kind) or {}) for kind in
-                    ("crawl", "ai", "reconcile", "report", "prune", "backup")}
+                    ("crawl", "ai", "reconcile", "report", "prune", "backup", "hot-pairs")}
         results = []
         while (job := process_one_job(worker_id="w", handlers=handlers, now=T0 + timedelta(days=1))) is not None:
             results.append((job.kind, job.state))

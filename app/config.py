@@ -410,6 +410,9 @@ API_BACKUPS_ENABLED = _boolean(os.environ, "INFOHUB_API_BACKUPS_ENABLED", False)
 API_SIGNALS_ENABLED = _boolean(os.environ, "INFOHUB_API_SIGNALS_ENABLED", False)
 # D27: fetch article text for recent title-only items (worker only; off until the owner enables it).
 ARTICLE_TEXT_ENABLED = _boolean(os.environ, "INFOHUB_ARTICLE_TEXT_ENABLED", False)
+# 10-21: the model judges which hot stories report one event, so the hot list shows them once
+# (app/hot_pairs.py; worker only, at most one model call per 20 minutes).
+HOT_PAIRS_ENABLED = _boolean(os.environ, "INFOHUB_HOT_PAIRS_ENABLED", True)
 ARTICLE_TEXT_WAIT_MINUTES = _integer(os.environ, "ARTICLE_TEXT_WAIT_MINUTES", 30, 0, 1440)
 AI_TICK_MINUTES = _integer(os.environ, "AI_TICK_MINUTES", 15, 1, 1440)
 # Model requests in flight at once while scoring: a morning backlog is thousands of items and each

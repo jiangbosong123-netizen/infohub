@@ -37,6 +37,7 @@ log = logging.getLogger(__name__)
 JOB_KINDS = (
     "crawl", "ai", "reconcile", "report", "prune", "curation-search",
     "curation-hot", "topic-statistics", "sync-snapshot", "backup", "article-text", "coverage",
+    "hot-pairs",
 )
 # Succeeded routine jobs are kept a month for operations; fetch_log keeps 14 days.
 JOB_RETENTION_DAYS = 30
@@ -134,6 +135,16 @@ def register_default_schedules(now: datetime | None = None) -> None:
         with get_db() as db:
             db.execute("""UPDATE schedules SET enabled=0,updated_at=?
                           WHERE id='coverage:daily' AND enabled=1""", (utc_now(),))
+    if config.HOT_PAIRS_ENABLED:
+        upsert_interval_schedule(
+            schedule_id="hot-pairs:refresh", kind="hot-pairs",
+            next_due_at=current, interval_seconds=1200, priority=12, max_attempts=2,
+        )
+    else:
+        from .database import get_db
+        with get_db() as db:
+            db.execute("""UPDATE schedules SET enabled=0,updated_at=?
+                          WHERE id='hot-pairs:refresh' AND enabled=1""", (utc_now(),))
     if config.ARTICLE_TEXT_ENABLED:
         upsert_interval_schedule(
             schedule_id="article-text:fetch", kind="article-text",
@@ -333,6 +344,13 @@ def _coverage() -> dict:
     return report
 
 
+def _hot_pairs() -> dict:
+    if not config.HOT_PAIRS_ENABLED:
+        return {"skipped": "disabled"}
+    from .hot_pairs import refresh
+    return refresh()
+
+
 def default_handlers() -> dict[str, Callable[[], object]]:
     return {
         "crawl": _crawl,
@@ -342,6 +360,7 @@ def default_handlers() -> dict[str, Callable[[], object]]:
         "prune": _prune,
         "backup": _backup,
         "coverage": _coverage,
+        "hot-pairs": _hot_pairs,
         "article-text": _article_text,
         "curation-search": _curation_search_refresh,
         "curation-hot": _curation_hot_refresh,

@@ -35,7 +35,7 @@
 <ol class="hotlist event-list">
 {% for c in clusters %}
 <li id="cluster-{{ c.id }}"><span class="rank r{{ loop.index if loop.index <= 3 else 0 }}">{{ loop.index }}</span>
-<div class="hotbody"><a class="hottitle" href="/story/{{ c.id }}">{{ c.title }}</a><div class="event-meta">{{ c.item_count }} 篇报道{% for co in c.companies[:3] %}<a href="/topics/{{ co.slug }}">{{ co.label }}</a>{% endfor %}</div></div>
+<div class="hotbody"><a class="hottitle" href="/story/{{ c.id }}">{{ c.title }}</a><div class="event-meta">{{ c.item_count + (c.related or [])|sum(attribute='item_count') }} 篇报道{% for co in c.companies[:3] %}<a href="/topics/{{ co.slug }}">{{ co.label }}</a>{% endfor %}</div>{% if c.related %}<div class="event-related">同一件事：{% for r in c.related %}<a href="/story/{{ r.id }}">{{ r.title }}</a>{% endfor %}</div>{% endif %}</div>
 <span class="hotright"><b>{{ c.heat }}</b> 热度 · {% if c.source_count %}{{ c.source_count }} 家发布方{% else %}来源待核实{% endif %}</span></li>
 {% endfor %}
 </ol>

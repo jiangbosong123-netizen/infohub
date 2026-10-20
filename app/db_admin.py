@@ -4169,6 +4169,26 @@ def _unlink_other_senses(db: sqlite3.Connection) -> None:
                 db.execute("UPDATE items SET tmt=0 WHERE id=?", (item_id,))
 
 
+# 10-21: the model's answer whether two hot stories report one event (app/hot_pairs.py), asked once
+# per pair; the hot list shows a pair judged the same as one entry. Stories are not merged.
+STORY_PAIRS_SQL = """
+CREATE TABLE story_pair_judgements (
+    story_a TEXT NOT NULL,
+    story_b TEXT NOT NULL,
+    same INTEGER NOT NULL CHECK(same IN (0, 1)),
+    judged_at TEXT NOT NULL,
+    model TEXT NOT NULL,
+    PRIMARY KEY(story_a, story_b),
+    CHECK(story_a < story_b)
+);
+CREATE INDEX idx_story_pairs_same ON story_pair_judgements(story_b) WHERE same=1;
+"""
+
+
+def _story_pairs(db: sqlite3.Connection) -> None:
+    _execute_script(db, STORY_PAIRS_SQL)
+
+
 # The scoring model's good-or-bad-news call per item (-2..2) for the portal's mood face. A side
 # table, so items, its triggers and the legacy hashes stay as they are.
 ITEM_MOODS_SQL = """
@@ -4450,6 +4470,7 @@ MIGRATIONS = (
               _collection_periods),
     Migration(62, "count garbled model text as a failure kind", AI_FAILURES_GARBLED_SQL, _ai_failures_garbled),
     Migration(63, "unlink company aliases that meant something else", OTHER_SENSE_LINKS_SQL, _unlink_other_senses),
+    Migration(64, "model judgements of same-event hot story pairs", STORY_PAIRS_SQL, _story_pairs),
 )
 CURRENT_SCHEMA_VERSION = MIGRATIONS[-1].version
 REQUIRED_MIGRATION_COLUMNS = {
