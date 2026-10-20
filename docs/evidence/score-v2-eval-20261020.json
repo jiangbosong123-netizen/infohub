@@ -1,0 +1,164 @@
+{
+ "date": "2026-10-20",
+ "model": "glm-4.6 (temperature 0.2, thinking disabled, batches of 25)",
+ "data": "items read from the 10-20 19:30Z production backup (read-only)",
+ "owner_check": "AI research system: 50 items drawn at random from the 135 with importance >= 70 and mood <= -1 at 10-20 00:09Z; owner labels 对 (really bearish for the linked company) / 不对",
+ "owner_labels": {
+  "111209": "对",
+  "111314": "对",
+  "111392": "对",
+  "111586": "对",
+  "111652": "对",
+  "111658": "对",
+  "111862": "对",
+  "112098": "对",
+  "112146": "对",
+  "112196": "对",
+  "112208": "对",
+  "112516": "对",
+  "112712": "对",
+  "112839": "对",
+  "113223": "不对",
+  "113226": "对",
+  "113251": "对",
+  "113357": "对",
+  "113428": "对",
+  "113524": "对",
+  "113610": "对",
+  "113650": "对",
+  "113661": "对",
+  "115877": "对",
+  "117115": "对",
+  "118284": "对",
+  "118476": "对",
+  "118808": "对",
+  "118951": "对",
+  "118952": "对",
+  "119649": "对",
+  "119780": "对",
+  "119795": "对",
+  "119929": "不对",
+  "119951": "对",
+  "120236": "对",
+  "120424": "对",
+  "120515": "对",
+  "120647": "对",
+  "120649": "对",
+  "120661": "不对",
+  "120787": "不对",
+  "121116": "对",
+  "121221": "对",
+  "121413": "对",
+  "121753": "对",
+  "121764": "对",
+  "122150": "对",
+  "122355": "不对",
+  "122422": "不对"
+ },
+ "owner_check_results": {
+  "score-v1 (re-run)": {
+   "对": {
+    "items": 44,
+    "judged_bearish": 42,
+    "bearish_and_importance_70_plus": 34
+   },
+   "不对": {
+    "items": 6,
+    "judged_bearish": 6,
+    "bearish_and_importance_70_plus": 3
+   }
+  },
+  "v2a": {
+   "对": {
+    "items": 44,
+    "judged_bearish": 27,
+    "bearish_and_importance_70_plus": 19
+   },
+   "不对": {
+    "items": 6,
+    "judged_bearish": 1,
+    "bearish_and_importance_70_plus": 1
+   }
+  },
+  "v2b": {
+   "对": {
+    "items": 44,
+    "judged_bearish": 35,
+    "bearish_and_importance_70_plus": 29
+   },
+   "不对": {
+    "items": 6,
+    "judged_bearish": 2,
+    "bearish_and_importance_70_plus": 1
+   }
+  },
+  "v2c": {
+   "对": {
+    "items": 44,
+    "judged_bearish": 34,
+    "bearish_and_importance_70_plus": 27
+   },
+   "不对": {
+    "items": 6,
+    "judged_bearish": 3,
+    "bearish_and_importance_70_plus": 1
+   }
+  },
+  "score-v2 (v2d, adopted)": {
+   "对": {
+    "items": 44,
+    "judged_bearish": 39,
+    "bearish_and_importance_70_plus": 34
+   },
+   "不对": {
+    "items": 6,
+    "judged_bearish": 2,
+    "bearish_and_importance_70_plus": 1
+   }
+  },
+  "stored in production": {
+   "对": {
+    "items": 44,
+    "judged_bearish": 42,
+    "bearish_and_importance_70_plus": 40
+   },
+   "不对": {
+    "items": 6,
+    "judged_bearish": 6,
+    "bearish_and_importance_70_plus": 6
+   }
+  }
+ },
+ "random_150": {
+  "sample": "150 judged, visible items fetched from 10-18, seed 20261020",
+  "stored": {
+   "items": 150,
+   "mean_importance": 53.9,
+   "bearish": 36,
+   "neutral": 44,
+   "bullish": 70,
+   "bearish_and_importance_70_plus": 9
+  },
+  "score-v1 (re-run)": {
+   "items": 150,
+   "mean_importance": 49.9,
+   "bearish": 36,
+   "neutral": 44,
+   "bullish": 70,
+   "bearish_and_importance_70_plus": 9
+  },
+  "score-v2": {
+   "items": 150,
+   "mean_importance": 49.8,
+   "bearish": 34,
+   "neutral": 54,
+   "bullish": 62,
+   "bearish_and_importance_70_plus": 8
+  }
+ },
+ "notes": [
+  "re-running score-v1 already moves several moods between 0 and -1; differences of 2-3 items on 50 are noise",
+  "the 50 are in-sample for the wording; the owner's out-of-sample check is one week after deploy (2 bands x 30)",
+  "v2a: commentary capped at 60 + 'bad news for others is 0' + 'when unsure 0'; v2b/v2c: narrower variants; all lost true bearish items"
+ ]
+}

@@ -127,6 +127,27 @@ class ParallelScoringTests(unittest.TestCase):
         self.assertEqual(rows[11], (50, "summary of 11"))  # its own request's verdict
         self.assertIsNone(rows[1][0])  # unanswered, so it waits for the next round
 
+    def test_the_model_judges_mood_for_the_linked_companies(self):
+        with database.get_db() as db:
+            db.execute("INSERT INTO companies(slug,name,market,aliases) VALUES('meta','Meta','US','[]')")
+            db.execute("""UPDATE items SET companies='["meta"]' WHERE id=1""")
+        sent = {}
+
+        def call(payload):
+            sent.update({entry["id"]: entry for entry in payload})
+            return self.verdicts(payload)
+
+        with patch.object(pipeline, "_call_llm", side_effect=call):
+            pipeline.process_pending(limit=20, parallel=1)
+        self.assertEqual(sent[1]["companies"], ["Meta"])
+        with database.get_db() as db:
+            versions = {row[0] for row in db.execute(
+                "SELECT json_extract(extra,'$.judge_prompt') FROM items WHERE score IS NOT NULL")}
+        self.assertEqual(versions, {pipeline.JUDGE_PROMPT_VERSION})
+        self.assertNotIn("companies", sent[2])  # no linked company: the model judges the headline's subject
+        self.assertIn("companies 字段列出的公司", pipeline.SYSTEM_PROMPT)
+        self.assertIn("只提问题、不给结论的文章", pipeline.SYSTEM_PROMPT)
+
     def test_routine_filings_take_a_fixed_judgement_without_the_model(self):
         with database.get_db() as db:
             db.execute("""UPDATE items SET official=1, event_type='insider', title='Chipworks Inc. · SEC 内部人持股变动',

@@ -26,6 +26,15 @@ log = logging.getLogger(__name__)
 VALID_EVENTS = {"earnings", "insider", "buyback", "ma", "personnel", "product",
                 "regulation", "rating", "offering", "other"}
 
+# Which scoring rules judged an item, kept in items.extra.judge_prompt and given out by the news API.
+# score-v1: everything judged before score-v2 was deployed. score-v2: mood is judged for the linked
+# companies, which go along with each item, and is 0 for a question with no answer or a general
+# industry, legal or policy discussion. The owner's 10-20 check of 50 bearish-important items (44
+# right) found 6 wrong, 5 of them commentary; on those 50, score-v2 flags 34 of the 44 and 1 of the 6
+# (score-v1 re-run: 34 and 3). Stricter wordings (commentary capped at 60, "bad news for others is
+# 0", "when unsure 0") flagged only 19-29 of the 44 and were dropped (docs/evidence/score-v2-eval-20261020.json).
+JUDGE_PROMPT_VERSION = "score-v2"
+
 # The tmt field follows relevance-definition-v2 (D26): technology plus markets and macro.
 SYSTEM_PROMPT = """你是科技与财经资讯编辑，为科技与财经信息聚合站处理条目。对输入的每条资讯输出：
 1. title_zh：中文标题。英文标题翻译成简洁的中文新闻标题；中文标题精简润色，保留关键实体与数字。
@@ -35,7 +44,7 @@ SYSTEM_PROMPT = """你是科技与财经资讯编辑，为科技与财经信息�
 5. reason：一句话推荐理由（30-60 字），说明这条为什么值得看、事件的影响是什么。tmt 为 false 的条目给空字符串。
 6. event_type：仅当该条 channel 为 "stock" 时，从 [earnings,insider,buyback,ma,personnel,product,regulation,rating,offering,other] 选最贴切的一个；其余情况给 null。
 7. ai_cat：仅当该条 channel 为 "ai" 且 tmt 为 true 时，从 [model, product, industry, paper, opinion] 选最贴切的一个（大模型发布/更新=model，应用与硬件产品=product，行业格局/投融资/政策=industry，论文与技术突破=paper，观点/评论=opinion）；其余情况给 null。
-8. mood：整数 -2 到 2，这条消息对所涉公司、行业或市场是利空还是利好：明显利空 -2，偏利空 -1，中性或说不清 0，偏利好 1，明显利好 2。
+8. mood：整数 -2 到 2，这条消息对 companies 字段列出的公司（没有该字段时对标题主体公司，没有具体公司时对行业或市场）是利空还是利好：明显利空 -2，偏利空 -1，中性或说不清 0，偏利好 1，明显利好 2。只提问题、不给结论的文章，以及没有指向这家公司的泛泛行业、法律或政策讨论，给 0。
 
 只输出 JSON 数组，不要任何其他文字：
 [{"id": 1, "title_zh": "…", "tmt": true, "score": 78, "summary_zh": "...", "reason": "...", "event_type": null, "ai_cat": null, "mood": 1}]"""
@@ -120,7 +129,9 @@ def _reuse_judgements(db, rows) -> set[int]:
         published = datetime.fromisoformat(str(row["published_at"]).replace("Z", "+00:00"))
         window = timedelta(hours=REUSE_HOURS)
         earlier = db.execute(
-            """SELECT id,score,summary,title_zh,event_type,tmt,reason,ai_cat FROM items
+            """SELECT id,score,summary,title_zh,event_type,tmt,reason,ai_cat,
+                      COALESCE(json_extract(CASE WHEN json_valid(extra) THEN extra END,'$.judge_prompt'),
+                               'score-v1') AS judge_prompt FROM items
                WHERE title=? AND id<>? AND official=0 AND channel=? AND companies=?
                  AND score>=0 AND tmt IS NOT NULL AND published_at BETWEEN ? AND ?
                ORDER BY id LIMIT 1""",
@@ -133,14 +144,14 @@ def _reuse_judgements(db, rows) -> set[int]:
         db.execute(
             """UPDATE items SET score=?, summary=?, title_zh=?, event_type=?, tmt=?, reason=?, ai_cat=?,
                       extra=json_set(CASE WHEN json_valid(extra) THEN extra ELSE '{}' END,
-                                     '$.ai_reused_from', ?)
+                                     '$.ai_reused_from', ?, '$.judge_prompt', ?)
                WHERE id=? AND score IS NULL""",
             (earlier["score"],
              (earlier["summary"] if usable(earlier["summary"]) else "") or row["summary"],
              earlier["title_zh"] if usable(earlier["title_zh"]) else "",
              row["event_type"] or earlier["event_type"], earlier["tmt"],
              earlier["reason"] if usable(earlier["reason"]) else "",
-             earlier["ai_cat"], earlier["id"], row["id"]),
+             earlier["ai_cat"], earlier["id"], earlier["judge_prompt"], row["id"]),
         )
         db.execute("""INSERT OR REPLACE INTO item_moods(item_id,mood,judged_at)
                       SELECT ?,mood,judged_at FROM item_moods WHERE item_id=?""", (row["id"], earlier["id"]))
@@ -156,6 +167,17 @@ def _call_llm(payload: list[dict]) -> list:
         messages=[{"role": "system", "content": SYSTEM_PROMPT},
                   {"role": "user", "content": json.dumps(payload, ensure_ascii=False)}]), items=len(payload))
     return _extract_json(resp.choices[0].message.content or "")
+
+
+def _company_names(db, rows) -> dict[int, list[str]]:
+    """Each item's linked companies by name, for the model to judge mood against."""
+    slugs = {row["id"]: json.loads(row["companies"] or "[]") for row in rows}
+    wanted = sorted({slug for values in slugs.values() for slug in values})
+    if not wanted:
+        return {}
+    known = {row["slug"]: row["name"] for row in db.execute(
+        f"SELECT slug, name FROM companies WHERE slug IN ({','.join('?' * len(wanted))})", wanted)}
+    return {item_id: [known[slug] for slug in values if known.get(slug)] for item_id, values in slugs.items()}
 
 
 def _store_mood(db, item_id: int, mood) -> None:
@@ -252,11 +274,15 @@ def process_pending(limit: int = 20, parallel: int = 1) -> int:
         reused |= _reuse_judgements(db, rows)
         rows = [r for r in rows if r["id"] not in reused]
         texts = excerpts(db, (r["id"] for r in rows))
+        names = _company_names(db, rows)
     if not rows:
         return len(reused)
 
+    # The linked companies go along so mood is judged for them (10-20: "Meta cuts developers' use of
+    # outside AI tools, a big problem for Anthropic" came back bearish on the Meta link).
     payload = [dict(id=r["id"], channel=r["channel"], title=r["title"],
-                    excerpt=texts.get(r["id"]) or (r["raw_summary"] if r["raw_summary"] is not None else r["summary"] or "")[:200])
+                    excerpt=texts.get(r["id"]) or (r["raw_summary"] if r["raw_summary"] is not None else r["summary"] or "")[:200],
+                    **({"companies": names[r["id"]]} if names.get(r["id"]) else {}))
                for r in rows]
     chunks = [payload[start:start + batch] for start in range(0, len(payload), batch)]
     if len(chunks) == 1:
@@ -297,11 +323,13 @@ def process_pending(limit: int = 20, parallel: int = 1) -> int:
                 etype = row["event_type"]
             db.execute(
                 """UPDATE items SET score=?, summary=?, title_zh=?, event_type=?,
-                                      tmt=?, reason=?, ai_cat=? WHERE id=?""",
+                                      tmt=?, reason=?, ai_cat=?,
+                                      extra=json_set(CASE WHEN json_valid(extra) THEN extra ELSE '{}' END,
+                                                     '$.judge_prompt', ?) WHERE id=?""",
                 (score, summary or row["summary"], title_zh, etype,
                  _keep_tmt(r, row, score),
                  _clean(_text(r.get("reason"), 200), dropped),
-                 _category(r, row),
+                 _category(r, row), JUDGE_PROMPT_VERSION,
                  item_id))
             _store_mood(db, item_id, r.get("mood"))
             updated += 1
