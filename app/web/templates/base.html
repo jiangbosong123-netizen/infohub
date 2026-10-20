@@ -65,6 +65,8 @@
 </aside>
 <main class="main">
 <div class="main-in {% block main_class %}{{ 'main-wide' if request.url.path == '/topics' }}{% endblock %}">
+{% set alerts = system_alerts() %}
+{% if alerts %}<a class="alert-banner" href="/health" role="alert"><b>需要处理</b>{% for alert in alerts %}<span>{{ alert }}</span>{% endfor %}</a>{% endif %}
 {% block content %}{% endblock %}
 </div>
 </main>

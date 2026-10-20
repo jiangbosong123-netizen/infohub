@@ -172,10 +172,19 @@ def find_problems(now: datetime | None = None) -> list[Problem]:
     return problems + _disk()
 
 
+def disk_status() -> dict | None:
+    """Free space on the fullest disk InfoHub writes to, for the health page."""
+    try:
+        free, where = lowest_free((config.DB_PATH.parent, config.BLOB_PATH, config.BACKUP_PATH))
+    except OSError:
+        return None
+    return {"free_mb": free // MB, "where": where, "alert_mb": config.ALERT_DISK_FREE_MB}
+
+
 def record(problems: list[Problem], checked_at: datetime | None = None) -> dict:
     """Atomically publish the latest result for the health page."""
     payload = {"checked_at": format_utc(checked_at or datetime.now(timezone.utc)),
-               "problems": [problem.to_dict() for problem in problems]}
+               "problems": [problem.to_dict() for problem in problems], "disk": disk_status()}
     target = Path(config.RUNTIME_PATH) / RESULT_FILE
     target.parent.mkdir(parents=True, exist_ok=True)
     temporary = target.with_name(f".{target.name}.{uuid4().hex}.tmp")
