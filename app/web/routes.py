@@ -453,6 +453,9 @@ def _source_status(row, now: datetime | None = None,
     return status
 
 
+COMPANY_FEEDS_SILENT_SHARE = 0.2
+
+
 def _system_snapshot() -> dict:
     now = datetime.now(timezone.utc)
     now_utc = now.isoformat(timespec="microseconds").replace("+00:00", "Z")
@@ -536,8 +539,17 @@ def _system_snapshot() -> dict:
         ):
             source_time_states[row["status"]] = row["n"]
     source_states = [_source_status(row, now, activity.get(row["id"])) for row in source_rows]
-    issues = sum(state != "ok" for state in source_states)
-    silent = sum(state == "silent" for state in source_states)
+    # One company's own feed going quiet is normal: most companies have no news most days (10-21:
+    # SanDisk's feed, two days without an entry, made the pipeline "degraded"). Those feeds count
+    # as silent only when many go quiet at once, which would mean the feed itself changed.
+    from ..crawler.runner import QUIET_BACKOFF_PREFIXES
+    company_feed = [row["key"].startswith(QUIET_BACKOFF_PREFIXES) for row in source_rows]
+    company_silent = sum(state == "silent" and own for state, own in zip(source_states, company_feed))
+    company_silence_counts = company_silent > COMPANY_FEEDS_SILENT_SHARE * max(1, sum(company_feed))
+    counted = [state for state, own in zip(source_states, company_feed)
+               if not (own and state == "silent" and not company_silence_counts)]
+    issues = sum(state != "ok" for state in counted)
+    silent = sum(state == "silent" for state in counted)
     oldest_ready_age = (
         max(0, int((now - _fmt_dt(oldest_ready)).total_seconds()))
         if oldest_ready else None
