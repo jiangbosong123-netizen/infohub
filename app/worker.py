@@ -7,6 +7,7 @@ import logging
 import os
 import signal
 import socket
+import sqlite3
 import threading
 from datetime import datetime, timedelta, timezone
 from typing import Callable, Mapping
@@ -169,8 +170,18 @@ def register_default_schedules(now: datetime | None = None) -> None:
 
 
 def _crawl() -> dict:
+    from .collection_gaps import record_open_gap
     from .crawler.runner import run_due_sources
+    from .database import get_db
     from .external_heartbeat import report_cycle
+    try:
+        with get_db() as db:  # before this cycle's own runs: a sleep or stop since the last one is a gap
+            gap = record_open_gap(db)
+    except sqlite3.Error as exc:  # recording must never stop the crawl
+        log.warning("could not check for a collection gap: %s", type(exc).__name__)
+        gap = None
+    if gap:
+        log.warning("collection gap recorded: %s to %s (%s minutes)", gap["from"], gap["to"], gap["minutes"])
     result = run_due_sources()
     report_cycle()  # only a finished cycle counts as alive
     return result

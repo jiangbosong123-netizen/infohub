@@ -47,6 +47,16 @@ class RepositoryHygieneTests(unittest.TestCase):
         # The build must never start from a pull that did not reach GitHub main.
         self.assertLess(script.index("origin/main"), script.index("docker compose up"))
 
+    def test_the_documented_stay_awake_line_runs_the_script(self):
+        line = r"cd ~\Server\infohub; git pull; .\stay-awake.cmd"
+        script = (ROOT / "deploy" / "windows" / "stay-awake.ps1").read_text(encoding="ascii")
+        self.assertIn(r'-File "%~dp0deploy\windows\stay-awake.ps1"', (ROOT / "stay-awake.cmd").read_text(encoding="ascii"))
+        self.assertIn(line, script)
+        self.assertIn(line, (ROOT / "docs" / "OWNER_GUIDE.md").read_text(encoding="utf-8"))
+        for setting in ("standby-timeout-ac 0", "hibernate-timeout-ac 0", "LIDACTION 0"):
+            self.assertIn(setting, script)  # and it checks the values afterwards
+        self.assertLess(script.index("LIDACTION 0"), script.index('Show "after"'))
+
     def test_the_documented_backfill_line_runs_every_step_and_restarts_the_worker(self):
         line = r"cd ~\Server\infohub; git pull; .\backfill.cmd"
         script = (ROOT / "deploy" / "windows" / "backfill.ps1").read_text(encoding="ascii")
