@@ -105,6 +105,29 @@ class CrawlerHealthTests(unittest.TestCase):
             runner.run_due_sources()
         self.assertEqual(ran, ['nasdaq-cik9'])
 
+    def test_one_quiet_company_feed_is_not_a_pipeline_issue(self):
+        from app.web import routes
+        with database.get_db() as db:
+            db.execute("DELETE FROM sources")
+            for n in range(10):
+                db.execute("INSERT INTO sources(key,name,channel,type) VALUES(?,?,'stock','rss')",
+                           (f"nasdaq-cik{n}", f"N{n}"))
+            db.execute("INSERT INTO sources(key,name,channel,type) VALUES('wire','Wire','ai','rss')")
+
+        def health(silent_keys):
+            status = lambda row, now=None, activity=None: "silent" if row["key"] in silent_keys else "ok"
+            with patch.object(routes, "_source_status", side_effect=status):
+                return routes._system_snapshot()
+
+        one = health({"nasdaq-cik1"})
+        self.assertEqual((one["sources"]["issues"], one["sources"]["silent"]), (0, 0))
+        self.assertNotIn("sources_silent", one["pipeline"]["issues"])
+        many = health({"nasdaq-cik1", "nasdaq-cik2", "nasdaq-cik3"})  # 3 of 10: the feed itself changed
+        self.assertEqual(many["sources"]["silent"], 3)
+        self.assertIn("sources_silent", many["pipeline"]["issues"])
+        other = health({"wire"})  # any other source still counts on its own
+        self.assertEqual(other["sources"]["silent"], 1)
+
     def test_a_quiet_feed_within_its_longer_wait_is_not_stale(self):
         from datetime import datetime, timedelta, timezone
         three_hours = (datetime.now(timezone.utc) - timedelta(minutes=190)).isoformat()
