@@ -4189,6 +4189,18 @@ def _story_pairs(db: sqlite3.Connection) -> None:
     _execute_script(db, STORY_PAIRS_SQL)
 
 
+# 10-22: gaps in collection are recorded as they end (app/collection_gaps.py); data only: this adds
+# the gaps the 14-day fetch_log still shows (the host slept from about 10:00Z to 19:08Z that day).
+COLLECTION_GAP_BACKFILL_SQL = """
+-- data migration: add collection_gaps for runs more than 30 minutes apart in fetch_log
+"""
+
+
+def _collection_gap_backfill(db: sqlite3.Connection) -> None:
+    from .collection_gaps import backfill
+    backfill(db)
+
+
 # The scoring model's good-or-bad-news call per item (-2..2) for the portal's mood face. A side
 # table, so items, its triggers and the legacy hashes stay as they are.
 ITEM_MOODS_SQL = """
@@ -4471,6 +4483,8 @@ MIGRATIONS = (
     Migration(62, "count garbled model text as a failure kind", AI_FAILURES_GARBLED_SQL, _ai_failures_garbled),
     Migration(63, "unlink company aliases that meant something else", OTHER_SENSE_LINKS_SQL, _unlink_other_senses),
     Migration(64, "model judgements of same-event hot story pairs", STORY_PAIRS_SQL, _story_pairs),
+    Migration(65, "record past collection gaps from the fetch log", COLLECTION_GAP_BACKFILL_SQL,
+              _collection_gap_backfill),
 )
 CURRENT_SCHEMA_VERSION = MIGRATIONS[-1].version
 REQUIRED_MIGRATION_COLUMNS = {

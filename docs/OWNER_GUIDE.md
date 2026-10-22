@@ -67,6 +67,7 @@ Docker Desktop 设置里 General → “Start Docker Desktop when you sign in to
 - **掉线提醒**：Healthchecks 的检查改用 “Cron” 计划，例如 `*/5 8-23 * * *`、时区选你所在的时区、宽限 20 分钟，
   它就只在 8 点到午夜之间要求心跳，夜里关机不会发“掉线”邮件。开机晚于开始时间时会收到一封，可以按作息调整。
 - 风扇吵：ROG 笔记本在 Armoury Crate（奥创中心）里把操作模式设为“静音”。这个系统负载很轻，静音模式够用。
+- **一直开着时别让它睡眠**：2026-10-22 它睡了约 9 小时，那段时间什么都没采到。在 PowerShell 粘贴这一行，插电时就不再睡眠、合上盖子也不睡（屏幕照样会关）：`cd ~\Server\infohub; git pull; .\stay-awake.cmd`。睡眠、关机这类中断会被自动记成“采集中断”（`collection_gaps`），投研系统据此知道那段时间是没在采、不是没新闻。
 
 ## 5. 收到告警邮件怎么办
 

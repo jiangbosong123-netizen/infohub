@@ -56,7 +56,7 @@ Infohub 不往那个仓库写东西；这份说明就是交给那边的全部信
 - `coverage`（只在 `company` 范围）：每个请求的 CIK 从什么时候开始采，`{"covered_since": UTC 时间, "basis": 依据}`。依据是
   `first_feed_fetch`（这家公司自己的新闻源第一次抓取，2026-10-18 以前的公司按此回填）或 `recorded`（加入时记下）。
   在 `covered_since` 之前没有新闻，说明的是“还没在采”，不是“没有新闻”。
-- `collection_gaps`：整个 Infohub 停采的时段 `[{"from", "to", "reason"}]`，任何公司在这些时段里都可能缺新闻。
+- `collection_gaps`：整个 Infohub 停采的时段 `[{"from", "to", "reason"}]`，任何公司在这些时段里都可能缺新闻。10-22 起自动记录：任何 30 分钟以上没有抓取（主机睡眠、断网、后台停止），恢复后的第一轮抓取就记一段，`reason` 以“自动记录”开头；之前 14 天抓取日志里能看到的也补记了。恢复后会往回补抓一部分，所以时段内不一定完全没有条目。
   2026-10-02 以前（Mac 时期）没有抓取日志，那时 Mac 偶尔睡眠造成的空档无法还原，不在列表里。
 - `unknown_ciks`：Infohub 还没在采的公司。要加，在 Infohub 的 `config/coverage.yaml` 的 `ai-research` 申请里加 CIK。
 
