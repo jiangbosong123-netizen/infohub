@@ -17,6 +17,18 @@ function Stop-Update($message) {
     exit 1
 }
 
+function Free-GB { return [math]::Round((Get-PSDrive C).Free / 1GB, 1) }
+
+# Each update builds a new image; the one it replaces and old build cache stayed on C: (on 10-24
+# C: had 12.5 GB free, from 31 GB on 10-14, while the database grew 0.6 GB). Only images no
+# container uses and build cache older than a week are removed: never volumes, never the data.
+function Remove-OldBuilds {
+    $before = Free-GB
+    docker image prune -f | Out-Null
+    docker builder prune -f --filter "until=168h" | Out-Null
+    Write-Host "== cleanup: removed unused old images and build cache; C: free $before GB -> $(Free-GB) GB"
+}
+
 Write-Host "== 1/3 git pull"
 git pull --ff-only
 if ($LASTEXITCODE -ne 0) { Stop-Update "git pull failed (see the lines above)" }
@@ -37,6 +49,7 @@ while ((Get-Date) -lt $deadline) {
     try {
         $ready = Invoke-RestMethod -Uri "http://127.0.0.1:8000/api/ready" -TimeoutSec 5
         if ($ready.ready -and $ready.version -eq $head -and $ready.worker.version -eq $head) {
+            Remove-OldBuilds
             Write-Host ""
             Write-Host "DONE: InfoHub is running $head (site and worker)." -ForegroundColor Green
             exit 0

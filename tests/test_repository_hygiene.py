@@ -57,6 +57,16 @@ class RepositoryHygieneTests(unittest.TestCase):
             self.assertIn(setting, script)  # and it checks the values afterwards
         self.assertLess(script.index("LIDACTION 0"), script.index('Show "after"'))
 
+    def test_the_update_only_removes_unused_builds_after_the_new_version_runs(self):
+        script = (ROOT / "deploy" / "windows" / "update.ps1").read_text(encoding="ascii")
+        body = script[script.index("function Remove-OldBuilds"):script.index("Write-Host \"== 1/3 git pull\"")]
+        self.assertIn("docker image prune -f", body)
+        self.assertIn('docker builder prune -f --filter "until=168h"', body)
+        for dangerous in ("--volumes", "system prune", "volume rm", "volume prune", "-a"):
+            self.assertNotIn(dangerous, body)  # the data lives in a volume: never touch it
+        # Only once the site and the worker report the new version.
+        self.assertLess(script.index("$ready.worker.version -eq $head"), script.index("    Remove-OldBuilds"))
+
     def test_the_documented_backfill_line_runs_every_step_and_restarts_the_worker(self):
         line = r"cd ~\Server\infohub; git pull; .\backfill.cmd"
         script = (ROOT / "deploy" / "windows" / "backfill.ps1").read_text(encoding="ascii")
