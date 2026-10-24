@@ -42,6 +42,19 @@ _CANDIDATE_FIELDS = (
 )
 
 
+_STATUS = 9  # position of status in the time value tuples compared by observe_candidate
+
+
+def _later_sighting(stored: tuple, computed: tuple) -> bool:
+    """A raw record's time values are those of its first sighting. ``future_suspect`` is judged
+    against the observation time, so the same bytes seen again after that time compute ``valid``:
+    on 10-23 OpenAI listed a post 16 minutes before its 17:00Z publish time, and every later run
+    refused the entry, leaving the feed "partial" for as long as the post stayed in it. That one
+    difference is not a different interpretation; any other still is."""
+    return (stored[_STATUS] == "future_suspect" and computed[_STATUS] == "valid"
+            and stored[:_STATUS] + stored[_STATUS + 1:] == computed[:_STATUS] + computed[_STATUS + 1:])
+
+
 class IngestEvidenceError(RuntimeError):
     """An ingest observation cannot be persisted without weakening evidence."""
 
@@ -522,7 +535,7 @@ def observe_candidate(
                 value["tzdb_version"],
             )
             if existing_time:
-                if tuple(existing_time) != expected_time:
+                if tuple(existing_time) != expected_time and not _later_sighting(tuple(existing_time), expected_time):
                     raise IngestEvidenceError(
                         "same time rule produced different output for one raw record"
                     )
