@@ -21,6 +21,7 @@ import re
 from datetime import datetime, timedelta, timezone
 
 from . import market_themes
+from . import judging_gaps
 from .ai.text_quality import usable
 
 ALGORITHM = "news-signals-v1"
@@ -168,7 +169,7 @@ def query_news(db, *, scope: str, ciks: list[str], themes: list[str], since: str
             for row in db.execute("SELECT started_at, ended_at, reason FROM collection_gaps ORDER BY started_at")]
     return {
         "scope": scope, "since": start.isoformat(), "as_of": end.isoformat(), "point_in_time": strict,
-        "coverage": coverage, "collection_gaps": gaps,
+        "coverage": coverage, "collection_gaps": gaps, "judging_gaps": judging_gaps.listed(db),
         "min_score": floor, "algorithm": ALGORITHM, "themes_version": market_themes.THEMES_VERSION,
         "unknown_ciks": unknown, "data": picked,
         "next_after": f"{last['available_at']}~{last['id']}" if more and last else None,
