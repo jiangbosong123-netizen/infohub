@@ -64,6 +64,34 @@ class IngestEvidenceTests(unittest.TestCase):
         values.update(overrides)
         finish_ingest_run(run, **values)
 
+    def test_a_post_listed_before_its_publish_time_is_accepted_when_seen_again(self):
+        # 10-23: OpenAI listed a post at 16:44Z for 17:00Z; every later run refused it.
+        listed, published = T0, T0 + timedelta(minutes=16)
+
+        def candidate(observed_at, **change):
+            value = parse_source_time(
+                published.isoformat(), field_path="entry.published", role="published",
+                interpretation="RSS publisher timestamp", observed_at=observed_at,
+            ).to_dict()
+            value.update(change)
+            # RSS connectors keep the feed's own entry, so both sightings are the same raw record.
+            return {"source_record": {"title": "Scaling storage (Part II)", "pubDate": "Fri, 16 Sep 2026 08:16:00 GMT"},
+                    "url": "https://news.example/post", "title": "Scaling storage (Part II)",
+                    "summary": "", "published_at": published.isoformat(), "source_time_values": [value]}
+
+        first_run = begin_ingest_run(self.source, started_at=listed, trace_id="early")
+        observe_candidate(first_run, candidate(listed), ordinal=0, observed_at=listed)
+        self._finish(first_run, finished_at=listed + timedelta(seconds=1))
+        later = listed + timedelta(hours=2)
+        second_run = begin_ingest_run(self.source, started_at=later, trace_id="later")
+        observe_candidate(second_run, candidate(later), ordinal=0, observed_at=later)  # computes "valid"
+        with database.get_db() as db:
+            self.assertEqual([row[0] for row in db.execute("SELECT status FROM source_time_values")],
+                             ["future_suspect"])  # the first sighting's reading stays
+        with self.assertRaisesRegex(IngestEvidenceError, "different output"):
+            observe_candidate(second_run, candidate(later, utc="2026-09-16T09:00:00.000000Z"),
+                              ordinal=1, observed_at=later)  # any other difference still refuses
+
     def test_same_payload_reuses_cas_but_appends_observations(self):
         candidate = {
             "url": "https://user:password@news.example/item?id=7&token=item-secret",

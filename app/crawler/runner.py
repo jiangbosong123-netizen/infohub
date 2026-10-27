@@ -278,7 +278,8 @@ def _run_source(source: dict) -> tuple[int, bool, str]:
             accepted += 1
         except Exception as exc:
             rejected += 1
-            errors.append(f"证据或入库失败: {type(exc).__name__}")
+            # The reason goes along, so the health page says what was refused (10-24 needed a backup copy).
+            errors.append(f"证据或入库失败: {type(exc).__name__}: {str(exc)[:120]}")
             log.exception("源 %s 条目证据或入库失败", source["key"])
     ok = not errors  # 部分失败也展示，已成功抓取的条目照常保留
     message = "; ".join(errors[-3:]) if errors else ""
