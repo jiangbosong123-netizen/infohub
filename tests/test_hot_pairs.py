@@ -103,9 +103,12 @@ class HotPairsTests(unittest.TestCase):
     def test_the_worker_schedules_it_unless_turned_off(self):
         def schedule():
             with database.get_db() as db:
-                return db.execute("SELECT enabled FROM schedules WHERE id='hot-pairs:refresh'").fetchone()
+                return db.execute("SELECT enabled, priority FROM schedules WHERE id='hot-pairs:refresh'").fetchone()
         worker.register_default_schedules()
-        self.assertEqual(schedule()["enabled"], 1)
+        self.assertEqual(tuple(schedule()), (1, worker.HOT_PAIRS_PRIORITY))
+        with database.get_db() as db:
+            ai = db.execute("SELECT priority FROM schedules WHERE id='ai:pending'").fetchone()[0]
+        self.assertGreater(worker.HOT_PAIRS_PRIORITY, ai)  # one short call does not wait behind AI rounds
         with patch.object(config, "HOT_PAIRS_ENABLED", False):
             worker.register_default_schedules()
             self.assertEqual(worker.default_handlers()["hot-pairs"](), {"skipped": "disabled"})

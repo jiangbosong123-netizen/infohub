@@ -40,6 +40,7 @@ JOB_KINDS = (
     "curation-hot", "topic-statistics", "sync-snapshot", "backup", "article-text", "coverage",
     "hot-pairs",
 )
+HOT_PAIRS_PRIORITY = 31
 # Succeeded routine jobs are kept a month for operations; fetch_log keeps 14 days.
 JOB_RETENTION_DAYS = 30
 
@@ -137,10 +138,17 @@ def register_default_schedules(now: datetime | None = None) -> None:
             db.execute("""UPDATE schedules SET enabled=0,updated_at=?
                           WHERE id='coverage:daily' AND enabled=1""", (utc_now(),))
     if config.HOT_PAIRS_ENABLED:
+        # Just above the AI (30): one short model call. At 12 it waited behind back-to-back AI
+        # rounds for over an hour while a 3,600-item backlog was judged (10-27), and the pipeline
+        # showed a stale job backlog.
         upsert_interval_schedule(
             schedule_id="hot-pairs:refresh", kind="hot-pairs",
-            next_due_at=current, interval_seconds=1200, priority=12, max_attempts=2,
+            next_due_at=current, interval_seconds=1200, priority=HOT_PAIRS_PRIORITY, max_attempts=2,
         )
+        from .database import get_db
+        with get_db() as db:
+            db.execute("""UPDATE jobs SET priority=? WHERE kind='hot-pairs' AND state IN ('pending','retry_wait')
+                          AND priority<?""", (HOT_PAIRS_PRIORITY, HOT_PAIRS_PRIORITY))
     else:
         from .database import get_db
         with get_db() as db:
