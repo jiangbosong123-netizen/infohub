@@ -71,6 +71,16 @@ class HotPairsTests(unittest.TestCase):
         with database.get_db() as db:
             self.assertEqual(db.execute("SELECT COUNT(*) FROM story_pair_judgements").fetchone()[0], 0)
 
+    def test_a_model_without_balance_skips_the_run_instead_of_failing_the_job(self):
+        class QuotaError(Exception):
+            def __str__(self):
+                return "Error code: 429 - {'error': {'code': '1113', 'message': '余额不足'}}"
+
+        with patch.object(hot_pairs, "_ask", side_effect=QuotaError()), self.assertLogs("app.hot_pairs", "WARNING"):
+            self.assertEqual(hot_pairs.refresh()["model_error"], "quota")
+        with database.get_db() as db:
+            self.assertEqual(db.execute("SELECT COUNT(*) FROM story_pair_judgements").fetchone()[0], 0)
+
     def test_the_model_answer_is_read_strictly(self):
         answer = SimpleNamespace(choices=[SimpleNamespace(message=SimpleNamespace(
             content='[{"pair": 1, "same": true}, {"pair": 2, "same": "yes"}, {"pair": 9, "same": true}]'))])

@@ -99,6 +99,13 @@ def refresh(now: datetime | None = None) -> dict:
     except (ValueError, KeyError, TypeError) as exc:  # an unreadable answer: ask again next run
         log.warning("hot pairs: unreadable answer (%s)", type(exc).__name__)
         return {"asked": len(pairs), "same": 0, "unreadable": True}
+    except Exception as exc:  # noqa: BLE001 - the model is down or out of balance: just skip this run
+        # On 10-27 an empty balance failed this job 34 times a day as "retries exhausted", next to
+        # the ai_stalled alert that already says why. The hot list only stays unfolded meanwhile.
+        from .ai.usage import failure_kind
+        kind = failure_kind(exc)
+        log.warning("hot pairs: model unavailable (%s), trying next run", kind)
+        return {"asked": len(pairs), "same": 0, "model_error": kind}
     judged_at = datetime.now(timezone.utc).isoformat()
     with get_db() as db:
         for number, (left, right) in enumerate(pairs, 1):
