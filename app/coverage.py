@@ -45,7 +45,7 @@ COMMON_WORDS = {
     "united", "first", "energy", "power", "digital", "alpha", "focus", "ambarella", "align", "trade",
     "insight", "unity", "diodes", "applied", "texas", "western", "analog", "super", "monolithic",
     "silicon", "micro", "lattice", "taiwan", "north", "south", "east", "west", "new", "great", "pure",
-    "smart", "data", "cloud", "ultra", "onto",
+    "smart", "data", "cloud", "ultra", "onto", "mosaic", "vulcan",
 }
 # "Micron Technology" is "Micron" in headlines: a generic last word lets the first word stand alone.
 GENERIC_TAILS = {
@@ -62,7 +62,9 @@ def tier() -> int:
 def load(path: Path = COVERAGE_PATH) -> dict:
     data = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
     tiers = {int(key): value for key, value in (data.get("tiers") or {}).items()}
-    return {"tiers": tiers, "requests": data.get("requests") or {}}
+    extra = {int(cik): [str(alias) for alias in names] for cik, names in (data.get("extra_aliases") or {}).items()}
+    return {"tiers": tiers, "requests": data.get("requests") or {}, "extra_aliases": extra,
+            "own_feed_only": {int(cik) for cik in data.get("own_feed_only") or []}}
 
 
 def fingerprint(path: Path | None = None) -> str:
@@ -73,11 +75,20 @@ def fingerprint(path: Path | None = None) -> str:
     return hashlib.sha256(text.encode("utf-8")).hexdigest()[:16]
 
 
+# Nasdaq adds a note in brackets ("Boeing Company (The)", "Ovintiv Inc. (DE)"), and "& Co." leaves
+# an "&" behind once "Co." goes. Until 10-27 such names kept the note, so Boeing was looked for as
+# "Boeing Company (The)" and most Boeing news, even in its own feed, went unlinked.
+_NOTE = re.compile(r"\s*\([^()]*\)\s*$")
+
+
 def short_name(name: str) -> str:
-    """'Teradyne Inc.' -> 'Teradyne'; 'Eaton Corporation PLC' -> 'Eaton'."""
+    """'Teradyne Inc.' -> 'Teradyne'; 'Eaton Corporation PLC' -> 'Eaton'; 'Boeing Company (The)' ->
+    'Boeing'; 'Wells Fargo & Company' -> 'Wells Fargo'."""
     previous, current = None, name.strip()
     while previous != current:
-        previous, current = current, _LEGAL.sub("", current).strip(" ,.")
+        previous = current
+        current = _NOTE.sub("", current)
+        current = _LEGAL.sub("", current).strip(" ,.&")
     return current
 
 
@@ -106,9 +117,9 @@ def aliases(display_name: str, ticker: str) -> list[str]:
     return list(dict.fromkeys(found))
 
 
-def bound_aliases(display_name: str, ticker: str) -> list[str]:
+def bound_aliases(display_name: str, ticker: str, extra: list[str] | None = None) -> list[str]:
     """Extra names accepted only in the company's own feed, where the context is already known."""
-    return [name for name in (short_name(display_name), ticker) if name]
+    return list(dict.fromkeys(name for name in (short_name(display_name), ticker, *(extra or [])) if name))
 
 
 def _listed(db) -> list:
@@ -216,13 +227,53 @@ def _record_periods(db) -> None:
         (now,))
 
 
+RELINK_DAYS = 60
+
+
+def relink_recent(db, slugs: list[str], days: int = RELINK_DAYS) -> int:
+    """Link the last ``days`` of items to companies whose aliases just changed (10-27: Boeing, listed
+    as "Boeing Company (The)", had been looked for under that name). Only links are added, through
+    the same matching new items get at ingestion (company_match, alias_senses)."""
+    from datetime import datetime, timedelta, timezone
+
+    from .company_match import alias_names_company, alias_pattern
+    if not slugs:
+        return 0
+    cutoff = (datetime.now(timezone.utc) - timedelta(days=days)).isoformat()
+    added = 0
+    for company_id, slug, names in db.execute(
+            f"SELECT id, slug, aliases FROM companies WHERE slug IN ({','.join('?' * len(slugs))})", slugs).fetchall():
+        patterns = [(alias, alias_pattern(alias)) for alias in json.loads(names or "[]") if alias]
+        words = [alias.lstrip("=$") for alias, _ in patterns if len(alias.lstrip("=$")) >= 2]
+        if not words:
+            continue
+        like = " OR ".join("(i.title LIKE ? OR i.raw_summary LIKE ?)" for _ in words)
+        params = [value for word in words for value in (f"%{word}%", f"%{word}%")]
+        for item_id, title, raw, summary, companies in db.execute(
+                f"""SELECT i.id, i.title, i.raw_summary, i.summary, i.companies FROM items i
+                    WHERE i.fetched_at>=? AND ({like})
+                      AND NOT EXISTS (SELECT 1 FROM item_companies ic WHERE ic.item_id=i.id AND ic.company_id=?)""",
+                (cutoff, *params, company_id)).fetchall():
+            text = f"{title or ''} {raw if raw is not None else summary or ''}"
+            if not any(alias_names_company(alias, pattern, text) for alias, pattern in patterns):
+                continue
+            linked = json.loads(companies or "[]")
+            if slug not in linked:
+                db.execute("UPDATE items SET companies=? WHERE id=?",
+                           (json.dumps(linked + [slug], ensure_ascii=False), item_id))
+            db.execute("INSERT OR IGNORE INTO item_companies(item_id,company_id) VALUES(?,?)", (item_id, company_id))
+            added += 1
+    return added
+
+
 def sync(level: int | None = None) -> dict:
     """Write the plan into ``companies``; watchlist rows win for companies they already hold."""
     level = tier() if level is None else level
     with get_db() as db:
         db.execute("BEGIN IMMEDIATE")
         planned = plan(db, level)
-        rows = db.execute("SELECT slug,ticker,cik,origin,market FROM companies").fetchall()
+        rows = db.execute("SELECT slug,ticker,cik,origin,market,aliases FROM companies").fetchall()
+        previous_aliases = {row["slug"]: row["aliases"] for row in rows}
         watchlist = [row for row in rows if row["origin"] == "watchlist" and row["market"] == "US"]
         watch_ciks = {int(row["cik"]) for row in watchlist if row["cik"]}
         # Watchlist companies get their CIK from the first SEC crawl, so also match them by ticker.
@@ -232,24 +283,35 @@ def sync(level: int | None = None) -> dict:
         coverage_slugs = {row["slug"] for row in rows if row["origin"] == "coverage"}
         added = updated = 0
         kept: list[str] = []
+        settings = load()
+        extra, own_feed_only = settings.get("extra_aliases", {}), settings.get("own_feed_only", set())
+        changed_aliases: list[str] = []
         for cik, company in planned.items():
             if cik in watch_ciks or any(ticker in watch_tickers for ticker in [company["ticker"], *company["tickers"]]):
                 continue  # the watchlist row wins; a coverage row for the same company retires below
             slug = coverage_slug(cik)
             kept.append(slug)
-            values = (company["name"], company["ticker"],
-                      json.dumps(aliases(company["name"], company["ticker"]), ensure_ascii=False))
+            if cik in own_feed_only:  # its name in other feeds is mostly its analysts on other companies
+                names = [f"${company['ticker']}"]
+            else:
+                names = list(dict.fromkeys(aliases(company["name"], company["ticker"]) + extra.get(cik, [])))
+            values = (company["name"], company["ticker"], json.dumps(names, ensure_ascii=False))
             if slug not in coverage_slugs:
                 db.execute("""INSERT INTO companies(slug,name,name_zh,ticker,code,market,cik,aliases,origin,covered)
                               VALUES(?,?,'',?,'','US',?,?,'coverage',1)""",
                            (slug, values[0], values[1], str(cik).zfill(10), values[2]))
                 added += 1
+                changed_aliases.append(slug)  # a new company: earlier news naming it gets linked too
             else:
                 db.execute("UPDATE companies SET name=?,ticker=?,aliases=?,covered=1 WHERE slug=?", (*values, slug))
                 updated += 1
+                if previous_aliases.get(slug) != values[2]:
+                    changed_aliases.append(slug)
         retired = db.execute(
             f"""UPDATE companies SET covered=0 WHERE origin='coverage' AND covered=1
                 AND slug NOT IN ({",".join("?" * len(kept)) or "''"})""", kept).rowcount
         _record_periods(db)
+        relinked = relink_recent(db, changed_aliases)
     company_match.invalidate_cache()
-    return {"tier": level, "planned": len(planned), "added": added, "updated": updated, "retired": retired}
+    return {"tier": level, "planned": len(planned), "added": added, "updated": updated, "retired": retired,
+            "relinked": relinked}

@@ -21,7 +21,7 @@ _EYE = re.compile(r"\b(?:wet|dry|neovascular|exudative|atrophic)[- ]AMD\b|\bnAMD
                   r"intravitreal|geographic atrophy", re.IGNORECASE)
 # The company is written Apple or APPLE; the fruit is lower case or comes with orchard words.
 _APPLE = re.compile(_WORD.format("(?:Apple|APPLE)"))
-_FRUIT = re.compile(r"(?<!-to-)\bapples\b(?!-to-)|orchard|cider|crab ?apple|\bBig Apple\b|"
+_FRUIT = re.compile(r"(?<!-to-)\bapples\b(?!-to-)|orchard|cider|crab ?apple|\bBig Apple\b|\bApple Cup\b|"
                     r"\b(?:candy|caramel|toffee) apples?\b|"
                     r"\bapple (?:pie|picking|festival|fest|harvest|tree|variet\w*|grower|crop|juice|butter|"
                     r"sauce|season|farm\w*)s?\b", re.IGNORECASE)  # plurals too: "Fried Apple Pies" (10-20)
