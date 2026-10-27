@@ -67,6 +67,13 @@ class RepositoryHygieneTests(unittest.TestCase):
         # Only once the site and the worker report the new version.
         self.assertLess(script.index("$ready.worker.version -eq $head"), script.index("    Remove-OldBuilds"))
 
+    def test_the_disk_report_only_reads(self):
+        script = (ROOT / "deploy" / "windows" / "disk-report.ps1").read_text(encoding="ascii")
+        self.assertIn(r'-File "%~dp0deploy\windows\disk-report.ps1"', (ROOT / "disk-report.cmd").read_text(encoding="ascii"))
+        self.assertIn(r"cd ~\Server\infohub; git pull; .\disk-report.cmd", script)
+        for change in ("Remove-Item", "prune", "Clear-", "Optimize-VHD", "compact vdisk", "powercfg", " rm ", "wsl --"):
+            self.assertNotIn(change, script)
+
     def test_the_documented_backfill_line_runs_every_step_and_restarts_the_worker(self):
         line = r"cd ~\Server\infohub; git pull; .\backfill.cmd"
         script = (ROOT / "deploy" / "windows" / "backfill.ps1").read_text(encoding="ascii")
