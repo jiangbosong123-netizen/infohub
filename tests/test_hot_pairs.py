@@ -114,3 +114,16 @@ class HotPairsTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class FeedFoldTests(unittest.TestCase):
+    def test_the_feed_shows_one_card_per_judged_event(self):
+        items = [dict(id=1, cluster_id="s3", title="Meta's Joel Kaplan to step down next year"),
+                 dict(id=2, cluster_id="s2", title="Anthropic in talks with Nscale"),
+                 dict(id=3, cluster_id="s1", title="Joel Kaplan leaving Meta after 15 years"),
+                 dict(id=4, cluster_id=None, title="No story yet")]
+        with patch.object(routes, "same_event_groups", return_value={"s3": "s3", "s2": "s2", "s1": "s3"}), \
+                patch.object(routes, "get_db"):
+            folded = routes._fold_same_events(items)
+        self.assertEqual([it["id"] for it in folded], [1, 2, 4])  # the newest card of the event stays
+        self.assertEqual(folded[0]["same_event"], [{"id": "s1", "title": "Joel Kaplan leaving Meta after 15 years"}])

@@ -865,6 +865,27 @@ def _home_overview() -> dict:
     return value
 
 
+def _fold_same_events(items: list[dict]) -> list[dict]:
+    """Cards whose stories the model judged one event (app/hot_pairs.py) show once, as the newest
+    of them, with the others listed under it. The judgements already exist for the hot stories,
+    which are most of the selected feed's first page; this costs no model call."""
+    stories = list(dict.fromkeys(it["cluster_id"] for it in items if it.get("cluster_id")))
+    if len(stories) < 2:
+        return items
+    with get_db() as db:
+        groups = same_event_groups(db, stories)
+    kept, first_card = [], {}
+    for it in items:
+        root = groups.get(it.get("cluster_id"), it.get("cluster_id"))
+        if root is not None and root in first_card:
+            first_card[root].setdefault("same_event", []).append(dict(id=it["cluster_id"], title=it["title"]))
+            continue
+        if root is not None:
+            first_card[root] = it
+        kept.append(it)
+    return kept
+
+
 @app.get("/", response_class=HTMLResponse)
 def index(request: Request, channel: str = "all", company: str = "", event: str = "",
           cat: str = "", mode: str = "selected", page: int = Query(1, le=MAX_PAGE)):
@@ -875,7 +896,7 @@ def index(request: Request, channel: str = "all", company: str = "", event: str 
                         limit=page_size + 1, offset=(page - 1) * page_size)
     has_next = len(rows) > page_size
     rows = rows[:page_size]
-    items = _decorate(rows)
+    items = _fold_same_events(_decorate(rows))
     days: list[dict] = []
     for it in items:
         if days and days[-1]["key"] == it["date_key"]:
