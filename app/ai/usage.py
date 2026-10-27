@@ -39,8 +39,15 @@ def failure_kind(exc: BaseException) -> str:
     return "other"
 
 
+# The kind of the latest failed request, for app/judging_gaps.py to name why a round failed.
+last_failure_kind: str | None = None
+
+
 def record(task: str, response=None, *, items: int = 0, failed: bool = False,
            error: BaseException | None = None) -> None:
+    global last_failure_kind
+    if failed:
+        last_failure_kind = failure_kind(error) if error is not None else "other"
     usage = getattr(response, "usage", None)
     prompt = int(getattr(usage, "prompt_tokens", 0) or 0)
     completion = int(getattr(usage, "completion_tokens", 0) or 0)

@@ -18,6 +18,7 @@ from ..database import get_db
 from ..redaction import redact
 from ..stories import is_stock_move_title
 from . import usage
+from .. import judging_gaps
 from .text_quality import problem, usable
 from .usage import record_garbled
 
@@ -300,6 +301,13 @@ def process_pending(limit: int = 20, parallel: int = 1) -> int:
         with get_db() as db:
             for item_id in skipped:
                 db.execute("UPDATE items SET score=-1 WHERE id=?", (item_id,))
+    # A round where every request failed (no answer, no refusal) opens a judging gap; any answer
+    # closes it (app/judging_gaps.py, 10-27: an empty balance stopped judging for 11.8 hours).
+    with get_db() as db:
+        if any(judged or refused for judged, refused in outcomes):
+            judging_gaps.round_answered(db)
+        else:
+            judging_gaps.round_failed(db, usage.last_failure_kind)
 
     updated = 0
     dropped: list = []

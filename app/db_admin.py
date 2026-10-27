@@ -4201,6 +4201,30 @@ def _collection_gap_backfill(db: sqlite3.Connection) -> None:
     backfill(db)
 
 
+# 10-27: stretches when the model judged nothing (app/judging_gaps.py), returned by the news API
+# like collection_gaps. The production dataset gets the 10-27 stretch measured from its items: the
+# last judgement before the empty balance and the first after the top-up.
+JUDGING_GAPS_SQL = """
+CREATE TABLE judging_gaps (
+    started_at TEXT PRIMARY KEY,
+    ended_at TEXT CHECK(ended_at IS NULL OR ended_at > started_at),
+    reason TEXT NOT NULL
+);
+CREATE UNIQUE INDEX idx_judging_gaps_open ON judging_gaps((ended_at IS NULL)) WHERE ended_at IS NULL;
+"""
+PRODUCTION_JUDGING_GAPS = (
+    ("2026-10-27T01:09:24Z", "2026-10-27T12:57:04Z", "模型账户余额不足（按条目判断时间补记）"),
+)
+
+
+def _judging_gaps(db: sqlite3.Connection) -> None:
+    _execute_script(db, JUDGING_GAPS_SQL)
+    dataset = db.execute("SELECT dataset_id FROM dataset_state WHERE singleton=1").fetchone()
+    if dataset and dataset[0] == PRODUCTION_DATASET_ID:
+        db.executemany("INSERT INTO judging_gaps(started_at,ended_at,reason) VALUES(?,?,?)",
+                       PRODUCTION_JUDGING_GAPS)
+
+
 # The scoring model's good-or-bad-news call per item (-2..2) for the portal's mood face. A side
 # table, so items, its triggers and the legacy hashes stay as they are.
 ITEM_MOODS_SQL = """
@@ -4485,6 +4509,7 @@ MIGRATIONS = (
     Migration(64, "model judgements of same-event hot story pairs", STORY_PAIRS_SQL, _story_pairs),
     Migration(65, "record past collection gaps from the fetch log", COLLECTION_GAP_BACKFILL_SQL,
               _collection_gap_backfill),
+    Migration(66, "stretches when the model judged nothing", JUDGING_GAPS_SQL, _judging_gaps),
 )
 CURRENT_SCHEMA_VERSION = MIGRATIONS[-1].version
 REQUIRED_MIGRATION_COLUMNS = {
