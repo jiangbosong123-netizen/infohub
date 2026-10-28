@@ -30,6 +30,16 @@ tiers:
 
 # 调用方的覆盖申请：只决定"多采哪些公司"，不进数据结构，也不影响别人查到什么。名单变了只改这里。
 # 档位 >= 1 时生效。按 SEC 编号（CIK）写，注释里是当时的代码。
+# Names headlines use that the listed name does not give (company_match matches them as written,
+# any case, as whole words). Only for names no other company or common word shares.
+extra_aliases:
+  19617: [JPMorgan]  # listed as "JP Morgan Chase & Co."
+
+# Banks whose name in other feeds is mostly their analysts rating other companies ("JPMorgan cuts
+# XPeng target"): about half of their mentions on 10-27. They are linked only by their own Nasdaq
+# feed (names and extra aliases above apply there), their SEC filings and their $ticker.
+own_feed_only: [19617, 70858, 72971, 831001, 886982, 895421]
+
 requests:
   ai-research:
     note: AI 半导体投研系统的决策池 62 只与观察名单 8 只（2026-10-15 取自其 实现/标的池.py）
@@ -338,3 +348,12 @@ requests:
     - 1693256  # WTTR
     - 2115436  # XOM
     - 34088  # XOM 的前身 CIK，已不上市
+  ai-research-finance-watch:
+    note: AI 投研看板的“金融自选”表，只给人看、不进打分，也不进 H-N1/H-N2 样本（2026-10-27 应其请求加）
+    ciks:
+    - 19617  # JPM
+    - 70858  # BAC
+    - 72971  # WFC
+    - 831001  # C
+    - 886982  # GS
+    - 895421  # MS

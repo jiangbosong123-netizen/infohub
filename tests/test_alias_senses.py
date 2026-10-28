@@ -17,6 +17,7 @@ OTHER_SENSES = [
     ("Apple", "UAV-Based Canopy Mapping Reveals Hidden Nitrogen Layers in Apple Orchards"),
     ("Apple", "Fox News 'Antisemitism Exposed' Newsletter: Bibi in the Big Apple"),
     ("Apple", "Fried Apple Pies.png"),
+    ("Apple", "2027 Boeing Apple Cup Moved to August 28"),  # the Washington college football game
     ("Apple", "Three Apple Festivals worth the drive this weekend"),
     ("苹果", "苹果期货主力合约大涨，红富士收购价走高"),
     ("Meta", "Network meta-analysis ranks neoadjuvant options in cisplatin-eligible MIBC"),

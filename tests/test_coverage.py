@@ -95,7 +95,8 @@ class CoverageTests(unittest.TestCase):
             self.assertEqual(coverage.unresolved_requests(db), {"research": [99]})
 
     def test_sync_adds_coverage_companies_keeps_the_watchlist_and_retires_quietly(self):
-        self.assertEqual(coverage.sync(1), {"tier": 1, "planned": 9, "added": 7, "updated": 0, "retired": 0})
+        self.assertEqual(coverage.sync(1), {"tier": 1, "planned": 9, "added": 7, "updated": 0, "retired": 0,
+                                            "relinked": 0})
         rows = self.companies()
         self.assertEqual(rows["NVDA"]["origin"], "watchlist")  # matched by ticker, not duplicated
         self.assertEqual(rows["GOOGL"]["origin"], "watchlist")  # matched by the company's other ticker
@@ -138,6 +139,51 @@ class CoverageTests(unittest.TestCase):
             rows = {row["slug"]: (row["name"], row["covered"]) for row in db.execute(
                 "SELECT slug,name,covered FROM companies WHERE ticker='CHIP'")}
         self.assertEqual(rows, {"cik1": ("Chipworks Technology Inc.", 0), "cik77": ("Newchip Inc.", 1)})
+
+    def test_nasdaq_notes_and_ampersands_leave_the_name_headlines_use(self):
+        for listed, short in (("Boeing Company (The)", "Boeing"), ("Wells Fargo & Company", "Wells Fargo"),
+                              ("JP Morgan Chase & Co.", "JP Morgan Chase"), ("Ovintiv Inc. (DE)", "Ovintiv"),
+                              ("Goldman Sachs Group Inc. (The)", "Goldman Sachs"),
+                              ("Transocean Ltd (Switzerland)", "Transocean")):
+            self.assertEqual(coverage.short_name(listed), short)
+        self.assertEqual(coverage.aliases("Boeing Company (The)", "BA"), ["$BA", "=Boeing", "Boeing Company (The)"])
+        # Everyday words, or another thing's name (the ULA's Vulcan rocket), stay out as single words.
+        self.assertEqual(coverage.aliases("Mosaic Company (The)", "MOS"), ["$MOS", "Mosaic Company (The)"])
+        self.assertNotIn("=Vulcan", coverage.aliases("Vulcan Materials Company (Holding Company)", "VMC"))
+
+    def test_an_own_feed_only_company_is_named_only_in_its_own_feed(self):
+        settings = {**SETTINGS, "extra_aliases": {7: ["Reqsco"]}, "own_feed_only": {7}}
+        with patch.object(security_master, "fetch_listings", return_value=LISTINGS), \
+                patch.object(security_master, "MIN_LISTINGS", 1), patch.object(coverage, "load", return_value=settings):
+            security_master.store_listings(security_master.fetch_listings())
+            coverage.sync(1)
+            company_match.invalidate_cache()
+            with database.get_db() as db:
+                aliases = json.loads(db.execute("SELECT aliases FROM companies WHERE slug='cik7'").fetchone()[0])
+            self.assertEqual(aliases, ["$REQS"])  # no name match in other feeds
+            self.assertEqual(company_match.match_companies("Reqsco analysts cut a target"), [])
+            self.assertTrue(company_match.mentions_in_own_feed("cik7", "Reqsco reports record results"))
+
+    def test_changed_aliases_link_the_last_sixty_days_again(self):
+        from datetime import datetime, timedelta, timezone
+        now = datetime.now(timezone.utc)
+        with database.get_db() as db:
+            db.execute("INSERT INTO sources(id,key,name,channel,type) VALUES(9,'wire','Wire','stock','rss')")
+            company = db.execute("""INSERT INTO companies(slug,name,market,aliases,origin,covered)
+                                    VALUES('cik12927','Boeing Company (The)','US','["$BA","Boeing Company (The)"]','coverage',1)""").lastrowid
+            for item_id, title, days in ((501, "Boeing wins a tanker order", 5), (502, "boeing lowercase blog", 5),
+                                         (503, "Boeing strike ends", 90), (504, "Airbus beats Boeing", 1)):
+                db.execute("""INSERT INTO items(id,source_id,url,title,channel,published_at,fetched_at,companies)
+                              VALUES(?,9,?,?,'stock',?,?,'[]')""", (item_id, f"https://e.test/{item_id}", title,
+                                                                   (now - timedelta(days=days)).isoformat(),
+                                                                   (now - timedelta(days=days)).isoformat()))
+            db.execute("UPDATE companies SET aliases='[\"$BA\",\"=Boeing\",\"Boeing Company (The)\"]' WHERE id=?",
+                       (company,))
+            self.assertEqual(coverage.relink_recent(db, ["cik12927"]), 2)
+            linked = sorted(row[0] for row in db.execute("SELECT item_id FROM item_companies WHERE company_id=?", (company,)))
+            self.assertEqual(linked, [501, 504])  # case-sensitive "Boeing", within 60 days
+            self.assertEqual(db.execute("SELECT companies FROM items WHERE id=501").fetchone()[0], '["cik12927"]')
+            self.assertEqual(coverage.relink_recent(db, ["cik12927"]), 0)  # already linked
 
     def test_aliases_are_strict_everywhere_and_looser_in_the_companys_own_feed(self):
         self.assertEqual(coverage.aliases("Intel Corporation", "INTC"), ["$INTC", "=Intel", "Intel Corporation"])

@@ -42,11 +42,13 @@ def _load_bound_matchers() -> dict[str, list[re.Pattern]]:
     Case-sensitive, so 'ON' the ticker matches but 'on' the word does not; never used to match other
     feeds, where those names are too ambiguous.
     """
-    from .coverage import bound_aliases
+    from .coverage import bound_aliases, load
+    extra = load().get("extra_aliases", {})
     with get_db() as db:
-        rows = db.execute("SELECT slug, name, ticker FROM companies WHERE origin='coverage'").fetchall()
+        rows = db.execute("SELECT slug, name, ticker, cik FROM companies WHERE origin='coverage'").fetchall()
     return {row["slug"]: [re.compile(rf"(?<![A-Za-z0-9]){re.escape(name)}(?![A-Za-z0-9])")
-                          for name in bound_aliases(row["name"], row["ticker"])]
+                          for name in bound_aliases(row["name"], row["ticker"],
+                                                    extra.get(int(row["cik"])) if row["cik"] else None)]
             for row in rows}
 
 
