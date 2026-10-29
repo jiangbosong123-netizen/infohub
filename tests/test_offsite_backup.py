@@ -206,6 +206,21 @@ class OffsiteBackupTests(unittest.TestCase):
         self.assertEqual(self.get("/api/v1/backups/latest", first).status_code, 401)
         self.assertEqual(self.get("/api/v1/backups/latest", second).status_code, 200)
 
+    def test_a_download_the_mac_slept_through_is_retried_not_failed(self):
+        destination = self.root / "mac"
+        token = self.root / "offsite.token"
+        token.write_text(f"{self.token}\n")
+        os.chmod(token, 0o600)
+        stalled = type("timeout", (OSError,), {})  # socket.timeout on the Mac's Python 3.9
+        arguments = ["--origin", "https://windows-server.example.ts.net", "--token-file", str(token),
+                     "--dest", str(destination)]
+        with patch.object(self.puller.socket, "timeout", stalled), \
+                patch.object(self.puller, "pull", side_effect=stalled("The read operation timed out")), \
+                patch("builtins.print"):
+            self.assertEqual(self.puller.main(arguments), self.puller.TEMPFAIL)
+        status = json.loads((destination / "status.json").read_text())
+        self.assertEqual((status["result"], status["detail"]), ("unreachable", "The read operation timed out"))
+
     def test_the_mac_script_reads_the_format_the_host_writes(self):
         self.assertEqual(self.puller.FORMAT, evidence_backup.FORMAT)
 

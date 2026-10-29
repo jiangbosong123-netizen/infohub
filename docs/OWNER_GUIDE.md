@@ -87,7 +87,7 @@ docker compose exec worker python cli.py self-check
 | `job_stuck` | 某个后台任务（如 AI、备份）运行超过 2 小时还没结束；采集在单独的通道里照常进行 | `docker compose restart worker`（会把手上的任务做完或在 3 分钟后强停，租约过期后任务自动重试）；之后仍反复出现就把 `docker compose logs --tail 200 worker` 发给 Claude |
 | `backup_stale` | 超过 36 小时没有成功的夜间备份 | `docker compose run --rm --no-deps migrate ls -la /app/data/backups/nightly`；常见原因是磁盘空间不够（见下一行） |
 | `disk_low` | C 盘（或 Docker 磁盘）剩余空间低于 10 GB | 先删项目下确认无用的 `data-before-*`、`data-windows-*` 文件夹，再 `docker image prune` 删旧版本镜像；仍不够就把输出发给 Claude。不要删卷里的 `app.db`、`blobs/` |
-| `offsite_stale` | Mac 上的异地备份超过 7 天没更新 | 让 Mac 开机、连上 Tailscale；看 `文稿/InfoHub/InfohubBackups/status.json` 里的 `result`（`unreachable` 是 Windows 不在线，`failed` 把文件发给 Claude） |
+| `offsite_stale` | Mac 上的异地备份超过 7 天没更新 | 让 Mac 开机、连上 Tailscale；看 `文稿/InfoHub/InfohubBackups/status.json` 里的 `result`（`unreachable` 是 Windows 不在线或 Mac 一直在睡眠，`failed` 把文件发给 Claude） |
 | `self_check_error` | 自检本身出错 | 把 `docker compose logs --tail 200 worker` 发给 Claude |
 
 不确定时：不要删除任何东西，把 `docker compose ps` 和 `docker compose logs --tail 200 worker` 的输出发给 Claude。
