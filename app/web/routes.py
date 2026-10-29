@@ -153,7 +153,7 @@ from ..provenance import publisher, display_title
 from ..crawler.article_text import excerpts as article_excerpts
 from ..runtime_health import read_worker_heartbeat
 from ..hot_pairs import same_event_groups
-from ..self_check import recorded as recorded_self_check
+from ..self_check import FAILED_JOB_WINDOW, recorded as recorded_self_check
 from ..source_activity import SourceActivity, source_activity
 from ..timeutil import format_utc, parse_utc
 from ..topics import GROUPS
@@ -484,6 +484,12 @@ def _system_snapshot() -> dict:
         }
         for row in db.execute("SELECT state,COUNT(*) AS n FROM jobs GROUP BY state"):
             job_states[row["state"]] = row["n"]
+        # Failed jobs stay in the table for good; like the self-check, only the last 24 hours make
+        # the pipeline need attention. Counting every one ever kept the status yellow after 10-27.
+        failed_recently = db.execute(
+            "SELECT COUNT(*) FROM jobs WHERE state IN ('dead_letter','blocked') AND updated_at>=?",
+            (format_utc(now - FAILED_JOB_WINDOW),),
+        ).fetchone()[0]
         oldest_ready = db.execute(
             """SELECT MIN(next_attempt_at) FROM jobs
                WHERE state IN ('pending','retry_wait') AND next_attempt_at<=?""",
@@ -562,7 +568,7 @@ def _system_snapshot() -> dict:
                           if kind not in running_kinds), default=None)
     job_delayed = (oldest_blocked is not None
                    and (now - _fmt_dt(oldest_blocked)).total_seconds() > PIPELINE_JOB_STALE_SECONDS)
-    job_issues = job_states["blocked"] + job_states["dead_letter"] + expired_running
+    job_issues = failed_recently + expired_running
     dataset_owner_matches = dataset_row["owner_environment_id"] == ENVIRONMENT_ID
     worker = read_worker_heartbeat(expected_version=APP_VERSION)
     worker_required = DURABLE_JOBS_ENABLED
@@ -631,6 +637,7 @@ def _system_snapshot() -> dict:
         "jobs": {
             "enabled": DURABLE_JOBS_ENABLED,
             "states": job_states,
+            "failed_last_24h": failed_recently,
             "oldest_ready_at": oldest_ready,
             "oldest_ready_age_seconds": oldest_ready_age,
             "expired_running": expired_running,

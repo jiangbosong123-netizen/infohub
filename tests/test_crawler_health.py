@@ -250,6 +250,22 @@ class CrawlerHealthTests(unittest.TestCase):
         self.assertEqual(response.json()['ingest']['observations'], 0)
         self.assertEqual(response.json()['ingest']['source_time_states'], {})
 
+    def test_only_a_job_that_failed_in_the_last_day_needs_attention(self):
+        from datetime import datetime, timedelta, timezone
+        from app.jobs import enqueue_job
+
+        job = enqueue_job(kind='hot-pairs', idempotency_key='failed-on-10-27')
+        two_days_ago = (datetime.now(timezone.utc) - timedelta(days=2)).isoformat().replace('+00:00', 'Z')
+        with database.get_db() as db:
+            db.execute("UPDATE jobs SET state='dead_letter', updated_at=? WHERE id=?", (two_days_ago, job.id))
+        body = TestClient(app).get('/api/pipeline').json()
+        self.assertNotIn('durable_job_failures', body['issues'])
+        self.assertEqual((body['jobs']['states']['dead_letter'], body['jobs']['failed_last_24h']), (1, 0))
+        with database.get_db() as db:
+            db.execute("UPDATE jobs SET updated_at=? WHERE id=?",
+                       (datetime.now(timezone.utc).isoformat().replace('+00:00', 'Z'), job.id))
+        self.assertIn('durable_job_failures', TestClient(app).get('/api/pipeline').json()['issues'])
+
     def test_a_job_waiting_behind_its_own_kind_is_not_a_stale_backlog(self):
         from datetime import datetime, timedelta, timezone
         from app.jobs import claim_job, enqueue_job
