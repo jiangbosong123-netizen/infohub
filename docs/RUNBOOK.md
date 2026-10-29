@@ -186,7 +186,7 @@ docker compose run --rm --no-deps migrate python cli.py coverage-preview   # 只
 2. AI 用量：`ai` 按任务（`score` 评分、`tmt` 补判定、`title` 补标题、`daily_report` 日报）列出请求数、失败数、输入与输出 token 和条数，
    费用按服务商当时的单价换算；`ai_failures` 按原因数失败的请求（`content_filter` 内容审查拒绝，批次会对半拆开重试，属预期；
    `rate_limited` 说明 `INFOHUB_AI_PARALLEL` 偏高；`quota` 是余额不足，所有 AI 会停；`garbled` 不是失败的请求，而是模型写出乱码、被丢掉的字段数，见下）。AI 卡住告警（`ai_stalled`）会附上当天的失败原因；
-3. 数据库每天涨多少：`database_growth_bytes`（worker 每轮抓取后记一次当天大小，取前后两天之差）；
+3. 数据库每天涨多少：`database_growth_bytes`（worker 每轮抓取后记一次当天大小，取前后两天之差；同一行还记下当时磁盘剩余 `disk_free_mb`，源状态页用最近一周的变化估算整块盘还能用几天）；
 4. 抽 50 条核对公司认得对不对（人工）。
 
 **热点榜同一件事合并（10-21 起，`app/hot_pairs.py`）：** 事件归并只看标题字面，同一件事换了说法（“Joel Kaplan 任职 15 年后离职”和“将于明年卸任”）会成两个事件，10-20 热点榜前 30 有 4 件事各占了两三个位置。worker 每 20 分钟（`hot-pairs:refresh`）把热点榜前 40 里挂同一家公司、开始时间相差 48 小时以内、还没问过的事件两两交给模型判断是不是同一件具体的事，答案存进 `story_pair_judgements`，每对只问一次（10-20 的数据：58 对，判出 5 对相同）。热点榜和首页热点把判为相同的显示成一条（报道数相加，下面列“同一件事”的其他标题）。事件本身不合并，`story_id` 不变，给投研系统的数据不受影响。关掉：`.env` 加 `INFOHUB_HOT_PAIRS_ENABLED=false` 后更新。

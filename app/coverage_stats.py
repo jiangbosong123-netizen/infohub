@@ -4,7 +4,8 @@ from __future__ import annotations
 items per day, model usage, database growth and, by hand, linking accuracy.
 
 Days are calendar days in APP_TZ. ``record_size`` runs after every crawl cycle and keeps the day's
-last reading, so growth is the difference between consecutive days.
+last reading, so growth is the difference between consecutive days. It also keeps the free space
+on the fullest disk InfoHub writes to (the Windows host disk in production), for the health page.
 """
 
 import sqlite3
@@ -24,16 +25,19 @@ def _offset_modifier(now: datetime) -> str:
 
 
 def record_size(now: datetime | None = None) -> None:
+    from .self_check import disk_status
+
     current = now or datetime.now(timezone.utc)
+    disk = disk_status()
     with get_db() as db:
         pages = db.execute("PRAGMA page_count").fetchone()[0]
         size = db.execute("PRAGMA page_size").fetchone()[0]
         items = db.execute("SELECT COUNT(*) FROM items").fetchone()[0]
         db.execute(
-            """INSERT INTO database_size_daily(day,bytes,items,recorded_at) VALUES(?,?,?,?)
+            """INSERT INTO database_size_daily(day,bytes,items,recorded_at,disk_free_mb) VALUES(?,?,?,?,?)
                ON CONFLICT(day) DO UPDATE SET bytes=excluded.bytes,items=excluded.items,
-                   recorded_at=excluded.recorded_at""",
-            (_day(current), pages * size, items, current.isoformat()))
+                   recorded_at=excluded.recorded_at,disk_free_mb=excluded.disk_free_mb""",
+            (_day(current), pages * size, items, current.isoformat(), disk["free_mb"] if disk else None))
 
 
 def summary(days: int = 14, now: datetime | None = None) -> dict:
