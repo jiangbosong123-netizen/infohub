@@ -4225,6 +4225,18 @@ def _judging_gaps(db: sqlite3.Connection) -> None:
                        PRODUCTION_JUDGING_GAPS)
 
 
+# 10-29: the host disk lost 4.7 GB in two days while the database grew about 80 MB a day, and the
+# health page's outlook knew only the database. The day's last free-space reading now sits next to
+# the day's database size.
+DISK_FREE_DAILY_SQL = """
+ALTER TABLE database_size_daily ADD COLUMN disk_free_mb INTEGER CHECK(disk_free_mb IS NULL OR disk_free_mb >= 0);
+"""
+
+
+def _disk_free_daily(db: sqlite3.Connection) -> None:
+    _execute_script(db, DISK_FREE_DAILY_SQL)
+
+
 # The scoring model's good-or-bad-news call per item (-2..2) for the portal's mood face. A side
 # table, so items, its triggers and the legacy hashes stay as they are.
 ITEM_MOODS_SQL = """
@@ -4510,6 +4522,7 @@ MIGRATIONS = (
     Migration(65, "record past collection gaps from the fetch log", COLLECTION_GAP_BACKFILL_SQL,
               _collection_gap_backfill),
     Migration(66, "stretches when the model judged nothing", JUDGING_GAPS_SQL, _judging_gaps),
+    Migration(67, "free disk space per day next to the database size", DISK_FREE_DAILY_SQL, _disk_free_daily),
 )
 CURRENT_SCHEMA_VERSION = MIGRATIONS[-1].version
 REQUIRED_MIGRATION_COLUMNS = {

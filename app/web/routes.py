@@ -2373,22 +2373,34 @@ templates.env.globals["system_alerts"] = _system_alerts
 
 
 def _disk_outlook() -> dict | None:
-    """Free disk space and, at the database's typical daily growth, roughly how long until the
-    alert line. Growth is the median of the last 14 recorded days, so a one-off import (10-17:
-    +1.1 GB) does not set the pace."""
+    """Free disk space and roughly how long until the alert line, at the faster of two paces:
+    - the database's typical daily growth, the median of the last 14 recorded days, so a one-off
+      import (10-17: +1.1 GB) does not set it;
+    - how fast the disk's free space fell over the last week, which counts every other program on
+      the host too (10-27 to 10-29: 4.7 GB, while the database grew about 80 MB a day)."""
     result = recorded_self_check() or {}
     disk = result.get("disk")
     if not isinstance(disk, dict) or "free_mb" not in disk:
         return None
     with get_db() as db:
-        sizes = [row[0] for row in db.execute(
-            "SELECT bytes FROM database_size_daily ORDER BY day DESC LIMIT 15")][::-1]
+        rows = db.execute(
+            "SELECT day, bytes, disk_free_mb FROM database_size_daily ORDER BY day DESC LIMIT 15").fetchall()[::-1]
+    sizes = [row[1] for row in rows]
     growth = sorted(later - earlier for earlier, later in zip(sizes, sizes[1:]) if later >= earlier)
     per_day_mb = growth[len(growth) // 2] / (1024 * 1024) if growth else None
+    readings = [(row[0], row[2]) for row in rows[-8:] if row[2] is not None]
+    drop_mb = drop_days = None
+    if len(readings) >= 2:
+        (first_day, first), (last_day, last) = readings[0], readings[-1]
+        span = (datetime.fromisoformat(last_day) - datetime.fromisoformat(first_day)).days
+        if span > 0 and first > last:
+            drop_mb, drop_days = (first - last) / span, span
+    pace = max(filter(None, (per_day_mb, drop_mb)), default=None)
     days_left = None
-    if per_day_mb and per_day_mb > 0:
-        days_left = max(0, int((disk["free_mb"] - disk.get("alert_mb", 0)) / per_day_mb))
-    return dict(disk, per_day_mb=round(per_day_mb, 1) if per_day_mb else None, days_left=days_left)
+    if pace and pace > 0:
+        days_left = max(0, int((disk["free_mb"] - disk.get("alert_mb", 0)) / pace))
+    return dict(disk, per_day_mb=round(per_day_mb, 1) if per_day_mb else None,
+                drop_mb=round(drop_mb) if drop_mb else None, drop_days=drop_days, days_left=days_left)
 
 
 @app.get("/fragment/mood", response_class=HTMLResponse, include_in_schema=False)

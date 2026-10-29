@@ -8,7 +8,7 @@ from unittest.mock import patch
 
 import httpx
 
-from app import config, database, external_heartbeat, self_check
+from app import config, coverage_stats, database, external_heartbeat, self_check
 from app.self_check import Problem, find_problems, recorded
 from app.timeutil import format_utc
 from app.web import routes
@@ -280,3 +280,23 @@ class PortalAlertTests(unittest.TestCase):
         self.assertIn("30.0 GB", page)
         self.assertIn("数据库每天约 +80 MB", page)
         self.assertIn("约 256 天到告警线 10 GB", page)  # (30720 - 10240) / 80
+
+    def test_other_programs_filling_the_disk_set_the_pace(self):
+        GB, MB = 1024 ** 3, 1024 ** 2
+        with patch.object(shutil, "disk_usage", return_value=Usage(900 * GB, 870 * GB, 30 * GB)):
+            self_check.record([])
+            coverage_stats.record_size()  # the day's reading takes the same free space
+        with database.get_db() as db:
+            self.assertEqual(db.execute("SELECT disk_free_mb FROM database_size_daily").fetchone()[0], 30 * 1024)
+            db.execute("DELETE FROM database_size_daily")
+            # The database grows 80 MB a day while the disk loses 2 GB a day to something else.
+            for day in range(4):
+                db.execute("""INSERT INTO database_size_daily(day,bytes,items,recorded_at,disk_free_mb)
+                              VALUES(?,?,0,'x',?)""",
+                           (f"2026-10-{26 + day:02d}", (1_000 + 80 * day) * MB, (36 - 2 * day) * 1024))
+        page = self.client.get("/health").text
+        self.assertIn("数据库每天约 +80 MB · 最近 3 天整块盘每天少约 2.0 GB（含其他程序）", page)
+        self.assertIn("约 10 天到告警线 10 GB", page)  # (30720 - 10240) / 2048, not 256 days
+        with patch.object(shutil, "disk_usage", return_value=Usage(900 * GB, 890 * GB, 10 * GB)):
+            self_check.record([])
+        self.assertIn("已到告警线 10 GB", self.client.get("/health").text)
