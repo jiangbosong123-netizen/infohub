@@ -5,7 +5,7 @@
 #
 # The token file comes from `python cli.py offsite-key` on the Windows host. It is copied to
 # ~/.infohub/offsite.token (mode 600) together with offsite_pull.py. A LaunchAgent then runs the
-# pull at 12:30 and 21:30 (launchd catches up after sleep) into ~/Library/Application Support/InfoHub/Backups,
+# pull every hour into ~/Library/Application Support/InfoHub/Backups,
 # shown in Finder as 文稿/InfoHub/InfohubBackups, keeping one
 # verified bundle (about 5 GB). Run it again to replace the token or the script; remove it with:
 #
@@ -65,18 +65,17 @@ cat > "$PLIST" <<EOF
   <key>Label</key><string>$LABEL</string>
   <key>ProgramArguments</key>
   <array>
+    <!-- An awake Mac does not idle-sleep in the middle of a download (about 10 minutes). -->
+    <string>/usr/bin/caffeinate</string><string>-i</string>
     <string>/usr/bin/python3</string><string>-I</string><string>$STATE/offsite_pull.py</string>
     <string>--origin</string><string>$ORIGIN</string>
     <string>--token-file</string><string>$STATE/offsite.token</string>
     <string>--dest</string><string>$DEST</string>
   </array>
-  <key>StartCalendarInterval</key>
-  <array>
-    <dict><key>Hour</key><integer>12</integer><key>Minute</key><integer>30</integer></dict>
-    <!-- The host's nightly backup starts at 03:30 Asia/Shanghai, 19:30 UTC: 20:30 in British summer
-         time, the minute the old evening pull ran, so that pull always got the night before. -->
-    <dict><key>Hour</key><integer>21</integer><key>Minute</key><integer>30</integer></dict>
-  </array>
+  <!-- Every hour, not at fixed times: on 10-28 and 10-29 the closed MacBook woke for a few seconds
+       at 21:30 and 12:30, launchd started the pull, and the Mac fell asleep again mid-request; the
+       next try was 9 to 15 hours later. A run that finds the newest bundle here is one small request. -->
+  <key>StartInterval</key><integer>3600</integer>
   <key>LowPriorityIO</key><true/>
   <key>Nice</key><integer>10</integer>
   <key>StandardOutPath</key><string>$LOG</string>
@@ -87,5 +86,5 @@ EOF
 plutil -lint "$PLIST" >/dev/null
 launchctl bootout "gui/$(id -u)/$LABEL" 2>/dev/null || true
 launchctl bootstrap "gui/$(id -u)" "$PLIST"
-echo "installed $LABEL: pulls into $DEST at 12:30 and 21:30; log: $LOG"
+echo "installed $LABEL: pulls into $DEST every hour; log: $LOG"
 echo "pull now:  launchctl kickstart gui/$(id -u)/$LABEL"

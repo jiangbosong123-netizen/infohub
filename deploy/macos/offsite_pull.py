@@ -6,7 +6,8 @@ Standard library only, so the Mac's own /usr/bin/python3 (3.9) runs it from laun
         --token-file ~/.infohub/offsite.token --dest "~/Library/Application Support/InfoHub/Backups"
 
 1. Asks /api/v1/backups/latest which bundle is newest. Nothing to do if this Mac already holds
-   it; if the host is off or unreachable it exits with 75 and launchd simply tries next time.
+   it; if the host is off or unreachable, or the transfer stalls (the Mac fell asleep), it exits
+   with 75 and launchd simply tries again the next hour.
 2. Streams /api/v1/backups/<name>/archive straight into a hidden staging folder (no tar file on
    disk). It accepts only folders and regular files under ``bundle/``.
 3. Checks the copy on its own, without trusting the host:
@@ -28,6 +29,7 @@ import json
 import os
 import re
 import shutil
+import socket
 import sqlite3
 import ssl
 import stat
@@ -209,7 +211,10 @@ def main(argv: list) -> int:
         if args.keep < 1:
             raise PullError("--keep must be at least 1")
         status.update(pull(args.origin, read_token(args.token_file.expanduser()), dest, args.keep))
-    except (urllib.error.URLError, TimeoutError, ConnectionError) as exc:
+    # Before Python 3.10 (the Mac's python3 is 3.9) a stalled read raises socket.timeout, which is
+    # not a TimeoutError: on 10-29 the Mac fell back asleep four seconds into a download, and the
+    # stall was reported as "failed" as if the copy could not be trusted.
+    except (urllib.error.URLError, TimeoutError, socket.timeout, ConnectionError) as exc:
         status.update(result="unreachable", detail=str(getattr(exc, "reason", exc)))
         code = TEMPFAIL
     except (PullError, OSError, ValueError, sqlite3.Error, tarfile.TarError) as exc:

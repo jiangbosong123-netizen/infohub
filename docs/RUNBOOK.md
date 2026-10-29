@@ -210,8 +210,9 @@ docker compose run --rm --no-deps migrate python cli.py coverage-preview   # 只
 Windows 上的运行库和全部备份都在同一个 Docker 卷里。Mac 每天从私网 HTTPS 接口拉最新的夜间备份包，自己逐个核对后只保留最新一份
 （2026-10-15 第一份约 430 MB，补完历史数据后预计约 5 GB；放在 `~/Library/Application Support/InfoHub/Backups`，访达里从 `文稿/InfoHub/InfohubBackups` 快捷方式进入；不能直接放在“文稿”里：macOS 不让后台任务列出那里的文件夹，10-19 那次拉取因此没能收尾。旧位置重跑安装脚本会自动搬过来）。
 
-- **怎么拉**：`deploy/macos/offsite_pull.py`，只用 Mac 自带的 `/usr/bin/python3`，由 LaunchAgent 每天 12:30 和 21:30 运行（Windows 的夜间备份在北京时间 03:30 开始，即 UTC 19:30；原来的 20:30 在英国夏令时正好同一分钟，晚上那次总拉到前一晚的，所以推后一小时）；Mac 睡着时错过的
-  醒来后补跑一次。
+- **怎么拉**：`deploy/macos/offsite_pull.py`，只用 Mac 自带的 `/usr/bin/python3`，由 LaunchAgent 每小时运行一次，运行期间用 `caffeinate -i` 让醒着的 Mac 不进入闲置睡眠。
+  原来是每天 12:30 和 21:30 两次：10-28、10-29 两次都是合盖的 MacBook 到点只短暂唤醒几秒，任务刚开始 Mac 又睡了，下一次要等 9 到 15 小时，Mac 上的备份因此停在 10-27。
+  改成每小时后，已是最新时只发一个小请求（约 3 秒）；Windows 的夜间备份在北京时间 03:30（UTC 19:30）做好，Mac 醒着时一小时内就会拉走。
   1. 先问 `GET /api/v1/backups/latest` 最新的是哪一份，Mac 已有就结束。
   2. 再把 `GET /api/v1/backups/<名称>/archive` 的 tar 流边下载边解到隐藏的暂存目录，只接受 `bundle/` 下的目录和普通文件。
   3. 不信任 Windows，自己核对：清单、数据库 SHA-256、`integrity_check`、清单里每个证据文件的 SHA-256。
@@ -223,7 +224,7 @@ Windows 上的运行库和全部备份都在同一个 Docker 卷里。Mac 每天
 - **每次的结果**：`~/Library/Application Support/InfoHub/Backups/status.json`，日志在 `~/Library/Logs/infohub-offsite.log`。`result` 的取值：
   - `up_to_date`：已是最新；
   - `pulled`：拉到并核对通过；
-  - `unreachable`：Windows 关机或不在线，下次再试；
+  - `unreachable`：Windows 关机或不在线，或下载途中 Mac 睡着了，下个小时再试；
   - `failed`：核对不通过或其他错误，已有的备份不动。
 
 **开启（一次性）。** Windows 上（`.env` 改完要重启服务，接口才会打开）：
