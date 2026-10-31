@@ -46,6 +46,8 @@ class RepositoryHygieneTests(unittest.TestCase):
                 self.assertIn(line, (ROOT / "docs" / guide).read_text(encoding="utf-8"))
         # The build must never start from a pull that did not reach GitHub main.
         self.assertLess(script.index("origin/main"), script.index("docker compose up"))
+        # Nor on a C: too full for the new image and the copy before a schema upgrade (10-31).
+        self.assertLess(script.index("(Free-GB) -lt $needGB"), script.index("docker compose up"))
 
     def test_the_documented_stay_awake_line_runs_the_script(self):
         line = r"cd ~\Server\infohub; git pull; .\stay-awake.cmd"

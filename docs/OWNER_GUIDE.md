@@ -86,7 +86,7 @@ docker compose exec worker python cli.py self-check
 | `jobs_failed` | 24 小时内有后台任务重试用尽 | `docker compose logs --tail 200 worker`；偶发一次可以忽略，第二天还在就把日志发给 Claude |
 | `job_stuck` | 某个后台任务（如 AI、备份）运行超过 2 小时还没结束；采集在单独的通道里照常进行 | `docker compose restart worker`（会把手上的任务做完或在 3 分钟后强停，租约过期后任务自动重试）；之后仍反复出现就把 `docker compose logs --tail 200 worker` 发给 Claude |
 | `backup_stale` | 超过 36 小时没有成功的夜间备份 | `docker compose run --rm --no-deps migrate ls -la /app/data/backups/nightly`；常见原因是磁盘空间不够（见下一行） |
-| `disk_low` | C 盘（或 Docker 磁盘）剩余空间低于 10 GB | 先删项目下确认无用的 `data-before-*`、`data-windows-*` 文件夹，再 `docker image prune` 删旧版本镜像；仍不够就把输出发给 Claude。不要删卷里的 `app.db`、`blobs/` |
+| `disk_low` | C 盘（或 Docker 磁盘）剩余空间低于 10 GB | 先清空回收站、在 设置 → 系统 → 存储 → 临时文件 里删临时文件；再粘贴 `cd ~\Server\infohub; git pull; .\disk-report.cmd`（只查看、不删除），把窗口拍给 Claude。空间不够时先不要升级。不要删卷里的 `app.db`、`blobs/` |
 | `offsite_stale` | Mac 上的异地备份超过 7 天没更新 | 让 Mac 开机、连上 Tailscale；看 `文稿/InfoHub/InfohubBackups/status.json` 里的 `result`（`unreachable` 是 Windows 不在线或 Mac 一直在睡眠，`failed` 把文件发给 Claude） |
 | `self_check_error` | 自检本身出错 | 把 `docker compose logs --tail 200 worker` 发给 Claude |
 
@@ -102,7 +102,7 @@ docker compose exec worker python cli.py self-check
 
   它依次拉取新代码、构建并启动（数据库要升级时先自动备份）、等网站和后台都报出新版本号。最后一行是绿色的
   `DONE: InfoHub is running <版本号>` 就是成功；红色的 `STOPPED: ...` 说明停在了哪一步，之后的步骤没有执行，
-  把窗口拍给 Claude。细节见 [Windows 升级指南](WINDOWS_CUTOVER.md) 第 6 步。
+  把窗口拍给 Claude。C 盘剩余不到 6 GB 时它在构建前就停下（新镜像和升级前的数据库副本要占几个 GB）。细节见 [Windows 升级指南](WINDOWS_CUTOVER.md) 第 6 步。
 - **升级后有问题，回到上一版**：同一指南第 11 步。
 - **数据坏了或误操作，用夜间备份恢复**：[运维手册](RUNBOOK.md)“从备份恢复到线上”，照着那几条命令做；当前库会被移到
   卷里的 `replaced/`，不会被删除。
