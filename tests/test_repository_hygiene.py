@@ -76,6 +76,23 @@ class RepositoryHygieneTests(unittest.TestCase):
         for change in ("Remove-Item", "prune", "Clear-", "Optimize-VHD", "compact vdisk", "powercfg", " rm ", "wsl --"):
             self.assertNotIn(change, script)
 
+    def test_the_disk_compaction_never_touches_the_data_and_always_restarts(self):
+        line = r"cd ~\Server\infohub; git pull; .\compact-docker-disk.cmd"
+        script = (ROOT / "deploy" / "windows" / "compact-docker-disk.ps1").read_text(encoding="ascii")
+        self.assertIn(r'-File "%~dp0deploy\windows\compact-docker-disk.ps1"', (ROOT / "compact-docker-disk.cmd").read_text(encoding="ascii"))
+        self.assertIn(line, script)
+        self.assertIn(line, (ROOT / "docs" / "OWNER_GUIDE.md").read_text(encoding="utf-8"))
+        for dangerous in ("volume rm", "volume prune", "system prune", "image prune", "--volumes", "rmi ", "Remove-Item"):
+            self.assertNotIn(dangerous, script)
+        self.assertIn("attach vdisk readonly", script)
+        self.assertEqual(script.count('"detach vdisk"'), 2)  # also after a failed compaction
+        # InfoHub stops before Docker shuts down, and diskpart only touches a file nothing holds open.
+        self.assertLess(script.index("docker stop -t 180"), script.index("wsl --shutdown"))
+        self.assertLess(script.index('[IO.File]::Open($disk.FullName, "Open", "Read", "None")'), script.index("diskpart /s"))
+        # Every way out after the stop starts InfoHub again.
+        body = script[script.index("function Stop-Compact"):script.index("Write-Host \"== 1/5")]
+        self.assertIn("Start-InfoHub", body)
+
     def test_the_documented_backfill_line_runs_every_step_and_restarts_the_worker(self):
         line = r"cd ~\Server\infohub; git pull; .\backfill.cmd"
         script = (ROOT / "deploy" / "windows" / "backfill.ps1").read_text(encoding="ascii")

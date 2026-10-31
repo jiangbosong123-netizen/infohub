@@ -104,6 +104,19 @@ docker compose exec worker python cli.py self-check
   `DONE: InfoHub is running <版本号>` 就是成功；红色的 `STOPPED: ...` 说明停在了哪一步，之后的步骤没有执行，
   把窗口拍给 Claude。C 盘剩余不到 6 GB 时它在构建前就停下（新镜像和升级前的数据库副本要占几个 GB）。细节见 [Windows 升级指南](WINDOWS_CUTOVER.md) 第 6 步。
 - **升级后有问题，回到上一版**：同一指南第 11 步。
+- **C 盘被 Docker 的磁盘文件占满**（磁盘报告里 `docker_data.vhdx` 实际占用比 Docker 自己统计的数据大很多）：
+  粘贴这一行。
+
+  ```powershell
+  cd ~\Server\infohub; git pull; .\compact-docker-disk.cmd
+  ```
+
+  Windows 会问“是否允许此应用对你的设备进行更改”，点“是”，之后在新弹出的窗口里继续。
+  它会先停下 InfoHub，再关掉 Docker、压缩磁盘文件，然后重新启动并等网站恢复。整个过程大约 10–20 分钟，
+  停的这段时间会自动记成采集空档，之后会补抓。不会删除任何数据、镜像或卷。
+  如果弹出“格式化磁盘”或“初始化磁盘”的窗口，点“取消”。
+  最后是绿色的 `DONE: C: free X GB -> Y GB` 就是成功；红色的 `STOPPED` 下面会写 InfoHub 是否已经重新运行，
+  把窗口拍给 Claude。
 - **数据坏了或误操作，用夜间备份恢复**：[运维手册](RUNBOOK.md)“从备份恢复到线上”，照着那几条命令做；当前库会被移到
   卷里的 `replaced/`，不会被删除。
 - **上线稳定后打开正文补全**：在 `.env` 加一行 `INFOHUB_ARTICLE_TEXT_ENABLED=true`，再运行

@@ -64,6 +64,19 @@ Windows 逐条命令见 [Windows 生产升级手册](WINDOWS_CUTOVER.md)。
 这台 Mac 上运行同样三种角色的备选方案（launchd）见 [`deploy/macos/README.md`](../deploy/macos/README.md)；
 两台机器不能同时作为生产采集器。
 
+**C 盘与 Docker 的磁盘文件（10-31）：** 卷 `infohub-data` 在 Docker Desktop 的 `docker_data.vhdx` 里。Linux 一侧写到新的块时，
+这个文件就变大；删掉文件后它不会自己变小。每晚备份要新写约 3.5 GB 文件，旧的那份删掉后，空出的地方不会还给 C 盘。
+10-31 C 盘只剩 611 MB。
+- 查原因：`.\disk-report.cmd`（只读），看 `really on C: now` 和 `docker system df` 的差。
+- 回收空间：`.\compact-docker-disk.cmd`（管理员），依次做这些事：
+  1. 停 InfoHub；
+  2. 在特权容器里 `fstrim -v /data`；
+  3. 退出 Docker Desktop，`wsl --shutdown`；
+  4. 用 `diskpart` 以只读方式挂上文件，`compact vdisk`；
+  5. 重启 InfoHub，等 `/api/ready`。
+- 不用 `wsl --manage --set-sparse`：WSL 把它标为不安全，要加 `--allow-unsafe` 才能开。
+- `update.cmd` 在 C 盘少于 6 GB 时不构建。
+
 健康检查：
 
 - `/api/live`：web 进程能响应；
