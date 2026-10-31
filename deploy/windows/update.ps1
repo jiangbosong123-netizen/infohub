@@ -37,6 +37,14 @@ $head = (git rev-parse --short=12 HEAD).Trim()
 $main = (git rev-parse --short=12 origin/main).Trim()
 if ($head -ne $main) { Stop-Update "this folder is at $head but GitHub main is $main" }
 
+# A build writes a new image, and a schema upgrade first copies the database (2.6 GB on 10-30) into
+# Docker's disk, which grows on C:. On 10-31 C: had under 1 GB left: an update then would have
+# filled it while Docker and the database were writing.
+$needGB = 6
+if ((Free-GB) -lt $needGB) {
+    Stop-Update "C: has only $(Free-GB) GB free; an update needs at least $needGB GB. Run .\disk-report.cmd"
+}
+
 Write-Host "== 2/3 build and start $head (a schema upgrade can add a few minutes)"
 $env:APP_VERSION = $head
 docker compose up -d --build
