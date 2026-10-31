@@ -69,11 +69,15 @@ Windows 逐条命令见 [Windows 生产升级手册](WINDOWS_CUTOVER.md)。
 10-31 C 盘只剩 611 MB。
 - 查原因：`.\disk-report.cmd`（只读），看 `really on C: now` 和 `docker system df` 的差。
 - 回收空间：`.\compact-docker-disk.cmd`（管理员），依次做这些事：
-  1. 停 InfoHub；
-  2. 在特权容器里 `fstrim -v /data`；
-  3. 退出 Docker Desktop，`wsl --shutdown`；
-  4. 用 `diskpart` 以只读方式挂上文件，`compact vdisk`；
-  5. 重启 InfoHub，等 `/api/ready`。
+  1. 把两个容器的重启策略临时改成 `always`。这样窗口中途被关掉时，Docker 一启动它们就会自己起来。然后停 InfoHub。
+  2. 在特权容器里执行 `sync; fstrim -v /data`。
+  3. 退出 Docker Desktop：`docker desktop stop --timeout 120`，不行就结束进程，再 `wsl --shutdown`，最多等 2 分钟。等到文件可以独占打开。
+  4. 用 `diskpart` 以只读方式挂上文件，执行 `compact vdisk`，再卸下；压缩失败也会卸下。
+  5. 确认文件已经没人占用，再启动 Docker 和 InfoHub，等 `/api/ready`，最后把策略改回 `unless-stopped`。
+
+  另外：
+  - 文件是稀疏文件时只做第 2 步，不停机。
+  - 压缩或加密的文件，以及 backup、prune 任务正在运行时，在停机前就拒绝。
 - 不用 `wsl --manage --set-sparse`：WSL 把它标为不安全，要加 `--allow-unsafe` 才能开。
 - `update.cmd` 在 C 盘少于 6 GB 时不构建。
 
