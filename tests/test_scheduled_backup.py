@@ -11,6 +11,7 @@ from unittest.mock import patch
 
 from app import config, database, db_admin, scheduled_backup
 from app.evidence_backup import verify_backup_bundle
+from app.ingest import begin_ingest_run, observe_candidate
 from app.jobs import enqueue_job
 from app.scheduled_backup import (
     BackupSpaceError, nightly_bundles, pre_migration_copies, run_nightly_backup,
@@ -136,6 +137,66 @@ class ScheduledBackupTests(unittest.TestCase):
         self.assertEqual(result["pre_migration_removed"], [names[1]])
         self.assertEqual(sorted(entry.name for entry in folder.iterdir()),
                          sorted([names[0], names[2], "notes.txt", oddity.name]))
+
+    def collect(self, *titles):
+        with database.get_db() as db:
+            db.execute("""INSERT OR IGNORE INTO sources(id,key,name,channel,tier,type,url)
+                          VALUES(1,'test','Test','ai','media','rss','https://example.test/feed')""")
+        run = begin_ingest_run({"key": "test", "name": "Test", "channel": "ai", "tier": "media",
+                                "type": "rss", "url": "https://example.test/feed"})
+        for ordinal, title in enumerate(titles):
+            observe_candidate(run, {"url": f"https://example.test/{title}", "title": title}, ordinal=ordinal)
+
+    @staticmethod
+    def blobs(bundle):
+        return {path.name: path for path in (Path(bundle) / "blobs").rglob("[0-9a-f]" * 64)}
+
+    def test_later_nights_link_the_evidence_files_they_share(self):
+        self.collect("one", "two")
+        first = run_nightly_backup()
+        self.assertEqual(first["blobs_linked"], 0)
+        self.collect("three")
+        second = run_nightly_backup()
+        self.assertEqual((second["unique_blobs"], second["blobs_linked"]), (3, 2))
+        old, new = self.blobs(first["path"]), self.blobs(second["path"])
+        self.assertEqual(sorted(old), sorted(name for name in new if name in old))
+        for name, path in old.items():
+            self.assertTrue(os.path.samefile(path, new[name]))
+            # Never shared with the live store: a bundle stays a copy of it.
+            self.assertFalse(os.path.samefile(path, config.BLOB_PATH / "sha256" / name[:2] / name))
+        self.assertEqual(verify_backup_bundle(second["path"])["status"], "ok")
+        # Removing the oldest bundle leaves the newer ones whole.
+        for _ in range(3):
+            run_nightly_backup()
+        self.assertNotIn(Path(first["path"]).name, self.names())
+        self.assertEqual(verify_backup_bundle(self.backups / "nightly" / self.names()[0])["status"], "ok")
+
+    def test_a_damaged_earlier_copy_is_copied_again_from_the_live_store(self):
+        self.collect("one", "two")
+        first = run_nightly_backup()
+        name, damaged = sorted(self.blobs(first["path"]).items())[0]
+        damaged.unlink()
+        damaged.write_bytes(b"not the evidence")
+        second = run_nightly_backup()
+        self.assertEqual(second["blobs_linked"], 1)
+        self.assertFalse(os.path.samefile(damaged, self.blobs(second["path"])[name]))
+        self.assertEqual(verify_backup_bundle(second["path"])["status"], "ok")
+
+    def test_files_the_newest_bundle_holds_need_no_space(self):
+        self.collect("one")
+        run_nightly_backup()
+        blobs = sum(path.stat().st_size for path in config.BLOB_PATH.rglob("*") if path.is_file())
+        self.assertGreater(blobs, 0)
+        needed = (scheduled_backup._database_bytes(self.root / "app.db")
+                  + config.BACKUP_RESERVE_MB * scheduled_backup.MB)
+        with patch.object(shutil, "disk_usage", return_value=Usage(0, 0, needed)):
+            self.assertEqual(run_nightly_backup()["blobs_linked"], 1)
+        # Where hard links do not work, every file is copied and counted again.
+        with patch.object(scheduled_backup.os, "link", side_effect=OSError("no links")):
+            with patch.object(shutil, "disk_usage", return_value=Usage(0, 0, needed + blobs - 1)):
+                with self.assertRaises(BackupSpaceError):
+                    run_nightly_backup()
+            self.assertEqual(run_nightly_backup()["blobs_linked"], 0)
 
     def test_the_worker_runs_the_backup_job(self):
         enqueue_job(kind="backup", idempotency_key="backup-test")

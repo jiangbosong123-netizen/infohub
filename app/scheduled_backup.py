@@ -8,6 +8,7 @@ import shutil
 import time
 from datetime import datetime, timezone
 from pathlib import Path
+from uuid import uuid4
 
 from . import config, database
 from .db_admin import PRE_MIGRATION_DIRECTORY
@@ -33,15 +34,30 @@ def nightly_root() -> Path:
     return config.BACKUP_PATH / NIGHTLY_DIRECTORY
 
 
-def _tree_bytes(path: Path) -> int:
+def _tree_bytes(path: Path, shared: Path | None = None) -> int:
+    """Bytes of the files under ``path``, leaving out those also under ``shared`` at the same place."""
     total = 0
     for directory, _, files in os.walk(path):
+        relative = os.path.relpath(directory, path)
         for name in files:
+            if shared is not None and (shared / relative / name).is_file():
+                continue
             try:
                 total += os.lstat(os.path.join(directory, name)).st_size
             except FileNotFoundError:
                 pass
     return total
+
+
+def _links_work(bundle: Path, root: Path) -> bool:
+    """Whether the backup folder can hard-link files of ``bundle`` (a Windows share may not)."""
+    probe = root / f".link-probe.{uuid4().hex}.tmp"
+    try:
+        os.link(bundle / "manifest.json", probe)
+    except OSError:
+        return False
+    probe.unlink()
+    return True
 
 
 def _database_bytes(path: Path) -> int:
@@ -81,14 +97,19 @@ def run_nightly_backup() -> dict:
     and the newest ``BACKUP_KEEP_PRE_MIGRATION`` pre-migration copies.
 
     Nothing is deleted before the new bundle has verified, so a failed night keeps every
-    earlier copy; manual backups elsewhere in the backup folder are never touched. Free space
-    must cover the database, the whole blob store and the reserve before anything is written.
+    earlier copy; manual backups elsewhere in the backup folder are never touched. Evidence files
+    the newest bundle already holds are hard-linked from it, so a night writes the database copy
+    and only the files collected since. Free space must cover what will be written plus the
+    reserve before anything is written.
     """
     source = Path(database.DB_PATH).expanduser().resolve(strict=True)
     root = nightly_root()
     root.mkdir(parents=True, exist_ok=True)
     stale = _remove_stale_stages(root, time.time())
-    needed = (_database_bytes(source) + _tree_bytes(Path(config.BLOB_PATH))
+    bundles = nightly_bundles(root)
+    previous = bundles[-1] if bundles and _links_work(bundles[-1], root) else None
+    shared = previous / "blobs" if previous is not None else None
+    needed = (_database_bytes(source) + _tree_bytes(Path(config.BLOB_PATH), shared)
               + config.BACKUP_RESERVE_MB * MB)
     free, _ = lowest_free((root,))
     if free < needed:
@@ -97,7 +118,8 @@ def run_nightly_backup() -> dict:
             f"reserve, but {free // MB} MB is available"
         )
     stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S.%fZ")
-    bundle = create_backup_bundle(root / f"{source.stem}.{config.ENVIRONMENT_ID}.{stamp}.bundle")
+    bundle = create_backup_bundle(root / f"{source.stem}.{config.ENVIRONMENT_ID}.{stamp}.bundle",
+                                  link_from=previous)
     published = Path(bundle["path"])
     older = [entry for entry in nightly_bundles(root) if entry.name != published.name]
     removed = older[:max(0, len(older) - (config.BACKUP_KEEP - 1))]
@@ -113,6 +135,7 @@ def run_nightly_backup() -> dict:
     return {
         "path": str(published), "database_sha256": bundle["database_sha256"],
         "schema_version": bundle["schema_version"], "unique_blobs": bundle["unique_blobs"],
+        "blobs_linked": bundle["blobs_linked"],
         "bundle_mb": round(_tree_bytes(published) / MB, 1),
         "kept": len(older) - len(removed) + 1, "removed": [entry.name for entry in removed],
         "pre_migration_removed": [entry.name for entry in expired],

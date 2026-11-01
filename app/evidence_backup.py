@@ -102,8 +102,34 @@ def _verify_bundle(
     }, report
 
 
-def create_backup_bundle(destination: Path | str | None = None) -> dict:
-    """Snapshot the current DB, copy exactly its referenced blobs, then publish atomically."""
+def _link_verified(previous: Path, relative: Path, digest: str, blobs: Path) -> bool:
+    """Share an evidence file with an earlier bundle instead of writing it again.
+
+    Blobs never change once written, so a hard link holds the same bytes as a copy without
+    writing them (on Docker for Windows every written byte can also grow the virtual disk on C:).
+    The linked file is re-hashed as a copy would be; on any failure the caller copies instead.
+    """
+    target = blobs / relative
+    try:
+        os.link(previous / relative, target)
+    except OSError:
+        return False
+    try:
+        verify_payload(relative.as_posix(), digest, blobs)
+        return True
+    except PayloadIntegrityError:
+        target.unlink()
+        return False
+
+
+def create_backup_bundle(
+    destination: Path | str | None = None, *, link_from: Path | str | None = None,
+) -> dict:
+    """Snapshot the current DB, copy exactly its referenced blobs, then publish atomically.
+
+    ``link_from`` is an earlier published bundle: blobs it already holds are hard-linked from it
+    instead of copied from the live store, which is never linked to.
+    """
     source = Path(database.DB_PATH).expanduser().resolve(strict=True)
     blob_root = Path(config.BLOB_PATH).expanduser().resolve()
     verify_database(source, require_current=True)
@@ -119,6 +145,15 @@ def create_backup_bundle(destination: Path | str | None = None) -> dict:
         pass
     else:
         raise EvidenceBackupError("backup destination cannot be inside the blob store")
+    previous = None
+    if link_from is not None:
+        previous = Path(link_from).expanduser().resolve(strict=True) / "blobs"
+        try:
+            previous.relative_to(blob_root)
+        except ValueError:
+            pass
+        else:
+            raise EvidenceBackupError("a backup cannot share files with the live blob store")
     target.parent.mkdir(parents=True, exist_ok=True)
     if target.exists():
         raise FileExistsError(f"backup destination already exists: {target}")
@@ -132,11 +167,15 @@ def create_backup_bundle(destination: Path | str | None = None) -> dict:
         if not source_audit.healthy:
             raise EvidenceBackupError("source has missing or corrupt referenced blobs")
         hashes = _referenced_hashes(database_file)
+        linked = 0
         for digest in hashes:
             relative = Path("sha256") / digest[:2] / digest
-            source_file = verify_payload(relative.as_posix(), digest, blob_root)
             copied = stage / "blobs" / relative
             copied.parent.mkdir(parents=True, exist_ok=True)
+            if previous is not None and _link_verified(previous, relative, digest, stage / "blobs"):
+                linked += 1
+                continue
+            source_file = verify_payload(relative.as_posix(), digest, blob_root)
             with source_file.open("rb") as reader, copied.open("xb") as writer:
                 shutil.copyfileobj(reader, writer, length=1024 * 1024)
                 writer.flush()
@@ -161,7 +200,7 @@ def create_backup_bundle(destination: Path | str | None = None) -> dict:
             raise FileExistsError(f"backup destination already exists: {target}")
         os.replace(stage, target)
         _sync_directory(target.parent)
-        return _verify_bundle(target, report)[0]
+        return {**_verify_bundle(target, report)[0], "blobs_linked": linked}
     finally:
         if stage.exists():
             shutil.rmtree(stage)

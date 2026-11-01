@@ -77,6 +77,12 @@ class EvidenceBackupTests(unittest.TestCase):
         with self.assertRaises(FileExistsError):
             create_backup_bundle(target)
 
+    def test_a_bundle_never_shares_files_with_the_live_store(self):
+        # The folder whose blobs/ is the live store is not a bundle to link from.
+        with self.assertRaisesRegex(EvidenceBackupError, "live blob store"):
+            create_backup_bundle(self.root / "backups" / "linked.bundle", link_from=self.root)
+        self.assertFalse((self.root / "backups").exists())
+
     def test_missing_source_blocks_publication_and_cleans_stage(self):
         (self.blob_path / self.raw.payload_ref).unlink()
         target = self.root / "backups" / "broken.bundle"
