@@ -6,7 +6,7 @@
 # Both stages use one base pinned by digest (python:3.12-slim: Python 3.12.15 on Debian trixie,
 # published 2026-10-06, amd64 and arm64), so rebuilding a commit gives the base CI tested.
 # Dependabot proposes digest updates; keep the two lines identical.
-FROM python:3.12-slim@sha256:a6e34c598f2467ed0e9a8d349809fcd8b5c603269512df273a0bb1784edc11b1 AS sqlite
+FROM python:3.15-slim@sha256:94d3426f1def7db4a106a232ac121bfd975393e5dfd40a619b955fae45fe7913 AS sqlite
 
 ARG SQLITE_YEAR=2026
 ARG SQLITE_VERSION=3530400
@@ -27,7 +27,7 @@ RUN curl -fsSLO "https://sqlite.org/${SQLITE_YEAR}/sqlite-autoconf-${SQLITE_VERS
     && make -j"$(nproc)" \
     && make install
 
-FROM python:3.12-slim@sha256:a6e34c598f2467ed0e9a8d349809fcd8b5c603269512df273a0bb1784edc11b1
+FROM python:3.15-slim@sha256:94d3426f1def7db4a106a232ac121bfd975393e5dfd40a619b955fae45fe7913
 
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1
