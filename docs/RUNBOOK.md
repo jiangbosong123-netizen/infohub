@@ -111,8 +111,14 @@ python cli.py legacy-backfill 250            # maintenance 下可续跑迁移历
 - 操作前先暂停 worker，避免备份期间与 blob 清理竞争；命令不会自动停止服务。
 - **夜间自动备份**：worker 每天 03:30（`BACKUP_HOUR`/`BACKUP_MINUTE`，按 `APP_TZ`）在 worker 内部执行与
   `db-bundle-backup` 相同的打包与校验，写到 `data/backups/nightly/`，与其他 worker 任务不会同时运行。
-  - 写入前检查空间（Windows 上数据在 Docker 卷里，同时看 C 盘，取较少的那个）：剩余空间至少要有“数据库 + 全部证据文件 + `BACKUP_RESERVE_MB`（默认 2048 MB）”，不够就直接失败、
+  - 写入前检查空间（Windows 上数据在 Docker 卷里，同时看 C 盘，取较少的那个）：剩余空间至少要有“数据库 + 这次要新写的证据文件 + `BACKUP_RESERVE_MB`（默认 2048 MB）”，不够就直接失败、
     什么都不写，旧备份全部保留；任务失败会出现在 `/api/pipeline` 的 job 状态里。
+  - 证据文件写入后不再改变：最新一份夜间备份里已有的证据文件，新备份用硬链接共用，不再写一遍，只有之后新收的
+    才从运行库复制（11-01 起；之前每晚要重写约 24.5 万个、约 1 GB，在 Windows 上会让 C 盘里的 Docker 磁盘文件
+    继续变大）。链接过来的文件同样重新计算哈希，对不上就改为从运行库复制；备份文件夹不支持硬链接时（先试一次）
+    全部复制，和以前一样。代价：几份夜间备份共用同一个文件，它坏了，这几份里的这个文件都坏了；运行库和 Mac 上
+    的异地副本（D25）是各自独立的文件，恢复（`db-bundle-restore`/`db-bundle-promote`）也总是复制。手工
+    `db-bundle-backup` 仍然全部复制。
   - 新备份包校验通过后才清理：`nightly/` 只留最新 `BACKUP_KEEP` 份（默认 3），`pre-migration/` 只留最新
     `BACKUP_KEEP_PRE_MIGRATION` 份（默认 2）。只认这两个目录里按时间戳命名的条目；手工 `db-backup`、
     `db-bundle-backup` 的产物和其他文件一律不动。被杀死的进程留下的 `.…tmp` 临时目录超过 6 小时后删除。
