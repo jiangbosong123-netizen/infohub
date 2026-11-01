@@ -76,6 +76,28 @@ class RepositoryHygieneTests(unittest.TestCase):
         for change in ("Remove-Item", "prune", "Clear-", "Optimize-VHD", "compact vdisk", "powercfg", " rm ", "wsl --"):
             self.assertNotIn(change, script)
 
+    def test_the_disk_compaction_never_touches_the_data_and_always_restarts(self):
+        line = r"cd ~\Server\infohub; git pull; .\compact-docker-disk.cmd"
+        script = (ROOT / "deploy" / "windows" / "compact-docker-disk.ps1").read_text(encoding="ascii")
+        self.assertIn(r'-File "%~dp0deploy\windows\compact-docker-disk.ps1"', (ROOT / "compact-docker-disk.cmd").read_text(encoding="ascii"))
+        self.assertIn(line, script)
+        self.assertIn(line, (ROOT / "docs" / "OWNER_GUIDE.md").read_text(encoding="utf-8"))
+        for dangerous in ("volume rm", "volume prune", "system prune", "image prune", "--volumes", "rmi ", "Remove-Item"):
+            self.assertNotIn(dangerous, script)
+        self.assertIn("attach vdisk readonly", script)
+        self.assertEqual(script.count('"detach vdisk"'), 2)  # also after a failed compaction
+        # A closed window must not leave InfoHub down: Docker starts it again by itself.
+        self.assertLess(script.index("docker update --restart always"), script.index("docker stop -t 180"))
+        # InfoHub stops before Docker shuts down, and diskpart only touches a file nothing holds open.
+        self.assertLess(script.index("docker stop -t 180"), script.index('"--shutdown"'))
+        self.assertIn('[IO.File]::Open($path, "Open", "Read", "None")', script)
+        self.assertLess(script.index("Disk-Released $disk.FullName 2"), script.index("diskpart /s"))
+        # Docker never starts on a disk file that diskpart may still hold.
+        start = script[script.index("function Start-InfoHub"):script.index("function Stop-Compact")]
+        self.assertLess(start.index("Disk-Released $script:disk.FullName"), start.index("Docker Desktop.exe"))
+        # Every way out after the stop starts InfoHub again.
+        self.assertIn("Start-InfoHub", script[script.index("function Stop-Compact"):script.index("Write-Host \"== 1/5")])
+
     def test_the_documented_backfill_line_runs_every_step_and_restarts_the_worker(self):
         line = r"cd ~\Server\infohub; git pull; .\backfill.cmd"
         script = (ROOT / "deploy" / "windows" / "backfill.ps1").read_text(encoding="ascii")
